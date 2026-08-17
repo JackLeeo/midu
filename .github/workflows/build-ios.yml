@@ -37,7 +37,8 @@ jobs:
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
 
-      - name: Build fjs binary (Rust xcframework)
+      - name: Locate fjs package
+        id: fjs_locate
         run: |
           FJS_SRC=$(find "$HOME/.pub-cache/hosted/pub.dev" -maxdepth 1 -name "fjs-*" -type d 2>/dev/null | head -1)
           if [ -z "$FJS_SRC" ]; then
@@ -47,9 +48,28 @@ jobs:
             echo "ERROR: fjs package not found in pub cache"
             exit 1
           fi
-          echo "Found fjs at: $FJS_SRC"
-          # Copy out of pub cache — Dart refuses pub get inside the cache.
-          FJS_TEMP="/tmp/fjs-build"
+          # Resolve any symlinks in the source path — Cargokit rejects symlinked paths.
+          FJS_SRC=$(cd "$FJS_SRC" && pwd -P)
+          FJS_VERSION=$(basename "$FJS_SRC")
+          echo "fjs_src=$FJS_SRC" >> "$GITHUB_OUTPUT"
+          echo "fjs_version=$FJS_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Found fjs $FJS_VERSION at: $FJS_SRC"
+
+      - name: Cache fjs xcframework
+        id: fjs_cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.fjs_locate.outputs.fjs_src }}/darwin/fjs/Binaries
+          key: fjs-xcframework-${{ steps.fjs_locate.outputs.fjs_version }}-release-v2
+
+      - name: Build fjs binary (Rust xcframework)
+        if: steps.fjs_cache.outputs.cache-hit != 'true'
+        run: |
+          FJS_SRC="${{ steps.fjs_locate.outputs.fjs_src }}"
+          # Copy out of pub cache to a NON-symlinked path — Dart refuses pub get
+          # inside the cache, and Cargokit rejects paths containing symlinks
+          # (macOS /tmp -> /private/tmp is a symlink, so use $HOME instead).
+          FJS_TEMP="$HOME/fjs-build"
           rm -rf "$FJS_TEMP"
           cp -R "$FJS_SRC" "$FJS_TEMP"
           mkdir -p "$FJS_SRC/darwin/fjs/Binaries"
@@ -57,6 +77,16 @@ jobs:
             --configuration Release \
             --zip-output "$FJS_SRC/darwin/fjs/Binaries/fjs.xcframework.zip"
           echo "fjs binary built successfully"
+
+      - name: Verify fjs binary
+        run: |
+          ZIP="${{ steps.fjs_locate.outputs.fjs_src }}/darwin/fjs/Binaries/fjs.xcframework.zip"
+          if [ -f "$ZIP" ]; then
+            echo "fjs.xcframework.zip exists ($(du -h "$ZIP" | cut -f1))"
+          else
+            echo "ERROR: fjs.xcframework.zip not found at $ZIP"
+            exit 1
+          fi
 
       - name: Analyze
         run: flutter analyze --no-pub --fatal-infos
