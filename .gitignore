@@ -1,0 +1,116 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.build/
+.history
+.svn/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# VS Code
+.vscode/
+
+# Flutter / Dart / Pub
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+.fvm/
+
+# Web related
+lib/generated_plugin_registrant.dart
+
+# Symbolication / Obfuscation related
+app.*.symbols
+
+# Android Studio / Gradle / Android
+**/android/**/gradle-wrapper.jar
+.gradle/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+**/android/.gradle
+**/android/captures/
+**/android/gradlew
+**/android/gradlew.bat
+**/android/local.properties
+**/android/**/GeneratedPluginRegistrant.java
+**/key.properties
+*.jks
+
+# iOS / Xcode / CocoaPods
+**/ios/**/*.mode1v3
+**/ios/**/*.mode2v3
+**/ios/**/*.moved-aside
+**/ios/**/*.pbxuser
+**/ios/**/*.perspectivev3
+**/ios/**/*sync/
+**/ios/**/.iconv/
+**/ios/**/Pods/
+**/ios/**/.symlinks/
+**/ios/**/.generated/
+**/ios/Runner/.generated/
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/ServiceDefinitions.json
+**/ios/Runner/GeneratedPluginRegistrant.*
+**/ios/**/*.mode1v3
+**/ios/**/*.mode2v3
+**/ios/**/.build/
+**/ios/**/DerivedData/
+**/ios/**/Build/
+**/ios/**/Archive/
+**/ios/**/*.xcuserstate
+**/ios/**/xcuserdata/
+**/ios/**/com.apple.IDECoreCoordinator/
+*.ipa
+*.app.dSYM.zip
+*.app.dSYM/
+
+# macOS
+**/macos/Flutter/GeneratedPluginRegistrant.swift
+**/macos/Flutter/ephemeral
+**/macos/Flutter/Flutter-Debug.xcconfig
+**/macos/Flutter/Flutter-Release.xcconfig
+**/macos/**/Pods/
+**/macos/**/.symlinks/
+**/macos/**/GeneratedPluginRegistrant.*
+
+# Windows / Linux
+**/windows/flutter/ephemeral/
+**/linux/flutter/ephemeral/
+
+# Coverage
+coverage_html_report/
+
+# Local secrets
+.env
+.env.local
+secrets.json
+**/GoogleService-Info.plist
+
+# Build outputs (any stray ones)
+*.apk
+*.aab
+*.ipa
+*.dSYM
+
+# Analyze reports
+midu_analyze.txt

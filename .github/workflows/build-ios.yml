@@ -1,0 +1,75 @@
+name: Build iOS (TrollStore / Sideload)
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: 'Build mode'
+        required: false
+        default: 'release'
+        type: choice
+        options: ['debug', 'release']
+
+jobs:
+  build-ios:
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.0'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-pub --fatal-infos
+        continue-on-error: true
+
+      - name: Build IPA (no codesign — for TrollStore / Sideload)
+        run: flutter build ipa --${{ github.event.inputs.build_mode || 'release' }} --no-codesign
+
+      - name: Locate IPA
+        id: ipa
+        run: |
+          IPA_PATH=$(find build/ios/ipa -name "*.ipa" | head -1)
+          echo "ipa_path=$IPA_PATH" >> "$GITHUB_OUTPUT"
+          echo "ipa_name=$(basename "$IPA_PATH")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: midu-ios-${{ github.event.inputs.build_mode || 'release' }}
+          path: ${{ steps.ipa.outputs.ipa_path }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload to Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.ipa.outputs.ipa_path }}
+          name: MiDu ${{ github.ref_name }}
+          body: |
+            ## 米读 ${{ github.ref_name }}
+
+            ### 安装方式
+
+            1. **TrollStore（推荐）**：将 `.ipa` 文件拖入 TrollStore 安装，无需签名，永久有效。需 iOS 14.0 - 16.6.1（非全部支持 TrollStore，请确认你的系统版本）。
+            2. **自签安装**：使用 AltStore / Sideloadly / SideStore 用个人 Apple ID 签名安装，有效期 7 天，需每周刷新。
+
+            > 该构建未签名（`--no-codesign`），适合巨魔 / 自签场景。
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

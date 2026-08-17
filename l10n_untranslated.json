@@ -1,0 +1,17 @@
+{
+  "ja": [
+    "onlineFonts",
+    "fontDownload",
+    "fontDownloading",
+    "fontDownloaded",
+    "fontDownloadFailed",
+    "fontDownloadHint",
+    "fontDeleteDownload",
+    "fontDeleteDownloadTitle",
+    "fontDeleteDownloadMessage",
+    "fontDownloadCancelled",
+    "fontDownloadNetworkFailed",
+    "fontDownloadInvalid",
+    "fontDownloadUnsupported"
+  ]
+}
