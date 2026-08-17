@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-/// A dependency-free reference server for Open Reading Source Protocol v1.
+/// A dependency-free reference server for MiDu Source Protocol v1.
 ///
 /// Run it from the repository root:
 ///

@@ -220,7 +220,7 @@ class UpdateCheckService {
             BaseOptions(
               connectTimeout: const Duration(seconds: 8),
               receiveTimeout: const Duration(seconds: 8),
-              headers: {if (!kIsWeb) 'User-Agent': 'OpenReading-UpdateCheck'},
+              headers: {if (!kIsWeb) 'User-Agent': 'MiDu-UpdateCheck'},
             ),
           ),
       _targetResolver = targetResolver ?? UpdateTarget.current;

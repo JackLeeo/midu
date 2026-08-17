@@ -3,7 +3,7 @@ import XCTest
 
 class RunnerTests: XCTestCase {
   func testICloudLocatorStaysInsideBooksDirectory() throws {
-    let root = URL(fileURLWithPath: "/tmp/OpenReading/Documents/books", isDirectory: true)
+    let root = URL(fileURLWithPath: "/tmp/MiDu/Documents/books", isDirectory: true)
     let resolved = try StorageBridge.validatedSourceURL(
       locator: "novels/example.epub",
       root: root
@@ -11,12 +11,12 @@ class RunnerTests: XCTestCase {
 
     XCTAssertEqual(
       resolved.path,
-      "/tmp/OpenReading/Documents/books/novels/example.epub"
+      "/tmp/MiDu/Documents/books/novels/example.epub"
     )
   }
 
   func testICloudLocatorRejectsParentTraversal() {
-    let root = URL(fileURLWithPath: "/tmp/OpenReading/Documents/books", isDirectory: true)
+    let root = URL(fileURLWithPath: "/tmp/MiDu/Documents/books", isDirectory: true)
 
     XCTAssertThrowsError(
       try StorageBridge.validatedSourceURL(

@@ -15,7 +15,7 @@ When provisioning is available, create a Share Extension target and apply these 
 - Give the extension its own bundle identifier and matching provisioning profile.
 - Add the extension product to Runner's **Embed App Extensions** build phase with destination
   `PlugIns`; enable `Code Sign On Copy` for signed device/archive builds.
-- Add `OpenReadingAppGroupIdentifier = $(OPEN_READING_APP_GROUP)` to Runner's Info.plist only when
+- Add `MiDuAppGroupIdentifier = $(OPEN_READING_APP_GROUP)` to Runner's Info.plist only when
   the Runner entitlement and provisioning profile contain the same App Group.
 
 The main application already consumes the shared `IncomingBooks/manifests` inbox when that Info

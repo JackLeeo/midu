@@ -1,10 +1,10 @@
-# 本地书籍格式支持（Open Reading）
+# 本地书籍格式支持（米读）
 
 > 状态：架构基线（2026-07-18），能力矩阵更新（2026-07-26：Kindle 正文 / CBZ 漫画 / HTML / Markdown 已接线；CBT 可读、CBR/CB7 按文件头嗅探）  
 > 代码单一事实来源：`lib/services/books/book_format_support.dart`  
 > Lightink 对照资料：`F:\work\lightink-reverse\docs\09-reader-complete.md`（及 05/06）
 
-本文约定：**Open Reading 将来要支持哪些格式、各自怎么进阅读器、与 Lightink 如何对齐**。  
+本文约定：**米读 将来要支持哪些格式、各自怎么进阅读器、与 Lightink 如何对齐**。  
 实现可分阶段，但**不得再散落多份互相矛盾的扩展名列表**。
 
 ---

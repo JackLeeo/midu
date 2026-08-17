@@ -1,7 +1,7 @@
 # Bundled fonts
 
 The font binaries in this directory are third-party works. They are not
-relicensed under Open Reading's AGPL license.
+relicensed under MiDu's AGPL license.
 
 | Flutter family | Upstream font | Purpose | License |
 | --- | --- | --- | --- |

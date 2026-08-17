@@ -96,6 +96,10 @@ class _HomePalette {
 }
 
 class HomeDashboardController extends ChangeNotifier {
+  /// 米读：首页快捷入口"发现"按钮的回调。
+  /// 由 HomeShellPage 设置，切换底栏到发现页 tab，避免 push 新实例。
+  VoidCallback? onNavigateToDiscover;
+
   void refresh() => notifyListeners();
 }
 
@@ -1010,6 +1014,12 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
   }
 
   Future<void> _navigateToDiscover() async {
+    // 米读：优先用回调切换底栏到发现页 tab，避免 push 新实例造成双页面。
+    final callback = widget.controller?.onNavigateToDiscover;
+    if (callback != null) {
+      callback();
+      return;
+    }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => const BookSourcesPage(),

@@ -313,6 +313,9 @@ class LegadoRuleEngine {
       'text' => nodes.map((node) => node.text).toList(),
       'ownText' || 'textNodes' => nodes.map(_ownText).toList(),
       'html' => nodes.map((node) => node.innerHtml).toList(),
+      // 米读：@all 在 Legado 中表示获取元素的完整内容（outerHtml），
+      // 常用于章节正文提取，如 "id.content@all##广告" 规则。
+      'all' => nodes.map((node) => node.outerHtml).toList(),
       _
           when _htmlAttributeNames.contains(segment.toLowerCase()) ||
               nodes.any((node) => node.attributes.containsKey(segment)) =>

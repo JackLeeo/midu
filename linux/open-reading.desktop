@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=Open Reading
-Name[zh_CN]=开元阅读
+Name=MiDu
+Name[zh_CN]=米读
 Comment=Read local ebook files
 Comment[zh_CN]=阅读本地电子书文件
 Exec=open_reading %F

@@ -76,7 +76,7 @@ import 'themes/reader_custom_themes_page.dart';
 
 typedef BookSourcePageMode = ReaderPageMode;
 
-/// Immersive reader for chapters streamed from an Open Reading book source.
+/// Immersive reader for chapters streamed from a MiDu book source.
 class BookSourceReaderPage extends StatefulWidget {
   final RegisteredBookSource source;
   final BookSourceBook book;

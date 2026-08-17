@@ -37,7 +37,7 @@ class OnlineFontService {
              BaseOptions(
                connectTimeout: const Duration(seconds: 15),
                receiveTimeout: const Duration(minutes: 10),
-               headers: {if (!kIsWeb) 'User-Agent': 'OpenReading-OnlineFont'},
+               headers: {if (!kIsWeb) 'User-Agent': 'MiDu-OnlineFont'},
              ),
            );
 

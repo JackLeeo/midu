@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>添加到开元阅读</string>
+	<string>添加到米读</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -18,7 +18,7 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>OpenReadingAppGroupIdentifier</key>
+	<key>MiDuAppGroupIdentifier</key>
 	<string>$(OPEN_READING_APP_GROUP)</string>
 	<key>NSExtension</key>
 	<dict>

@@ -41,7 +41,7 @@ class AppUpdateDownloadService {
               connectTimeout: const Duration(seconds: 15),
               receiveTimeout: const Duration(minutes: 10),
               followRedirects: false,
-              headers: {if (!kIsWeb) 'User-Agent': 'OpenReading-AppUpdate'},
+              headers: {if (!kIsWeb) 'User-Agent': 'MiDu-AppUpdate'},
             ),
           );
 

@@ -195,6 +195,15 @@ class _HomeShellPageState extends State<HomeShellPage> {
           ),
         )
         .toList(growable: false);
+    // 米读：首页"发现"快捷入口切换底栏到发现页 tab，避免 push 新实例。
+    _homeDashboardController.onNavigateToDiscover = () {
+      final discoverIndex = _navigationItems.indexWhere(
+        (item) => item.destination == HomeNavigationDestination.discover,
+      );
+      if (discoverIndex >= 0) {
+        _updateSelectedIndex(discoverIndex);
+      }
+    };
     _selectedIndex = items.indexWhere(
       (item) => item.destination == selectedDestination,
     );

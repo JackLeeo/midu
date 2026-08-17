@@ -1,5 +1,5 @@
 // 文件说明：本地书籍格式能力注册表（导入过滤 + 阅读管线目标）。
-// 技术要点：单一事实来源；对齐 Lightink 逆向结论与 Open Reading 扩展目标。
+// 技术要点：单一事实来源；对齐 Lightink 逆向结论与 米读 扩展目标。
 // 详见 docs/book-format-support.md
 
 /// 本地阅读 / 导入对某种格式的能力级别。
@@ -78,7 +78,7 @@ class BookFormatSpec {
   }
 }
 
-/// Open Reading 本地书籍格式注册表。
+/// 米读 本地书籍格式注册表。
 ///
 /// **目标架构（与 Lightink 对齐）：**
 /// 所有「文字书」最终进入同一套文本分页（`NativeTextPaginator`），

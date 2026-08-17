@@ -13,7 +13,7 @@ final class ShareViewController: SLComposeServiceViewController {
 
   override func didSelectPost() {
     guard let appGroupIdentifier = Bundle.main.object(
-      forInfoDictionaryKey: "OpenReadingAppGroupIdentifier"
+      forInfoDictionaryKey: "MiDuAppGroupIdentifier"
     ) as? String,
       !appGroupIdentifier.isEmpty,
       let containerURL = FileManager.default.containerURL(
@@ -362,7 +362,7 @@ private enum ShareInboxError: LocalizedError {
   var errorDescription: String? {
     switch self {
     case .appGroupUnavailable:
-      return "The Open Reading App Group is not configured for this build"
+      return "The MiDu App Group is not configured for this build"
     case .aggregateTooLarge:
       return "The selected files exceed the 500 MiB share limit"
     case .fileUnavailable:

@@ -18,7 +18,7 @@
 	<array>
 		<dict>
 			<key>CFBundleTypeName</key>
-			<string>Open Reading Books</string>
+			<string>米读 Books</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>LSHandlerRank</key>

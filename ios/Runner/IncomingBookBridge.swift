@@ -202,7 +202,7 @@ final class IncomingBookInbox {
 
   func consumeSharedExtensionInboxIfConfigured() {
     guard let appGroupIdentifier = Bundle.main.object(
-      forInfoDictionaryKey: "OpenReadingAppGroupIdentifier"
+      forInfoDictionaryKey: "MiDuAppGroupIdentifier"
     ) as? String,
       !appGroupIdentifier.isEmpty,
       let containerURL = fileManager.containerURL(

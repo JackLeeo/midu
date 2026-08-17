@@ -106,7 +106,11 @@ class LegadoBookSource {
     final report = const LegadoCompatibilityScanner().scan(this);
     // 米读：Legado 源只要通过兼容性扫描（report.canRun）就视为具备完整能力，
     // 不再额外强制 readingChainVerified（健康检查模块会单独探测并标记）。
+    // 米读：Legado 书源的 exploreUrl/ruleExplore 对应 ORSP 的 discover 能力，
+    // 只要源不是 audio/video 且有搜索和阅读规则，就同时声明 discover 能力。
     final hasFullCapabilities = report.canRun;
+    final hasExplore = exploreUrl.trim().isNotEmpty ||
+        rule('ruleExplore').isNotEmpty;
     return RegisteredBookSource(
       id: stableId,
       name: name,
@@ -117,7 +121,9 @@ class LegadoBookSource {
       protocolVersion: 'legado-3',
       languages: const [],
       capabilities: hasFullCapabilities
-          ? const {'search', 'detail', 'catalog', 'content'}
+          ? (hasExplore
+                ? const {'search', 'detail', 'catalog', 'content', 'discover'}
+                : const {'search', 'detail', 'catalog', 'content'})
           : const {},
       enabled: enabled && hasFullCapabilities,
       addedAt: DateTime.now(),
@@ -144,7 +150,9 @@ class LegadoCompatibilityReport {
   final LegadoCompatibilityLevel level;
   final Set<LegadoCompatibilityIssue> issues;
 
-  bool get canRun => level == LegadoCompatibilityLevel.supported;
+  /// 米读：partial 级别（含 JS/XPath/Cookies 等）通过 fjs 沙箱也可运行，
+  /// 只有 unsupported（音频/视频/登录/自定义DNS代理/缺搜索缺规则）才不可运行。
+  bool get canRun => level != LegadoCompatibilityLevel.unsupported;
 }
 
 class LegadoCompatibilityScanner {
@@ -215,17 +223,18 @@ class LegadoCompatibilityScanner {
       }
     });
 
+    // 米读：只有 audio/video/missingSearch/missingReadingRules 才阻塞运行；
+    // login/customDns/customProxy/cookies/javascript/xpath/webView 均通过
+    // fjs 沙箱、忽略或兼容方式实现，不再视为 blocked。
+    // - loginUrl 字段只是声明登录入口，不代表搜索/阅读必须登录
+    // - customDns/customProxy 字段可忽略，用默认网络栈请求
+    // - cookies/javascript/xpath 通过 fjs 沙箱支持
     const blocked = {
       LegadoCompatibilityIssue.audio,
       LegadoCompatibilityIssue.video,
-      LegadoCompatibilityIssue.login,
-      LegadoCompatibilityIssue.customDns,
-      LegadoCompatibilityIssue.customProxy,
       LegadoCompatibilityIssue.missingSearch,
       LegadoCompatibilityIssue.missingReadingRules,
     };
-    // 米读：javascript / xpath / cookies / complexJsonPath / webView
-    // 均通过 fjs 沙箱或兼容方式实现，不再视为 blocked。
     final hasBlockedIssue = issues.any(blocked.contains);
     final level = hasBlockedIssue
         ? LegadoCompatibilityLevel.unsupported

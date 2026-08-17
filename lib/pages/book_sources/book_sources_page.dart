@@ -143,8 +143,8 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
 
   String _capabilityFor(_DiscoverSection section) => switch (section) {
     _DiscoverSection.recommended => 'discover',
-    _DiscoverSection.categories => 'categories',
-    _DiscoverSection.latest => 'browse',
+    _DiscoverSection.categories => 'discover',
+    _DiscoverSection.latest => 'discover',
   };
 
   List<RegisteredBookSource> _sourcesFor(_DiscoverSection section) =>
@@ -185,10 +185,26 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       source,
     ) async {
       final page = await _client.getDiscovery(source);
-      return page.sections
-          .where((section) => section.items.isNotEmpty)
-          .map(
-            (section) => _DiscoveryShelf(
+      final shelves = <_DiscoveryShelf>[];
+      for (final section in page.sections) {
+        if (section.items.isEmpty) continue;
+        final isCategoryList = section.layout == 'categories' ||
+            section.items.every((item) => item.kind == 'category');
+        if (isCategoryList) {
+          // Legado 分类入口：每个分类作为一个空 shelf 展示标题
+          for (final item in section.items) {
+            if (item.kind != 'category') continue;
+            shelves.add(
+              _DiscoveryShelf(
+                source: source,
+                title: item.title.isEmpty ? section.title : item.title,
+                items: const <BookSourceBook>[],
+              ),
+            );
+          }
+        } else {
+          shelves.add(
+            _DiscoveryShelf(
               source: source,
               title: section.title,
               items: section.items
@@ -196,38 +212,68 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
                   .whereType<BookSourceBook>()
                   .toList(growable: false),
             ),
-          )
-          .toList(growable: false);
+          );
+        }
+      }
+      return shelves;
     });
     return batches.expand((items) => items).toList(growable: false);
   }
 
   Future<List<_SourcedCategory>> _fetchCategories() async {
-    final batches = await _fetchSourceBatches(_targets('categories'), (
+    final batches = await _fetchSourceBatches(_targets('discover'), (
       source,
     ) async {
-      final categories = await _client.getCategories(source);
-      return categories
-          .map(
-            (category) => _SourcedCategory(
+      final page = await _client.getDiscovery(source);
+      final categories = <_SourcedCategory>[];
+      for (final section in page.sections) {
+        for (final item in section.items) {
+          if (item.kind != 'category') continue;
+          categories.add(
+            _SourcedCategory(
               source: source,
-              id: category.id,
-              name: category.name,
+              id: item.targetUrl ?? '',
+              name: item.title.isEmpty ? section.title : item.title,
             ),
-          )
-          .toList(growable: false);
+          );
+        }
+      }
+      return categories;
     });
     return batches.expand((items) => items).toList(growable: false);
   }
 
   Future<List<SourcedBook>> _fetchLatest() async {
-    final batches = await _fetchSourceBatches(_targets('browse'), (
+    final batches = await _fetchSourceBatches(_targets('discover'), (
       source,
     ) async {
-      final page = await _client.browse(source, sort: 'latest');
-      return page.items
-          .map((book) => SourcedBook(source: source, book: book))
-          .toList(growable: false);
+      final categoryPage = await _client.getDiscovery(source);
+      String? firstCategoryUrl;
+      for (final section in categoryPage.sections) {
+        for (final item in section.items) {
+          if (item.kind == 'category' &&
+              item.targetUrl != null &&
+              item.targetUrl!.isNotEmpty) {
+            firstCategoryUrl = item.targetUrl;
+            break;
+          }
+        }
+        if (firstCategoryUrl != null) break;
+      }
+      if (firstCategoryUrl == null) return const <SourcedBook>[];
+      final page = await _client.getDiscovery(
+        source,
+        exploreUrlOverride: firstCategoryUrl,
+      );
+      final books = <SourcedBook>[];
+      for (final section in page.sections) {
+        for (final item in section.items) {
+          if (item.book != null) {
+            books.add(SourcedBook(source: source, book: item.book!));
+          }
+        }
+      }
+      return books;
     });
     return BookSourcesPage.interleaveLatestBatches(batches);
   }
@@ -306,20 +352,24 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     setState(() {
       _selectedCategory = category;
       _categoryBooks = const [];
-      _loadingCategoryBooks = category.source.capabilities.contains('browse');
+      _loadingCategoryBooks = true;
     });
-    if (!category.source.capabilities.contains('browse')) return;
     try {
-      final page = await _client.browse(
+      final page = await _client.getDiscovery(
         category.source,
-        category: category.id,
-        sort: 'popular',
+        exploreUrlOverride: category.id,
       );
       if (!mounted || _selectedCategory != category) return;
+      final books = <SourcedBook>[];
+      for (final section in page.sections) {
+        for (final item in section.items) {
+          if (item.book != null) {
+            books.add(SourcedBook(source: category.source, book: item.book!));
+          }
+        }
+      }
       setState(() {
-        _categoryBooks = page.items
-            .map((book) => SourcedBook(source: category.source, book: book))
-            .toList(growable: false);
+        _categoryBooks = books;
         _loadingCategoryBooks = false;
       });
     } catch (_) {

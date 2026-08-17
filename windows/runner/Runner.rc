@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "Open Reading" "\0"
-            VALUE "FileDescription", "OpenReading" "\0"
+            VALUE "CompanyName", "MiDu" "\0"
+            VALUE "FileDescription", "MiDu" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "OpenReading" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 Open Reading contributors. AGPL-3.0." "\0"
+            VALUE "InternalName", "MiDu" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 MiDu contributors. AGPL-3.0." "\0"
             VALUE "OriginalFilename", "xxread.exe" "\0"
-            VALUE "ProductName", "OpenReading" "\0"
+            VALUE "ProductName", "MiDu" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
@@ -132,13 +132,13 @@ BEGIN
     BEGIN
         BLOCK "080404b0"
         BEGIN
-            VALUE "CompanyName", "Open Reading" "\0"
-            VALUE "FileDescription", "开元阅读" "\0"
+            VALUE "CompanyName", "米读" "\0"
+            VALUE "FileDescription", "米读" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "开元阅读" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 Open Reading contributors. AGPL-3.0." "\0"
+            VALUE "InternalName", "米读" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 米读 contributors. AGPL-3.0." "\0"
             VALUE "OriginalFilename", "xxread.exe" "\0"
-            VALUE "ProductName", "开元阅读" "\0"
+            VALUE "ProductName", "米读" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

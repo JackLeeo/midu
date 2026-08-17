@@ -28,7 +28,7 @@ class SafDirectoryBridge(
         private const val CHANNEL = "com.jacklee.midu/storage"
         private const val PICK_DIRECTORY_REQUEST = 41271
         private const val LEGACY_EXPORT_PERMISSION_REQUEST = 41272
-        private const val EXPORT_RELATIVE_DIRECTORY = "Download/开元阅读"
+        private const val EXPORT_RELATIVE_DIRECTORY = "Download/米读"
     }
 
     private var pendingPickResult: MethodChannel.Result? = null
@@ -410,7 +410,7 @@ class SafDirectoryBridge(
     private fun exportToLegacyDownloads(pending: PendingExport): Map<String, Any?> {
         val directory = File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            "开元阅读",
+            "米读",
         )
         check(directory.exists() || directory.mkdirs()) {
             "Unable to create the Downloads directory"

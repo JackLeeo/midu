@@ -59,7 +59,7 @@ class BookSourceClient {
                  sendTimeout: const Duration(seconds: 8),
                  headers: const {
                    'Accept': 'application/json',
-                   'X-Open-Reading-Protocol': openReadingSourceProtocolVersion,
+                   'X-MiDu-Protocol': openReadingSourceProtocolVersion,
                  },
                ),
              )

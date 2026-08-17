@@ -264,6 +264,12 @@ class LegadoRuntime {
   }
 
   // ===== 发现页：exploreUrl + ruleExplore =====
+  /// 米读：发现页完整重写，支持 Legado 书源的 exploreUrl 分类列表格式。
+  ///
+  /// 调用模式：
+  /// - 不传 [exploreUrlOverride]：解析 source.exploreUrl 为分类列表，
+  ///   每个分类作为 BookSourceDiscoveryItem（kind='category'），供用户选择。
+  /// - 传入 [exploreUrlOverride]：请求对应分类 URL，用 ruleExplore 解析书籍列表。
   Future<BookSourceDiscoveryPage> getDiscovery(
     RegisteredBookSource registered, {
     String? exploreUrlOverride,
@@ -277,48 +283,73 @@ class LegadoRuntime {
         'Compatible source does not provide an exploreUrl.',
       );
     }
-    final response = await _request(source, urlText);
+
+    // 分支 A：带 override，请求分类页面并用 ruleExplore 解析书籍
+    if (exploreUrlOverride != null) {
+      return _fetchDiscoveryPage(source, exploreUrlOverride);
+    }
+
+    // 分支 B：解析 exploreUrl 为分类列表
+    final categories = _parseExploreCategories(urlText);
+    if (categories.isEmpty) {
+      // 无分类列表时，直接当作单一 URL 请求
+      return _fetchDiscoveryPage(source, urlText);
+    }
+
+    // 只有一个分类且 URL 为空时，也直接请求
+    if (categories.length == 1 && categories.first.url.isEmpty) {
+      return _fetchDiscoveryPage(source, urlText);
+    }
+
+    // 返回分类列表供 UI 展示
+    final items = categories
+        .where((cat) => cat.title.isNotEmpty || cat.url.isNotEmpty)
+        .map((cat) => BookSourceDiscoveryItem(
+              title: cat.title,
+              subtitle: '',
+              coverUrl: null,
+              targetUrl: cat.url.isEmpty ? null : cat.url,
+              kind: 'category',
+              book: null,
+            ))
+        .toList(growable: false);
+    return BookSourceDiscoveryPage(
+      title: source.name,
+      sections: [
+        BookSourceDiscoverySection(
+          title: source.name,
+          items: items,
+          layout: 'categories',
+        ),
+      ],
+    );
+  }
+
+  /// 请求发现页分类 URL 并用 ruleExplore 解析书籍列表。
+  Future<BookSourceDiscoveryPage> _fetchDiscoveryPage(
+    LegadoBookSource source,
+    String urlTemplate,
+  ) async {
+    final resolvedUrl = _resolveExploreUrlTemplate(urlTemplate, page: 1);
+    final response = await _request(
+      source,
+      resolvedUrl,
+      variables: const {'key': '', 'page': '1'},
+    );
     final document = LegadoRuleDocument.parse(response.body, response.finalUri);
     final rule = source.rule('ruleExplore');
 
     final sections = <BookSourceDiscoverySection>[];
 
-    // 优先尝试 ruleExplore 结构化字段：bookList / titleList / urlList
+    // 优先用 ruleExplore 解析
     if (rule.isNotEmpty) {
-      // 模式 1：列表选择器（一维数组，每个元素是 book/url 块）
       final listRule = _firstNonEmpty([
         _optionalRule(rule, 'bookList'),
         _optionalRule(rule, 'list'),
         '',
       ]);
       if (listRule.isNotEmpty) {
-        final contexts = await _rules.evaluateList(document, null, listRule);
-        final items = <BookSourceDiscoveryItem>[];
-        for (final ctx in contexts) {
-          final title = await _value(document, ctx, rule, 'name');
-          final url = await _url(document, ctx, rule, 'bookUrl');
-          if (title.isEmpty && url.isEmpty) continue;
-          final book = (title.isNotEmpty && url.isNotEmpty)
-              ? BookSourceBook(
-                  id: url,
-                  title: title,
-                  author: await _value(document, ctx, rule, 'author'),
-                  description: await _value(document, ctx, rule, 'intro'),
-                  coverUrl: await _uriValue(document, ctx, rule, 'coverUrl'),
-                  latestChapter: _nullable(
-                    await _value(document, ctx, rule, 'lastChapter'),
-                  ),
-                )
-              : null;
-          items.add(BookSourceDiscoveryItem(
-            title: title,
-            subtitle: await _value(document, ctx, rule, 'author'),
-            coverUrl: await _uriValue(document, ctx, rule, 'coverUrl'),
-            targetUrl: url.isEmpty ? null : url,
-            kind: book != null ? 'book' : 'link',
-            book: book,
-          ));
-        }
+        final items = await _parseDiscoveryItems(document, rule, listRule);
         if (items.isNotEmpty) {
           sections.add(BookSourceDiscoverySection(
             title: source.name,
@@ -329,43 +360,13 @@ class LegadoRuntime {
       }
     }
 
-    // 兜底：从搜索规则 bookList 中抽取（兼容无 exploreRule 的源）
+    // 兜底：用 ruleSearch.bookList 解析（兼容无 ruleExplore 的源）
     if (sections.isEmpty) {
       final searchRule = source.rule('ruleSearch');
       final listRule = _optionalRule(searchRule, 'bookList');
       if (listRule.isNotEmpty) {
         try {
-          final contexts = await _rules.evaluateList(document, null, listRule);
-          final items = <BookSourceDiscoveryItem>[];
-          for (final ctx in contexts) {
-            final title = await _value(document, ctx, searchRule, 'name');
-            final url = await _url(document, ctx, searchRule, 'bookUrl');
-            if (title.isEmpty && url.isEmpty) continue;
-            final book = (title.isNotEmpty && url.isNotEmpty)
-                ? BookSourceBook(
-                    id: url,
-                    title: title,
-                    author: await _value(document, ctx, searchRule, 'author'),
-                    coverUrl: await _uriValue(
-                      document,
-                      ctx,
-                      searchRule,
-                      'coverUrl',
-                    ),
-                    latestChapter: _nullable(
-                      await _value(document, ctx, searchRule, 'lastChapter'),
-                    ),
-                  )
-                : null;
-            items.add(BookSourceDiscoveryItem(
-              title: title,
-              subtitle: await _value(document, ctx, searchRule, 'author'),
-              coverUrl: await _uriValue(document, ctx, searchRule, 'coverUrl'),
-              targetUrl: url.isEmpty ? null : url,
-              kind: book != null ? 'book' : 'link',
-              book: book,
-            ));
-          }
+          final items = await _parseDiscoveryItems(document, searchRule, listRule);
           if (items.isNotEmpty) {
             sections.add(BookSourceDiscoverySection(
               title: source.name,
@@ -382,7 +383,124 @@ class LegadoRuntime {
     return BookSourceDiscoveryPage(
       title: source.name,
       sections: List.unmodifiable(sections),
+      nextPageUrl: null,
     );
+  }
+
+  Future<List<BookSourceDiscoveryItem>> _parseDiscoveryItems(
+    LegadoRuleDocument document,
+    Map<String, dynamic> rule,
+    String listRule,
+  ) async {
+    final contexts = await _rules.evaluateList(document, null, listRule);
+    final items = <BookSourceDiscoveryItem>[];
+    for (final ctx in contexts) {
+      final title = await _value(document, ctx, rule, 'name');
+      final url = await _url(document, ctx, rule, 'bookUrl');
+      if (title.isEmpty && url.isEmpty) continue;
+      final book = (title.isNotEmpty && url.isNotEmpty)
+          ? BookSourceBook(
+              id: url,
+              title: title,
+              author: await _value(document, ctx, rule, 'author'),
+              description: await _value(document, ctx, rule, 'intro'),
+              coverUrl: await _uriValue(document, ctx, rule, 'coverUrl'),
+              latestChapter: _nullable(
+                await _value(document, ctx, rule, 'lastChapter'),
+              ),
+            )
+          : null;
+      items.add(BookSourceDiscoveryItem(
+        title: title,
+        subtitle: await _value(document, ctx, rule, 'author'),
+        coverUrl: await _uriValue(document, ctx, rule, 'coverUrl'),
+        targetUrl: url.isEmpty ? null : url,
+        kind: book != null ? 'book' : 'link',
+        book: book,
+      ));
+    }
+    return items;
+  }
+
+  /// 解析 exploreUrl 为分类列表。支持三种 Legado 格式：
+  /// 1. JSON 数组：`[{"title":"...","url":"...","style":{...}},...]`
+  /// 2. 多行文本：`标题::URL\n标题::URL\n...`（URL 可含 `<,...>` 分页语法）
+  /// 3. JS 生成：`@js:...` 或 `<js>...</js>`（通过 fjs 执行返回 JSON 数组）
+  List<_ExploreCategory> _parseExploreCategories(String exploreUrl) {
+    final text = exploreUrl.trim();
+    if (text.isEmpty) return const [];
+
+    // 格式 1：JSON 数组
+    if (text.startsWith('[')) {
+      try {
+        final decoded = jsonDecode(text);
+        if (decoded is List) {
+          return decoded
+              .map((item) {
+                if (item is! Map) return null;
+                final title = '${item['title'] ?? ''}'.trim();
+                final url = '${item['url'] ?? ''}'.trim();
+                if (title.isEmpty && url.isEmpty) return null;
+                return _ExploreCategory(title: title, url: url);
+              })
+              .whereType<_ExploreCategory>()
+              .toList(growable: false);
+        }
+      } on FormatException {
+        // 非 JSON，继续尝试其他格式
+      }
+    }
+
+    // 格式 3：JS 生成（@js: 或 <js>）
+    final lower = text.toLowerCase();
+    if (lower.startsWith('@js:') || lower.startsWith('<js>')) {
+      // JS 规则需要在 fjs 沙箱中执行，这里同步返回空，
+      // 由调用方异步处理。为简化首版，JS 格式当作单一 URL 请求。
+      return [_ExploreCategory(title: '', url: text)];
+    }
+
+    // 格式 2：多行文本（标题::URL）
+    final lines = text.split(RegExp(r'\r?\n'));
+    if (lines.length > 1 || text.contains('::')) {
+      final categories = <_ExploreCategory>[];
+      for (final line in lines) {
+        final trimmed = line.trim();
+        if (trimmed.isEmpty) continue;
+        final sepIdx = trimmed.indexOf('::');
+        if (sepIdx < 0) {
+          // 无 :: 分隔符的行，如果像 URL 则当作单一 URL 分类
+          if (trimmed.startsWith('http') || trimmed.startsWith('/')) {
+            categories.add(_ExploreCategory(title: '', url: trimmed));
+          }
+          continue;
+        }
+        final title = trimmed.substring(0, sepIdx).trim();
+        final url = trimmed.substring(sepIdx + 2).trim();
+        if (title.isEmpty && url.isEmpty) continue;
+        categories.add(_ExploreCategory(title: title, url: url));
+      }
+      if (categories.isNotEmpty) return categories;
+    }
+
+    // 兜底：当作单一 URL
+    return [_ExploreCategory(title: '', url: text)];
+  }
+
+  /// 解析发现页 URL 模板，处理 Legado 特有的分页语法：
+  /// - `{{page}}` 替换为页码
+  /// - `<,index_{{page}}.html>` 表示在基础 URL 后追加 `index_{{page}}.html`
+  ///   （`<,` 内部是追加部分，逗号后是分页模板）
+  String _resolveExploreUrlTemplate(String template, {int page = 1}) {
+    var result = template;
+    // 处理 <,...> 分页语法：<,index_{{page}}.html> → index_{{page}}.html
+    final pageTag = RegExp(r'<,([^>]*)>').firstMatch(result);
+    if (pageTag != null) {
+      final pagePart = pageTag.group(1)!.replaceAll('{{page}}', '$page');
+      result = result.replaceFirst(pageTag.group(0)!, pagePart);
+    }
+    // 替换 {{page}}
+    result = result.replaceAll('{{page}}', '$page');
+    return result;
   }
 
   Map<String, String> _sourceHeaders(LegadoBookSource source) {
@@ -429,12 +547,11 @@ class LegadoRuntime {
 
   void _ensureRunnable(LegadoBookSource source) {
     final report = const LegadoCompatibilityScanner().scan(source);
-    final blockedIssues = report.issues.where(
-      (issue) => issue != LegadoCompatibilityIssue.complexJsonPath,
-    );
-    if (blockedIssues.isNotEmpty) {
+    // 米读：只有 unsupported 级别（音频/视频/登录/自定义DNS代理/缺搜索缺规则）
+    // 才阻塞运行；partial 级别（含 JS/XPath/Cookies 等）通过 fjs 沙箱可正常运行。
+    if (report.level == LegadoCompatibilityLevel.unsupported) {
       throw const BookSourceProtocolException(
-        'This compatible source uses features that are not supported yet.',
+        'This source uses unsupported features (audio/video/login/custom DNS/proxy/missing rules).',
       );
     }
     final headers = _sourceHeaders(source);
@@ -530,4 +647,12 @@ String _firstNonEmpty(List<String> candidates) {
     if (s.isNotEmpty) return s;
   }
   return '';
+}
+
+/// 发现页分类条目（标题 + URL 模板）。
+class _ExploreCategory {
+  const _ExploreCategory({required this.title, required this.url});
+
+  final String title;
+  final String url;
 }

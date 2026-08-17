@@ -18,11 +18,11 @@ static const char* get_localized_app_name() {
     if (strstr(locale, "zh_CN") || strstr(locale, "zh_TW") ||
         strstr(locale, "zh-Hans") || strstr(locale, "zh-Hant") ||
         strstr(locale, "Chinese")) {
-      return u8"开元阅读";
+      return u8"米读";
     }
   }
   // Default to English
-  return "OpenReading";
+  return "MiDu";
 }
 
 static void set_window_icon(GtkWindow* window) {

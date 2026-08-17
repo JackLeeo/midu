@@ -72,7 +72,7 @@ class WebDavSyncConfigDraft {
     required this.serverUrl,
     required this.username,
     required this.password,
-    this.rootPath = 'OpenReading',
+    this.rootPath = 'MiDu',
     this.allowInsecurePrivateHttp = false,
   });
 
@@ -96,7 +96,7 @@ class WebDavSyncConfiguration {
   const WebDavSyncConfiguration({
     required this.serverUrl,
     required this.username,
-    this.rootPath = 'OpenReading',
+    this.rootPath = 'MiDu',
     this.allowInsecurePrivateHttp = false,
     this.autoSync = true,
   });
@@ -119,7 +119,7 @@ class WebDavSyncConfiguration {
       WebDavSyncConfiguration(
         serverUrl: json['server_url'] as String,
         username: json['username'] as String,
-        rootPath: json['root_path'] as String? ?? 'OpenReading',
+        rootPath: json['root_path'] as String? ?? 'MiDu',
         allowInsecurePrivateHttp:
             json['allow_insecure_private_http'] as bool? ?? false,
         autoSync: json['auto_sync'] as bool? ?? true,
