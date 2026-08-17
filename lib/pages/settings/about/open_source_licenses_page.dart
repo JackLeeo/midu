@@ -56,12 +56,12 @@ class OpenSourceLicensesPage extends StatelessWidget {
               const SizedBox(height: 8),
               _LicenseEntryCard(
                 key: const ValueKey('open-reading-agpl-license'),
-                title: 'Open Reading',
+                title: '米读',
                 subtitle: 'GNU Affero General Public License v3.0',
                 icon: Icons.code_rounded,
                 onTap: () => _openBundledLicense(
                   context,
-                  title: 'Open Reading · AGPL-3.0',
+                  title: '米读 · AGPL-3.0',
                   assetPath: 'LICENSE',
                 ),
               ),

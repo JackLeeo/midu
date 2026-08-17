@@ -55,7 +55,7 @@ void main(List<String> arguments) async {
       ),
     );
     if (Platform.isAndroid) {
-      const fullscreenChannel = MethodChannel('com.niki.xxread/fullscreen');
+      const fullscreenChannel = MethodChannel('com.jacklee.midu/fullscreen');
       try {
         await fullscreenChannel.invokeMethod<void>('enableHighRefreshRate');
       } catch (_) {

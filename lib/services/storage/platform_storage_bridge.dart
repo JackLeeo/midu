@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 
 class PlatformStorageBridge {
   PlatformStorageBridge({MethodChannel? channel})
-    : _channel = channel ?? const MethodChannel('com.niki.xxread/storage');
+    : _channel = channel ?? const MethodChannel('com.jacklee.midu/storage');
 
   final MethodChannel _channel;
 

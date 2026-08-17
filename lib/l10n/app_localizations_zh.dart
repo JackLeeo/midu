@@ -97,8 +97,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get bookSourcesNoSourcesTitle => '还没有书源';
 
   @override
-  String get bookSourcesNoSourcesDescription =>
-      '粘贴兼容 Open Reading Source Protocol 的服务地址即可接入。';
+  String get bookSourcesNoSourcesDescription => '粘贴兼容米读书源协议的服务地址即可接入。';
 
   @override
   String get bookSourcesManageTitle => '已接入书源';
@@ -217,7 +216,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get bookSourcesRefreshFailed => '无法刷新该书源';
 
   @override
-  String get bookSourcesProtocolTitle => 'Open Reading Source Protocol';
+  String get bookSourcesProtocolTitle => '米读书源协议';
 
   @override
   String get bookSourcesProtocolDescription =>
@@ -497,7 +496,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get fontMonospaceDescription => '等宽字体，适合代码、技术内容和专注排版。';
 
   @override
-  String get fontPreviewText => 'Open Reading · 自由阅读，开卷有益';
+  String get fontPreviewText => '米读 · 自由阅读，开卷有益';
 
   @override
   String get customFonts => '我的字体';
@@ -646,7 +645,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsQqChannel => 'QQ 频道';
 
   @override
-  String get settingsQqChannelSubtitle => '米读 · OpenReading6';
+  String get settingsQqChannelSubtitle => '米读';
 
   @override
   String get settingsQqChannelOpenFailed => '无法打开 QQ 频道邀请链接';
@@ -2112,7 +2111,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get openSourceLicensesIntro =>
-      '以下许可文本随应用离线提供。Open Reading、内置字体及第三方软件分别遵循各自的许可条款。';
+      '以下许可文本随应用离线提供。米读、内置字体及第三方软件分别遵循各自的许可条款。';
 
   @override
   String get openSourceProjectSection => '项目许可';
@@ -2133,7 +2132,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get openSourceDependenciesSubtitle => '查看由 Flutter 自动收集的第三方软件许可';
 
   @override
-  String get openSourceLicenseLegalese => 'Open Reading 与第三方组件分别遵循各自的许可条款。';
+  String get openSourceLicenseLegalese => '米读 与第三方组件分别遵循各自的许可条款。';
 
   @override
   String get openSourceLicenseLoadFailed => '无法加载许可文本。';
@@ -2166,7 +2165,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get contributorsTitle => '贡献者';
 
   @override
-  String get contributorsSubtitle => '感谢每一位让 Open Reading 变得更好的人';
+  String get contributorsSubtitle => '感谢每一位让米读变得更好的人';
 
   @override
   String get contributorsOpenProfileFailed => '无法打开贡献者主页';
@@ -3065,10 +3064,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get importSelectFiles => '选择文件';
 
   @override
-  String get importIosSharedDocuments => '我的 iPhone · Open Reading';
+  String get importIosSharedDocuments => '我的 iPhone · 米读';
 
   @override
-  String get importICloudDrive => 'iCloud Drive · Open Reading';
+  String get importICloudDrive => 'iCloud Drive · 米读';
 
   @override
   String get importICloudUnavailable => 'iCloud Drive 当前不可用';
@@ -3708,7 +3707,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get agreementV2SourceBoundaryPoint1 =>
-      '官方只提供开源阅读软件和 Open Reading Source Protocol，不提供书源地址或官方书源目录。';
+      '官方只提供开源阅读软件和米读书源协议，不提供书源地址或官方书源目录。';
 
   @override
   String get agreementV2SourceBoundaryPoint2 =>
@@ -3759,13 +3758,6 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get agreementV2Section6Body =>
       '本软件采用本地优先设计，书籍、阅读进度、笔记和设置通常保存在你的设备。除非你主动启用联网书源、AI、同步或其他联网功能，本软件不会为了提供本地阅读而主动将书籍正文发送给开发者。应用自动或手动检查更新时，会访问 GitHub 和官方站点 github.com/JackLeeo/midu，并发送平台、处理器架构、发布渠道等必要技术参数；服务器和网络服务会按正常通信处理你的 IP 地址与 User-Agent。你从官方站点下载安装包时，后台会记录版本、架构、下载时间、IP 和 User-Agent，用于下载次数统计、安全防护和故障排查；原始 IP 下载明细最多保留 30 天，之后删除，长期仅保留不含原始 IP 的汇总统计。上述更新请求不包含书籍正文、书架、笔记、账户或设备唯一标识；访问 GitHub 时还适用 GitHub 的隐私规则。启用其他联网功能时，相关查询、文本片段、设备网络信息或必要参数可能发送给你选择的第三方服务，具体以该服务规则为准。你应自行保护设备、访问密钥和备份；卸载、清理数据、设备故障或误操作可能导致数据永久丢失。';
-
-  @override
-  String get agreementV2Section7Title => 'AI 与自动化输出';
-
-  @override
-  String get agreementV2Section7Body =>
-      'AI 摘要、问答、翻译、推荐或其他自动生成结果可能不准确、不完整、过时或具有误导性，仅供辅助阅读，不构成法律、医疗、投资、学术或其他专业意见。你应独立核验后再使用，不应依赖其作出高风险决定。你提交给 AI 服务的内容还受对应服务商条款约束。';
 
   @override
   String get agreementV2Section8Title => '无担保声明';
@@ -4319,8 +4311,7 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
   String get bookSourcesNoSourcesTitle => '還沒有書源';
 
   @override
-  String get bookSourcesNoSourcesDescription =>
-      '貼上相容 Open Reading Source Protocol 的服務位址即可接入。';
+  String get bookSourcesNoSourcesDescription => '貼上相容 米讀書源協議 的服務位址即可接入。';
 
   @override
   String get bookSourcesManageTitle => '已接入書源';
@@ -4439,7 +4430,7 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
   String get bookSourcesRefreshFailed => '無法重新整理此書源';
 
   @override
-  String get bookSourcesProtocolTitle => 'Open Reading Source Protocol';
+  String get bookSourcesProtocolTitle => '米讀書源協議';
 
   @override
   String get bookSourcesProtocolDescription =>
@@ -4719,7 +4710,7 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
   String get fontMonospaceDescription => '等寬字體，適合程式碼、技術內容和專注排版。';
 
   @override
-  String get fontPreviewText => 'Open Reading · 自由閱讀，開卷有益';
+  String get fontPreviewText => '米讀 · 自由閱讀，開卷有益';
 
   @override
   String get customFonts => '我的字體';
@@ -4825,7 +4816,7 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
   String get settingsQqChannel => 'QQ 頻道';
 
   @override
-  String get settingsQqChannelSubtitle => '米讀 · OpenReading6';
+  String get settingsQqChannelSubtitle => '米讀';
 
   @override
   String get settingsQqChannelOpenFailed => '無法開啟 QQ 頻道邀請連結';
@@ -6291,7 +6282,7 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
 
   @override
   String get openSourceLicensesIntro =>
-      '以下授權文字隨應用程式離線提供。Open Reading、內建字型及第三方軟體分別適用各自的授權條款。';
+      '以下授權文字隨應用程式離線提供。米讀、內建字型及第三方軟體分別適用各自的授權條款。';
 
   @override
   String get openSourceProjectSection => '專案授權';
@@ -6312,7 +6303,7 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
   String get openSourceDependenciesSubtitle => '查看由 Flutter 自動彙整的第三方軟體授權';
 
   @override
-  String get openSourceLicenseLegalese => 'Open Reading 與第三方元件分別適用各自的授權條款。';
+  String get openSourceLicenseLegalese => '米讀 與第三方元件分別適用各自的授權條款。';
 
   @override
   String get openSourceLicenseLoadFailed => '無法載入授權文字。';
@@ -6345,7 +6336,7 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
   String get contributorsTitle => '貢獻者';
 
   @override
-  String get contributorsSubtitle => '感謝每一位讓 Open Reading 變得更好的人';
+  String get contributorsSubtitle => '感謝每一位讓米讀變得更好的人';
 
   @override
   String get contributorsOpenProfileFailed => '無法開啟貢獻者主頁';
@@ -7244,10 +7235,10 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
   String get importSelectFiles => '選擇檔案';
 
   @override
-  String get importIosSharedDocuments => '我的 iPhone · Open Reading';
+  String get importIosSharedDocuments => '我的 iPhone · 米讀';
 
   @override
-  String get importICloudDrive => 'iCloud Drive · Open Reading';
+  String get importICloudDrive => 'iCloud Drive · 米讀';
 
   @override
   String get importICloudUnavailable => 'iCloud Drive 目前無法使用';
@@ -7887,7 +7878,7 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
 
   @override
   String get agreementV2SourceBoundaryPoint1 =>
-      '官方只提供開源閱讀軟體和 Open Reading Source Protocol，不提供書源位址或官方書源目錄。';
+      '官方只提供開源閱讀軟體和米讀書源協議，不提供書源位址或官方書源目錄。';
 
   @override
   String get agreementV2SourceBoundaryPoint2 =>
@@ -7938,13 +7929,6 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
   @override
   String get agreementV2Section6Body =>
       '本軟體採用本機優先設計，書籍、閱讀進度、筆記和設定通常儲存在你的裝置。除非你主動啟用連網書源、AI、同步或其他連網功能，本軟體不會為了提供本機閱讀而主動將書籍內文傳送給開發者。應用程式自動或手動檢查更新時，會存取 GitHub 和官方網站 github.com/JackLeeo/midu，並傳送平台、處理器架構、發布頻道等必要技術參數；伺服器和網路服務會依正常通訊處理你的 IP 位址與 User-Agent。你從官方網站下載安裝套件時，後台會記錄版本、架構、下載時間、IP 和 User-Agent，用於下載次數統計、安全防護和故障排除；原始 IP 下載明細最多保留 30 天，之後刪除，長期僅保留不含原始 IP 的彙總統計。上述更新請求不包含書籍內文、書庫、筆記、帳戶或裝置唯一識別碼；存取 GitHub 時亦適用 GitHub 的隱私規則。啟用其他連網功能時，相關查詢、文字片段、裝置網路資訊或必要參數可能傳送給你選擇的第三方服務，具體以該服務規則為準。你應自行保護裝置、存取金鑰和備份；解除安裝、清除資料、裝置故障或誤操作可能導致資料永久遺失。';
-
-  @override
-  String get agreementV2Section7Title => 'AI 與自動化輸出';
-
-  @override
-  String get agreementV2Section7Body =>
-      'AI 摘要、問答、翻譯、推薦或其他自動產生的結果可能不準確、不完整、過時或具有誤導性，僅供輔助閱讀，不構成法律、醫療、投資、學術或其他專業意見。你應獨立查核後再使用，不應依賴其作出高風險決定。你提交給 AI 服務的內容還受對應服務商條款約束。';
 
   @override
   String get agreementV2Section8Title => '無擔保聲明';

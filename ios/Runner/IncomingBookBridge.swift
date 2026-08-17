@@ -2,7 +2,7 @@ import Flutter
 import Foundation
 
 final class IncomingBookBridge {
-  static let channelName = "com.niki.xxread/incoming_books"
+  static let channelName = "com.jacklee.midu/incoming_books"
 
   private let channel: FlutterMethodChannel
 
@@ -66,9 +66,9 @@ final class IncomingBookInbox {
   ]
 
   private let fileManager: FileManager
-  private let stateQueue = DispatchQueue(label: "com.niki.xxread.incoming-books.state")
+  private let stateQueue = DispatchQueue(label: "com.jacklee.midu.incoming-books.state")
   private let materializationQueue = DispatchQueue(
-    label: "com.niki.xxread.incoming-books.materialization",
+    label: "com.jacklee.midu.incoming-books.materialization",
     qos: .userInitiated
   )
   private var channel: FlutterMethodChannel?

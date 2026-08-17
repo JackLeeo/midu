@@ -3,13 +3,13 @@ import FlutterMacOS
 
 @main
 class AppDelegate: FlutterAppDelegate {
-  private static let incomingChannelName = "com.niki.xxread/incoming_books"
+  private static let incomingChannelName = "com.jacklee.midu/incoming_books"
   private static let maximumIncomingBookBytes: UInt64 = 100 * 1024 * 1024
   private static let maximumIncomingRequestBytes: UInt64 = 500 * 1024 * 1024
   private static let maximumIncomingItems = 10
   private static let requestManifestName = "request.json"
 
-  private let incomingQueue = DispatchQueue(label: "com.niki.xxread.incoming-books")
+  private let incomingQueue = DispatchQueue(label: "com.jacklee.midu.incoming-books")
   private var incomingChannel: FlutterMethodChannel?
   private var incomingRequests: [[String: Any]] = []
 

@@ -42,7 +42,7 @@ void main() {
     expect(find.text('Manage sources'), findsOneWidget);
     expect(find.text('Connected sources'), findsOneWidget);
     expect(find.text('Add source'), findsOneWidget);
-    expect(find.text('Open Reading Source Protocol'), findsOneWidget);
+    expect(find.text('MiDu Source Protocol'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

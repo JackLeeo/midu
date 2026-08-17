@@ -1,4 +1,4 @@
-package com.niki.xxread
+package com.jacklee.midu
 
 import android.app.Activity
 import android.Manifest
@@ -25,7 +25,7 @@ class SafDirectoryBridge(
     messenger: BinaryMessenger,
 ) : MethodChannel.MethodCallHandler {
     companion object {
-        private const val CHANNEL = "com.niki.xxread/storage"
+        private const val CHANNEL = "com.jacklee.midu/storage"
         private const val PICK_DIRECTORY_REQUEST = 41271
         private const val LEGACY_EXPORT_PERMISSION_REQUEST = 41272
         private const val EXPORT_RELATIVE_DIRECTORY = "Download/开元阅读"

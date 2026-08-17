@@ -1,4 +1,4 @@
-package com.niki.xxread
+package com.jacklee.midu
 
 import android.app.Activity
 import android.content.Intent
@@ -19,7 +19,7 @@ class AppUpdateBridge(
     messenger: BinaryMessenger,
 ) : MethodChannel.MethodCallHandler {
     companion object {
-        private const val CHANNEL = "com.niki.xxread/app_update"
+        private const val CHANNEL = "com.jacklee.midu/app_update"
     }
 
     private var pendingInstall: PendingInstall? = null

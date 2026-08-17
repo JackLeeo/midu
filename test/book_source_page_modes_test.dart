@@ -380,7 +380,7 @@ void main() {
 
   testWidgets('volume keys turn pages in a paged reader mode', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    const channel = MethodChannel('com.niki.xxread/reader_keys');
+    const channel = MethodChannel('com.jacklee.midu/reader_keys');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (_) async => null);
     try {

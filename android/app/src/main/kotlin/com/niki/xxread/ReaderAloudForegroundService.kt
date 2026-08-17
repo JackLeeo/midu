@@ -1,4 +1,4 @@
-package com.niki.xxread
+package com.jacklee.midu
 
 import android.annotation.TargetApi
 import android.app.Notification
@@ -56,8 +56,8 @@ data class ReaderAloudNotificationData(
 
 class ReaderAloudForegroundService : Service() {
     companion object {
-        private const val ACTION_SHOW = "com.niki.xxread.READER_ALOUD_SHOW"
-        private const val ACTION_CONTROL = "com.niki.xxread.READER_ALOUD_CONTROL"
+        private const val ACTION_SHOW = "com.jacklee.midu.READER_ALOUD_SHOW"
+        private const val ACTION_CONTROL = "com.jacklee.midu.READER_ALOUD_CONTROL"
         private const val EXTRA_CONTROL = "control"
         private const val CHANNEL_ID = "reader_aloud"
         private const val NOTIFICATION_ID = 9201

@@ -19,7 +19,7 @@ class DatabaseService {
   DatabaseService._internal();
 
   static Database? _database;
-  static const String _dbName = 'xxread_v2.db';
+  static const String _dbName = 'midu_v2.db';
   static const int _dbVersion = 21;
   static Future<Database>? _openingDatabase;
 

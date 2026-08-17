@@ -8,7 +8,7 @@
 PRODUCT_NAME = 开元阅读
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.niki.xxread
+PRODUCT_BUNDLE_IDENTIFIER = com.jacklee.midu
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 Open Reading contributors. AGPL-3.0.

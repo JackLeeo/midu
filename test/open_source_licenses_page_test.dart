@@ -18,7 +18,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('开源许可'), findsOneWidget);
-    expect(find.text('Open Reading'), findsOneWidget);
+    expect(find.text('米读'), findsOneWidget);
     expect(find.text('GNU Affero General Public License v3.0'), findsOneWidget);
     expect(find.text('Noto Serif SC / Source Han Serif'), findsOneWidget);
 
@@ -74,7 +74,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('open-reading-agpl-license')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Open Reading · AGPL-3.0'), findsOneWidget);
+    expect(find.text('米读 · AGPL-3.0'), findsOneWidget);
     expect(
       find.byWidgetPredicate(
         (widget) =>

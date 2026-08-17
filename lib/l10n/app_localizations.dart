@@ -272,7 +272,7 @@ abstract class AppLocalizations {
   /// No description provided for @bookSourcesNoSourcesDescription.
   ///
   /// In en, this message translates to:
-  /// **'Paste the address of a service compatible with the Open Reading Source Protocol.'**
+  /// **'Paste the address of a service compatible with the MiDu Source Protocol.'**
   String get bookSourcesNoSourcesDescription;
 
   /// No description provided for @bookSourcesManageTitle.
@@ -492,7 +492,7 @@ abstract class AppLocalizations {
   /// No description provided for @bookSourcesProtocolTitle.
   ///
   /// In en, this message translates to:
-  /// **'Open Reading Source Protocol'**
+  /// **'MiDu Source Protocol'**
   String get bookSourcesProtocolTitle;
 
   /// No description provided for @bookSourcesProtocolDescription.
@@ -1044,7 +1044,7 @@ abstract class AppLocalizations {
   /// Bilingual font preview sample
   ///
   /// In en, this message translates to:
-  /// **'Open Reading · Read freely 开卷有益'**
+  /// **'MiDu · Read freely 开卷有益'**
   String get fontPreviewText;
 
   /// No description provided for @customFonts.
@@ -3857,7 +3857,7 @@ abstract class AppLocalizations {
   /// Accessibility label for the paper shown in the first-home support introduction
   ///
   /// In en, this message translates to:
-  /// **'A letter from the Open Reading developer asking for voluntary support'**
+  /// **'A letter from the MiDu developer asking for voluntary support'**
   String get firstHomeSupportPaperSemanticLabel;
 
   /// Title of the voluntary developer support card
@@ -3869,7 +3869,7 @@ abstract class AppLocalizations {
   /// Explanation shown on the voluntary developer support card
   ///
   /// In en, this message translates to:
-  /// **'Building and maintaining Open Reading takes substantial time and effort. If it helps you, voluntary donations are welcome.'**
+  /// **'Building and maintaining MiDu takes substantial time and effort. If it helps you, voluntary donations are welcome.'**
   String get settingsSupportDevelopmentCardSubtitle;
 
   /// Action label that opens the WeChat donation QR code
@@ -4001,7 +4001,7 @@ abstract class AppLocalizations {
   /// No description provided for @openSourceLicensesIntro.
   ///
   /// In en, this message translates to:
-  /// **'These license texts are available offline in the app. Open Reading, bundled fonts, and third-party software remain subject to their respective licenses.'**
+  /// **'These license texts are available offline in the app. MiDu, bundled fonts, and third-party software remain subject to their respective licenses.'**
   String get openSourceLicensesIntro;
 
   /// No description provided for @openSourceProjectSection.
@@ -4043,7 +4043,7 @@ abstract class AppLocalizations {
   /// No description provided for @openSourceLicenseLegalese.
   ///
   /// In en, this message translates to:
-  /// **'Open Reading and third-party components remain subject to their respective licenses.'**
+  /// **'MiDu and third-party components remain subject to their respective licenses.'**
   String get openSourceLicenseLegalese;
 
   /// No description provided for @openSourceLicenseLoadFailed.
@@ -4109,7 +4109,7 @@ abstract class AppLocalizations {
   /// Subtitle of the contributors card
   ///
   /// In en, this message translates to:
-  /// **'Thanks to everyone making Open Reading better'**
+  /// **'Thanks to everyone making MiDu better'**
   String get contributorsSubtitle;
 
   /// Toast when a contributor profile link fails to open
@@ -4511,7 +4511,7 @@ abstract class AppLocalizations {
   /// Display name of the app in the about card
   ///
   /// In en, this message translates to:
-  /// **'Open Reading'**
+  /// **'MiDu'**
   String get settingsAppName;
 
   /// Author line in the about card
@@ -5783,13 +5783,13 @@ abstract class AppLocalizations {
   /// No description provided for @importIosSharedDocuments.
   ///
   /// In en, this message translates to:
-  /// **'On My iPhone · Open Reading'**
+  /// **'On My iPhone · MiDu'**
   String get importIosSharedDocuments;
 
   /// No description provided for @importICloudDrive.
   ///
   /// In en, this message translates to:
-  /// **'iCloud Drive · Open Reading'**
+  /// **'iCloud Drive · MiDu'**
   String get importICloudDrive;
 
   /// No description provided for @importICloudUnavailable.
@@ -6877,7 +6877,7 @@ abstract class AppLocalizations {
   /// User agreement V2 source boundary point 1
   ///
   /// In en, this message translates to:
-  /// **'The official project provides open-source reader software and the Open Reading Source Protocol only. It provides no source addresses or official source directory.'**
+  /// **'The official project provides open-source reader software and the MiDu Source Protocol only. It provides no source addresses or official source directory.'**
   String get agreementV2SourceBoundaryPoint1;
 
   /// User agreement V2 source boundary point 2
@@ -6963,18 +6963,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'MiDu is local-first. Books, reading progress, notes, and settings are normally stored on your device. Unless you enable a network book source, AI, sync, or another online feature, the app does not need to send book text to the developers to provide local reading. Automatic and manual update checks contact GitHub and the official site at github.com/JackLeeo/midu with necessary technical parameters such as platform, processor architecture, and release channel; their servers process your IP address and User-Agent as part of ordinary network communication. When you download an installer from the official site, the backend records the version, architecture, download time, IP address, and User-Agent for download counts, security protection, and troubleshooting. Download-event records containing a raw IP are retained for no more than 30 days and then deleted; only aggregate statistics without raw IP addresses are kept longer. Update requests do not include book text, your library, notes, an account, or a unique device identifier. GitHub requests are also governed by GitHub’s privacy terms. When another online feature is used, queries, selected text, network information, or necessary parameters may be sent to the provider you selected under that provider’s policies. Protect your device, API keys, and backups; uninstalling, clearing data, device failure, or user error may permanently erase data.'**
   String get agreementV2Section6Body;
-
-  /// User agreement V2 section 7 title
-  ///
-  /// In en, this message translates to:
-  /// **'AI and automated output'**
-  String get agreementV2Section7Title;
-
-  /// User agreement V2 section 7 body
-  ///
-  /// In en, this message translates to:
-  /// **'AI summaries, answers, translations, recommendations, and other generated output may be inaccurate, incomplete, outdated, or misleading. They are reading aids only and are not legal, medical, financial, academic, or other professional advice. Verify output independently and do not rely on it for high-risk decisions. Material submitted to an AI provider is also governed by that provider’s terms.'**
-  String get agreementV2Section7Body;
 
   /// User agreement V2 section 8 title
   ///

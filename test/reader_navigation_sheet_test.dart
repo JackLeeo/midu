@@ -8,7 +8,7 @@ import 'package:midu/widgets/open_reading_icons.dart';
 import 'package:midu/widgets/reader_navigation_sheet.dart';
 
 void main() {
-  testWidgets('Open Reading current-position icon assets are bundled', (
+  testWidgets('MiDu current-position icon assets are bundled', (
     tester,
   ) async {
     final svg = await rootBundle.load(OpenReadingIconAssets.currentReadingSvg);

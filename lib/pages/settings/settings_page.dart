@@ -2111,7 +2111,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _openOfficialWebsite() async {
     final ok = await launchUrl(
-      Uri.parse('https://open.xxread.top/'),
+      Uri.parse('https://github.com/JackLeeo/midu'),
       mode: LaunchMode.externalApplication,
     );
     if (!ok && mounted) {
@@ -2125,7 +2125,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _openTelegramChannel() async {
-    final uri = Uri.parse('https://t.me/origoreading');
+    final uri = Uri.parse('https://github.com/JackLeeo/midu');
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
       showSideToast(

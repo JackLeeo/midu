@@ -60,8 +60,8 @@ Future<void> _unmountReader(WidgetTester tester) async {
 }
 
 void main() {
-  const fullscreenChannel = MethodChannel('com.niki.xxread/fullscreen');
-  const readerKeysChannel = MethodChannel('com.niki.xxread/reader_keys');
+  const fullscreenChannel = MethodChannel('com.jacklee.midu/fullscreen');
+  const readerKeysChannel = MethodChannel('com.jacklee.midu/reader_keys');
 
   setUp(() {
     SharedPreferences.setMockInitialValues(<String, Object>{});

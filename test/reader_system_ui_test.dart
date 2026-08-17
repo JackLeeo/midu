@@ -7,8 +7,8 @@ import 'package:midu/core/reader/reader_system_ui.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const channel = MethodChannel('com.niki.xxread/fullscreen');
-  const iosChannel = MethodChannel('com.niki.xxread/reader_ui');
+  const channel = MethodChannel('com.jacklee.midu/fullscreen');
+  const iosChannel = MethodChannel('com.jacklee.midu/reader_ui');
   final calls = <MethodCall>[];
   final iosCalls = <MethodCall>[];
 

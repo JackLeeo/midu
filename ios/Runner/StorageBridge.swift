@@ -3,8 +3,8 @@ import Foundation
 import UIKit
 
 final class StorageBridge: NSObject, UIDocumentPickerDelegate {
-  private static let channelName = "com.niki.xxread/storage"
-  private static let containerIdentifier = "iCloud.com.niki.xxread"
+  private static let channelName = "com.jacklee.midu/storage"
+  private static let containerIdentifier = "iCloud.com.jacklee.midu"
 
   private let channel: FlutterMethodChannel
   private let fileManager: FileManager

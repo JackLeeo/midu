@@ -105,7 +105,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get bookSourcesNoSourcesDescription =>
-      'Paste the address of a service compatible with the Open Reading Source Protocol.';
+      'Paste the address of a service compatible with the MiDu Source Protocol.';
 
   @override
   String get bookSourcesManageTitle => 'Connected sources';
@@ -227,7 +227,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get bookSourcesRefreshFailed => 'Could not refresh this book source';
 
   @override
-  String get bookSourcesProtocolTitle => 'Open Reading Source Protocol';
+  String get bookSourcesProtocolTitle => 'MiDu Source Protocol';
 
   @override
   String get bookSourcesProtocolDescription =>
@@ -515,7 +515,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Fixed-width type suited to code, technical material, and focused layouts.';
 
   @override
-  String get fontPreviewText => 'Open Reading · Read freely 开卷有益';
+  String get fontPreviewText => 'MiDu · Read freely 开卷有益';
 
   @override
   String get customFonts => 'My fonts';
@@ -2130,7 +2130,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get firstHomeSupportPaperSemanticLabel =>
-      'A letter from the Open Reading developer asking for voluntary support';
+      'A letter from the MiDu developer asking for voluntary support';
 
   @override
   String get settingsSupportDevelopmentCardTitle =>
@@ -2138,7 +2138,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsSupportDevelopmentCardSubtitle =>
-      'Building and maintaining Open Reading takes substantial time and effort. If it helps you, voluntary donations are welcome.';
+      'Building and maintaining MiDu takes substantial time and effort. If it helps you, voluntary donations are welcome.';
 
   @override
   String get settingsDonationAction => 'Donate with WeChat';
@@ -2212,7 +2212,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get openSourceLicensesIntro =>
-      'These license texts are available offline in the app. Open Reading, bundled fonts, and third-party software remain subject to their respective licenses.';
+      'These license texts are available offline in the app. MiDu, bundled fonts, and third-party software remain subject to their respective licenses.';
 
   @override
   String get openSourceProjectSection => 'Project licenses';
@@ -2235,7 +2235,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get openSourceLicenseLegalese =>
-      'Open Reading and third-party components remain subject to their respective licenses.';
+      'MiDu and third-party components remain subject to their respective licenses.';
 
   @override
   String get openSourceLicenseLoadFailed => 'Could not load the license text.';
@@ -2269,8 +2269,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get contributorsTitle => 'Contributors';
 
   @override
-  String get contributorsSubtitle =>
-      'Thanks to everyone making Open Reading better';
+  String get contributorsSubtitle => 'Thanks to everyone making MiDu better';
 
   @override
   String get contributorsOpenProfileFailed =>
@@ -2497,7 +2496,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsAboutTitle => 'About';
 
   @override
-  String get settingsAppName => 'Open Reading';
+  String get settingsAppName => 'MiDu';
 
   @override
   String get settingsAuthor => 'Maintainer: 小元Niki';
@@ -3223,10 +3222,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get importSelectFiles => 'Choose files';
 
   @override
-  String get importIosSharedDocuments => 'On My iPhone · Open Reading';
+  String get importIosSharedDocuments => 'On My iPhone · MiDu';
 
   @override
-  String get importICloudDrive => 'iCloud Drive · Open Reading';
+  String get importICloudDrive => 'iCloud Drive · MiDu';
 
   @override
   String get importICloudUnavailable => 'iCloud Drive is unavailable';
@@ -3892,7 +3891,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get agreementV2SourceBoundaryPoint1 =>
-      'The official project provides open-source reader software and the Open Reading Source Protocol only. It provides no source addresses or official source directory.';
+      'The official project provides open-source reader software and the MiDu Source Protocol only. It provides no source addresses or official source directory.';
 
   @override
   String get agreementV2SourceBoundaryPoint2 =>
@@ -3943,13 +3942,6 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get agreementV2Section6Body =>
       'MiDu is local-first. Books, reading progress, notes, and settings are normally stored on your device. Unless you enable a network book source, AI, sync, or another online feature, the app does not need to send book text to the developers to provide local reading. Automatic and manual update checks contact GitHub and the official site at github.com/JackLeeo/midu with necessary technical parameters such as platform, processor architecture, and release channel; their servers process your IP address and User-Agent as part of ordinary network communication. When you download an installer from the official site, the backend records the version, architecture, download time, IP address, and User-Agent for download counts, security protection, and troubleshooting. Download-event records containing a raw IP are retained for no more than 30 days and then deleted; only aggregate statistics without raw IP addresses are kept longer. Update requests do not include book text, your library, notes, an account, or a unique device identifier. GitHub requests are also governed by GitHub’s privacy terms. When another online feature is used, queries, selected text, network information, or necessary parameters may be sent to the provider you selected under that provider’s policies. Protect your device, API keys, and backups; uninstalling, clearing data, device failure, or user error may permanently erase data.';
-
-  @override
-  String get agreementV2Section7Title => 'AI and automated output';
-
-  @override
-  String get agreementV2Section7Body =>
-      'AI summaries, answers, translations, recommendations, and other generated output may be inaccurate, incomplete, outdated, or misleading. They are reading aids only and are not legal, medical, financial, academic, or other professional advice. Verify output independently and do not rely on it for high-risk decisions. Material submitted to an AI provider is also governed by that provider’s terms.';
 
   @override
   String get agreementV2Section8Title => 'Disclaimer of warranties';

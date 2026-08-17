@@ -19,7 +19,7 @@ abstract interface class IncomingBookRequestSource {
 class IncomingBookPlatformBridge implements IncomingBookRequestSource {
   IncomingBookPlatformBridge({MethodChannel? channel})
     : _channel =
-          channel ?? const MethodChannel('com.niki.xxread/incoming_books') {
+          channel ?? const MethodChannel('com.jacklee.midu/incoming_books') {
     _generation = ++_latestGeneration;
     _channel.setMethodCallHandler(_handleNativeCall);
   }

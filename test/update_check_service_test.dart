@@ -19,7 +19,7 @@ void main() {
   test('parses the GitHub release payload used by the update dialog', () {
     final release = AppRelease.fromGithubJson({
       'tag_name': 'v1.2.3',
-      'name': 'Open Reading v1.2.3',
+      'name': '米读 v1.2.3',
       'body': 'Bug fixes and improvements',
       'html_url':
           'https://github.com/miloquinn/open-reading/releases/tag/v1.2.3',
@@ -43,10 +43,10 @@ void main() {
         'package_type': 'apk',
         'release_notes': 'Official website updates.',
         'download_url':
-            'https://open.xxread.top/download/file/open-reading-arm64.apk',
+            'https://github.com/JackLeeo/midu/download/file/open-reading-arm64.apk',
         'github_release_url':
             'https://github.com/miloquinn/open-reading/releases/tag/v2.2.0',
-        'website_url': 'https://open.xxread.top/download',
+        'website_url': 'https://github.com/JackLeeo/midu/releases',
         'sha256': 'a' * 64,
         'file_size': 63400000,
         'published_at': '2026-07-19T00:00:00Z',
@@ -73,7 +73,7 @@ void main() {
         'download_url': 'https://example.com/open-reading.apk',
         'github_release_url':
             'https://github.com/miloquinn/open-reading/releases/tag/v2.2.0',
-        'website_url': 'https://open.xxread.top/download',
+        'website_url': 'https://github.com/JackLeeo/midu/releases',
         'sha256': 'a' * 64,
         'file_size': 42,
       }),
@@ -113,7 +113,7 @@ void main() {
           'package_type': 'apk',
           'build_number': '16119',
           'download_url':
-              'https://open.xxread.top/download/file/open-reading-x64.apk',
+              'https://github.com/JackLeeo/midu/download/file/open-reading-x64.apk',
           'sha256': 'b' * 64,
           'file_size': 42,
         },
@@ -156,7 +156,7 @@ void main() {
     );
     AppRelease github(String version) => AppRelease(
       version: version,
-      name: 'Open Reading v$version',
+      name: '米读 v$version',
       notes: 'GitHub notes',
       releaseUrl: Uri.parse(
         'https://github.com/miloquinn/open-reading/releases/tag/v$version',
@@ -235,10 +235,10 @@ Map<String, dynamic> _websitePayload() => {
   'package_type': 'apk',
   'release_notes': 'Official website updates.',
   'download_url':
-      'https://open.xxread.top/download/file/open-reading-arm64.apk',
+      'https://github.com/JackLeeo/midu/download/file/open-reading-arm64.apk',
   'github_release_url':
       'https://github.com/miloquinn/open-reading/releases/tag/v2.2.0',
-  'website_url': 'https://open.xxread.top/download',
+  'website_url': 'https://github.com/JackLeeo/midu/releases',
   'sha256': 'a' * 64,
   'file_size': 63400000,
   'published_at': '2026-07-19T00:00:00Z',

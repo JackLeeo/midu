@@ -37,7 +37,7 @@ class BackgroundDownloadNotifier {
   BackgroundDownloadNotifier._();
 
   static const MethodChannel _channel = MethodChannel(
-    'com.niki.xxread/background_downloads',
+    'com.jacklee.midu/background_downloads',
   );
   static final StreamController<BackgroundDownloadTap> _taps =
       StreamController<BackgroundDownloadTap>.broadcast();

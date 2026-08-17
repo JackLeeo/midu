@@ -7,7 +7,7 @@ import 'package:midu/core/reader/reader_volume_key_controller.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const channel = MethodChannel('com.niki.xxread/reader_keys');
+  const channel = MethodChannel('com.jacklee.midu/reader_keys');
   final calls = <MethodCall>[];
   late Object owner;
 

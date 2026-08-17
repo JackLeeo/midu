@@ -1,4 +1,4 @@
-package com.niki.xxread
+package com.jacklee.midu
 
 import android.annotation.TargetApi
 import android.app.Notification
@@ -48,7 +48,7 @@ data class DownloadNotificationTask(
 
 class DownloadForegroundService : Service() {
     companion object {
-        private const val ACTION_UPDATE = "com.niki.xxread.DOWNLOAD_NOTIFICATION_UPDATE"
+        private const val ACTION_UPDATE = "com.jacklee.midu.DOWNLOAD_NOTIFICATION_UPDATE"
         private const val EXTRA_ACTION = "action"
         private const val PROGRESS_CHANNEL = "background_download_progress"
         private const val COMPLETE_CHANNEL = "background_download_complete"

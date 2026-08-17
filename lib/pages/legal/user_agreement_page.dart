@@ -305,10 +305,6 @@ class _UserAgreementPageState extends State<UserAgreementPage>
         context.l10n.agreementV2Section6Body,
       ),
       (
-        context.l10n.agreementV2Section7Title,
-        context.l10n.agreementV2Section7Body,
-      ),
-      (
         context.l10n.agreementV2Section8Title,
         context.l10n.agreementV2Section8Body,
       ),
@@ -733,7 +729,7 @@ class _PaperGrainPainter extends CustomPainter {
 }
 
 class UserAgreementService {
-  static const String currentAgreementVersion = '2026-07-19.2';
+  static const String currentAgreementVersion = '2026-08-17.1';
   static const String _keyAgreementAccepted = 'userAgreementAccepted';
   static const String _keyAcceptedDate = 'agreementAcceptedDate';
   static const String _keyAcceptedVersion = 'agreementAcceptedVersion';

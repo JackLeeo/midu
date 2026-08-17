@@ -1,4 +1,4 @@
-package com.niki.xxread
+package com.jacklee.midu
 
 import android.Manifest
 import android.app.Activity
@@ -14,9 +14,9 @@ class BackgroundDownloadBridge(
     messenger: BinaryMessenger,
 ) : MethodChannel.MethodCallHandler {
     companion object {
-        private const val CHANNEL = "com.niki.xxread/background_downloads"
+        private const val CHANNEL = "com.jacklee.midu/background_downloads"
         private const val NOTIFICATION_PERMISSION_REQUEST = 41272
-        const val ACTION_NOTIFICATION_TAP = "com.niki.xxread.BACKGROUND_DOWNLOAD_TAP"
+        const val ACTION_NOTIFICATION_TAP = "com.jacklee.midu.BACKGROUND_DOWNLOAD_TAP"
     }
 
     private val channel = MethodChannel(messenger, CHANNEL)

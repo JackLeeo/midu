@@ -362,7 +362,7 @@ class _HomeShellPageState extends State<HomeShellPage> {
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: overlayStyle,
-      child: Positioned.fill(child: content),
+      child: content,
     );
   }
 }

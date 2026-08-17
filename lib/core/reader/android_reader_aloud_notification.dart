@@ -11,7 +11,7 @@ class AndroidReaderAloudNotification implements ReaderAloudNotificationSink {
   static final AndroidReaderAloudNotification instance =
       AndroidReaderAloudNotification._();
   static const MethodChannel _channel = MethodChannel(
-    'com.niki.xxread/reader_aloud',
+    'com.jacklee.midu/reader_aloud',
   );
 
   final StreamController<ReaderAloudControl> _controls =

@@ -1,4 +1,4 @@
-package com.niki.xxread
+package com.jacklee.midu
 
 import android.Manifest
 import android.app.Activity
@@ -15,7 +15,7 @@ class ReaderAloudBridge(
     messenger: BinaryMessenger,
 ) : MethodChannel.MethodCallHandler {
     companion object {
-        private const val CHANNEL = "com.niki.xxread/reader_aloud"
+        private const val CHANNEL = "com.jacklee.midu/reader_aloud"
         private const val NOTIFICATION_PERMISSION_REQUEST = 41273
         private val mainHandler = Handler(Looper.getMainLooper())
 

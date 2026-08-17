@@ -18,9 +18,9 @@ import 'package:midu/widgets/reader_top_information_bar.dart';
 
 void main() {
   late File bookFile;
-  const fullscreenChannel = MethodChannel('com.niki.xxread/fullscreen');
-  const readerKeysChannel = MethodChannel('com.niki.xxread/reader_keys');
-  const readerStatusChannel = MethodChannel('com.niki.xxread/reader_status');
+  const fullscreenChannel = MethodChannel('com.jacklee.midu/fullscreen');
+  const readerKeysChannel = MethodChannel('com.jacklee.midu/reader_keys');
+  const readerStatusChannel = MethodChannel('com.jacklee.midu/reader_status');
 
   setUp(() {
     SharedPreferences.setMockInitialValues({

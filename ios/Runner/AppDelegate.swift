@@ -77,7 +77,7 @@ import UIKit
     }
 
     let readerUIChannel = FlutterMethodChannel(
-      name: "com.niki.xxread/reader_ui",
+      name: "com.jacklee.midu/reader_ui",
       binaryMessenger: messenger
     )
     readerUIChannel.setMethodCallHandler { [weak self] (call: FlutterMethodCall, result: @escaping FlutterResult) in
@@ -103,7 +103,7 @@ import UIKit
     }
 
     let readerStatusChannel = FlutterMethodChannel(
-      name: "com.niki.xxread/reader_status",
+      name: "com.jacklee.midu/reader_status",
       binaryMessenger: messenger
     )
     readerStatusChannel.setMethodCallHandler { (call: FlutterMethodCall, result: @escaping FlutterResult) in

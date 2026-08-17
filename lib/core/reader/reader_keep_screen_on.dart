@@ -10,7 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 abstract final class ReaderKeepScreenOnController {
   static const String preferenceKey = 'keepScreenOn';
   static const MethodChannel _channel = MethodChannel(
-    'com.niki.xxread/fullscreen',
+    'com.jacklee.midu/fullscreen',
   );
 
   static final Set<Object> _activeReaders = LinkedHashSet<Object>.identity();

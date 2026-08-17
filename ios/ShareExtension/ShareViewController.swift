@@ -66,7 +66,7 @@ final class ShareViewController: SLComposeServiceViewController {
     }
 
     let group = DispatchGroup()
-    let resultQueue = DispatchQueue(label: "com.niki.xxread.share-extension.results")
+    let resultQueue = DispatchQueue(label: "com.jacklee.midu.share-extension.results")
     let copyBudget = ShareCopyBudget()
     var relativePaths: [Int: String] = [:]
     var reservedDisplayNames = Set<String>()

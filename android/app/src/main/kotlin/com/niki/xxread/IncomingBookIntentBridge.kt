@@ -1,4 +1,4 @@
-package com.niki.xxread
+package com.jacklee.midu
 
 import android.app.Activity
 import android.content.ClipData
@@ -32,9 +32,9 @@ class IncomingBookIntentBridge(
     messenger: BinaryMessenger,
 ) : MethodChannel.MethodCallHandler {
     companion object {
-        private const val CHANNEL = "com.niki.xxread/incoming_books"
+        private const val CHANNEL = "com.jacklee.midu/incoming_books"
         private const val EVENT_METHOD = "incomingBooks"
-        private const val PROCESSED_EXTRA = "com.niki.xxread.INCOMING_BOOK_INTENT_PROCESSED"
+        private const val PROCESSED_EXTRA = "com.jacklee.midu.INCOMING_BOOK_INTENT_PROCESSED"
         private const val MAX_ITEM_COUNT = 10
         private const val MAX_FILE_BYTES = 500L * 1024L * 1024L
         private const val MAX_AGGREGATE_BYTES = 500L * 1024L * 1024L

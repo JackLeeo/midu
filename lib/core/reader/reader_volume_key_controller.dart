@@ -8,7 +8,7 @@ class ReaderVolumeKeyController {
 
   static const preferenceKey = 'enableVolumeKeyTurn';
   static const MethodChannel _androidChannel = MethodChannel(
-    'com.niki.xxread/reader_keys',
+    'com.jacklee.midu/reader_keys',
   );
 
   static Object? _activeOwner;

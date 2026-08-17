@@ -21,7 +21,7 @@ class MethodChannelReaderBatteryStatusSource
   const MethodChannelReaderBatteryStatusSource();
 
   static const MethodChannel _channel = MethodChannel(
-    'com.niki.xxread/reader_status',
+    'com.jacklee.midu/reader_status',
   );
 
   @override

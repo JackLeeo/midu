@@ -109,7 +109,7 @@ class AppRelease {
       'url',
     ]);
     final websiteUrl = _firstString(payload, ['website_url']).isEmpty
-        ? 'https://open.xxread.top/download'
+        ? 'https://github.com/JackLeeo/midu/releases'
         : _firstString(payload, ['website_url']);
     final sha256 = _string(payload, 'sha256').toLowerCase();
     final fileSize = _integer(payload['file_size'] ?? payload['size']);
@@ -137,7 +137,7 @@ class AppRelease {
 
     return AppRelease(
       version: version,
-      name: 'Open Reading v$version',
+      name: '米读 v$version',
       notes: _firstString(payload, ['release_notes', 'notes', 'body']),
       releaseUrl: Uri.parse(githubUrl),
       publishedAt: DateTime.tryParse(_string(payload, 'published_at')),
@@ -186,7 +186,7 @@ class UpdateTarget {
   final String platform;
   final String? architecture;
 
-  static const _channel = MethodChannel('com.niki.xxread/app_update');
+  static const _channel = MethodChannel('com.jacklee.midu/app_update');
 
   static Future<UpdateTarget> current() async {
     final platform = switch (defaultTargetPlatform) {
@@ -228,7 +228,7 @@ class UpdateCheckService {
   static const githubLatestReleaseUrl =
       'https://api.github.com/repos/miloquinn/open-reading/releases/latest';
   static const websiteLatestReleaseUrl =
-      'https://open.xxread.top/api/v1/releases/latest';
+      'https://github.com/JackLeeo/midu/releases/latest';
 
   final Dio _dio;
   final UpdateTargetResolver _targetResolver;
@@ -371,7 +371,7 @@ bool _isAllowedOfficialUrl(String value) {
   final uri = Uri.tryParse(value);
   return uri != null &&
       uri.scheme == 'https' &&
-      uri.host.toLowerCase() == 'open.xxread.top';
+      uri.host.toLowerCase() == 'github.com';
 }
 
 bool _isValidVersion(String value) => RegExp(

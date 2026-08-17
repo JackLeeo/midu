@@ -7,7 +7,7 @@ import 'package:midu/core/reader/reader_keep_screen_on.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const channel = MethodChannel('com.niki.xxread/fullscreen');
+  const channel = MethodChannel('com.jacklee.midu/fullscreen');
   final calls = <bool>[];
 
   setUp(() async {

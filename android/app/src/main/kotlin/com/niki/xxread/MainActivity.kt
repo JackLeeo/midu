@@ -1,4 +1,4 @@
-package com.niki.xxread
+package com.jacklee.midu
 
 import io.flutter.embedding.android.FlutterActivity
 import android.os.Bundle
@@ -17,9 +17,9 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 
 class MainActivity : FlutterActivity() {
-    private val CHANNEL = "com.niki.xxread/fullscreen"
-    private val READER_KEYS_CHANNEL = "com.niki.xxread/reader_keys"
-    private val READER_STATUS_CHANNEL = "com.niki.xxread/reader_status"
+    private val CHANNEL = "com.jacklee.midu/fullscreen"
+    private val READER_KEYS_CHANNEL = "com.jacklee.midu/reader_keys"
+    private val READER_STATUS_CHANNEL = "com.jacklee.midu/reader_status"
     private var readerKeysChannel: MethodChannel? = null
     private var safDirectoryBridge: SafDirectoryBridge? = null
     private var incomingBookIntentBridge: IncomingBookIntentBridge? = null

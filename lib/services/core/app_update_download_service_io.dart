@@ -45,7 +45,7 @@ class AppUpdateDownloadService {
             ),
           );
 
-  static const _channel = MethodChannel('com.niki.xxread/app_update');
+  static const _channel = MethodChannel('com.jacklee.midu/app_update');
 
   final Dio _dio;
 
@@ -67,7 +67,7 @@ class AppUpdateDownloadService {
     final notificationTask = BackgroundDownloadTask(
       id: 'app-update:${asset.buildNumber}',
       kind: BackgroundDownloadKind.update,
-      title: 'Open Reading ${asset.buildNumber}',
+      title: '米读 ${asset.buildNumber}',
     );
     await _notify(() => BackgroundDownloadNotifier.begin(notificationTask));
 
@@ -258,7 +258,7 @@ Future<void> _clearOldUpdateFiles(Directory updatesDirectory) async {
 }
 
 bool _isAllowedDownloadUri(Uri uri) =>
-    uri.scheme == 'https' && uri.host.toLowerCase() == 'open.xxread.top';
+    uri.scheme == 'https' && uri.host.toLowerCase() == 'github.com';
 
 extension on File {
   Future<void> deleteIfExists() async {

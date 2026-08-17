@@ -190,7 +190,7 @@ class SyncEngine {
     } catch (_) {
       throw const WebDavSyncFailure(
         WebDavSyncErrorCode.serverIncompatible,
-        'This remote folder contains an unsupported Open Reading sync space.',
+        'This remote folder contains an unsupported MiDu sync space.',
       );
     }
   }
