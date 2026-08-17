@@ -11,18 +11,20 @@ import 'legado_request.dart';
 import 'legado_rule_engine.dart';
 
 class LegadoRuntime {
-  LegadoRuntime({LegadoTransport? transport, LegadoFjsSandbox? sandbox})
+  LegadoRuntime({LegadoTransport? transport, LegadoJsSandbox? sandbox})
     : _transport = transport ?? LegadoHttpTransport(),
-      _sandbox = sandbox ?? LegadoFjsSandbox(),
-      _rules = LegadoRuleEngine(sandbox: sandbox ?? LegadoFjsSandbox());
+      _sandbox = sandbox ?? LegadoFjsSandbox();
 
   static const int _maxSearchItems = 100;
   static const int _maxChapters = 30000;
   static const int _maxPageHops = 20;
 
   final LegadoTransport _transport;
-  final LegadoFjsSandbox _sandbox;
-  final LegadoRuleEngine _rules;
+  final LegadoJsSandbox _sandbox;
+
+  /// 与 [_sandbox] 共享同一实例：保证规则引擎 @put/@get 与 JS source.put/get
+  /// 的变量在运行时与规则引擎间互通（此前各建一个实例导致变量互相不可见）。
+  late final LegadoRuleEngine _rules = LegadoRuleEngine(sandbox: _sandbox);
   bool _sandboxInited = false;
 
   Future<void> _ensureSandbox() async {

@@ -20,10 +20,35 @@ import 'package:crypto/crypto.dart';
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html_parser;
 
+/// Legado 书源 JS 沙箱统一接口。
+///
+/// 生产实现：[LegadoFjsSandbox]（fjs Rust + QuickJS，全端可用）。
+/// 测试实现：flutter_js（QuickJS FFI），用于本机 flutter test 中执行真实
+/// 书源的 @js / <js> 规则（见 test/helpers/flutter_js_sandbox.dart）。
+abstract class LegadoJsSandbox {
+  Future<void> init();
+
+  Future<void> dispose();
+
+  /// 读取规则 @put / source.put 存入的变量（跨规则/跨请求共享）。
+  String? getSourceVar(String key);
+
+  /// 写入规则 @put / source.put 变量。
+  void putSourceVar(String key, String value);
+
+  /// 执行一段 JS 规则（可带 @js: 或 <js>...</js> 标记），返回 result / finalResult 寄存器的字符串值。
+  Future<String> evalJs(
+    String rawCode, {
+    String? docHtml,
+    Uri? baseUri,
+    Map<String, dynamic> extraGlobals = const {},
+  });
+}
+
 /// FJS QuickJS 沙箱包装，提供 Legado 书源 JS 所需 polyfill。
 ///
 /// 单沙箱实例应与 LegadoRuntime 生命周期绑定（对应一个注册源或全局复用）。
-class LegadoFjsSandbox {
+class LegadoFjsSandbox implements LegadoJsSandbox {
   LegadoFjsSandbox();
 
   JsEngine? _engine;
@@ -33,9 +58,11 @@ class LegadoFjsSandbox {
   final Map<String, String> _sourceVars = <String, String>{};
 
   /// 读取规则 @put 存入的变量（跨规则/跨请求共享）。
+  @override
   String? getSourceVar(String key) => _sourceVars[key];
 
   /// 写入规则 @put 变量。
+  @override
   void putSourceVar(String key, String value) => _sourceVars[key] = value;
 
   /// 当前 HTML（用于 document 查询）
@@ -45,6 +72,7 @@ class LegadoFjsSandbox {
 
   static bool _libInited = false;
 
+  @override
   Future<void> init() async {
     if (_inited) return;
     if (!_libInited) {
@@ -71,6 +99,7 @@ class LegadoFjsSandbox {
     _inited = true;
   }
 
+  @override
   Future<void> dispose() async {
     final engine = _engine;
     if (engine != null) {
@@ -89,6 +118,7 @@ class LegadoFjsSandbox {
   /// 执行一段 JS 规则（可带 @js: 或 <js>...</js> 标记），返回 result / finalResult 寄存器的字符串值。
   ///
   /// 执行前会把 docHtml 同步到 JS 侧的 document 对象。
+  @override
   Future<String> evalJs(
     String rawCode, {
     String? docHtml,
@@ -107,22 +137,47 @@ class LegadoFjsSandbox {
     }
     await _syncDocumentBindings(engine);
 
-    // 设置全局额外变量（例如 search keyword、page）
+    // 设置全局额外变量（例如 search keyword、page；result/finalResult 是
+    // 特殊寄存器，稍后注入，避免被注册表重置覆盖）
     for (final entry in extraGlobals.entries) {
+      if (entry.key == 'result' || entry.key == 'finalResult') continue;
       final jsCode = _assignmentExpr(entry.key, entry.value);
       await _safeEval(engine, jsCode);
     }
     // 清空 result/finalResult 寄存器
     await _safeEval(engine, 'var result = ""; var finalResult = "";');
+    // 中段 @js: 规则：左侧提取结果作为 result 注入（JS 内可直接读 result，
+    // 如 coverUrl "a@href\n@js:var id=result.match(...)"）。
+    final preResult = extraGlobals['result'];
+    if (preResult is String && preResult.isNotEmpty) {
+      await _safeEval(engine, 'result = ${jsonEncode(preResult)};');
+    }
 
+    // 执行规则：寄存器优先；寄存器为空时用脚本完成值兜底。
+    // 大量真实规则以裸表达式结尾（`https://...` 模板字符串、so+JSON.stringify(post)、
+    // `uData;`），其完成值才是最终结果，仅靠 finalResult/result 寄存器会丢值。
+    Object? completion;
     try {
-      await engine.eval(source: JsCode.code(code));
+      final ev = await engine.eval(source: JsCode.code(code));
+      completion = ev.value;
     } catch (_) {
       // 规则执行失败不抛错，返回空让下游 fallback 接管
     }
-    // 读取寄存器
-    final r = await _safeEval(engine, _kReadRegister);
-    return r == null ? '' : '$r';
+    // 读取结果：finalResult 优先；其次脚本完成值（裸表达式结尾，如
+    // `https://...` 模板字符串 / so+JSON.stringify(post) / `uData;`）；
+    // 最后回落 result（中段 @js: 注入的左侧提取结果，JS 未改动时透传）。
+    final fr = await _safeEval(
+      engine,
+      'typeof finalResult !== "undefined" && finalResult !== null ? String(finalResult) : ""',
+    );
+    if (fr != null && '$fr'.isNotEmpty) return '$fr';
+    final cs = completion is JsValue ? _js2string(completion) : '';
+    if (cs.isNotEmpty) return cs;
+    final rr = await _safeEval(
+      engine,
+      'typeof result !== "undefined" && result !== null ? String(result) : ""',
+    );
+    return rr == null ? '' : '$rr';
   }
 
   // ========= Bridge 分发 =========
@@ -267,6 +322,12 @@ class LegadoFjsSandbox {
           toString: function(arr) { return Array.isArray(arr) ? JSON.stringify(arr) : '[]'; }
         }
       };
+      // java.log 为副作用调用，返回空即可；put/get 复用 source 变量缓存，
+      // 使依赖 java.put/java.get 跨请求存取的规则也能工作。
+      java.log = function(){ return ''; };
+      java.put = function(k, v){ __dart('source_put', k, v == null ? '' : String(v)); return ''; };
+      java.get = function(k){ return __dart('source_get', k); };
+      java.getString = function(k, d){ var s = __dart('source_get', k); return (s === undefined || s === null || s === '') ? (d == null ? '' : String(d)) : String(s); };
 
       // source / cache
       source = {
@@ -359,14 +420,6 @@ class LegadoFjsSandbox {
     if (value is bool || value is num) return 'var $name = $value;';
     return 'var $name = ${jsonEncode('$value')};';
   }
-
-  static const String _kReadRegister = r'''
-    (function(){
-      if (typeof finalResult !== 'undefined' && finalResult !== null && String(finalResult) !== '') return String(finalResult);
-      if (typeof result !== 'undefined' && result !== null) return String(result);
-      return '';
-    })();
-  ''';
 
   static String _stripJsTag(String raw) {
     var s = raw.trim();

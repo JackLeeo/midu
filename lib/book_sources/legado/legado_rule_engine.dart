@@ -37,7 +37,7 @@ class LegadoRuleDocument {
 class LegadoRuleEngine {
   const LegadoRuleEngine({this.sandbox});
 
-  final LegadoFjsSandbox? sandbox;
+  final LegadoJsSandbox? sandbox;
 
   static void ensureSupported(String rule, {required String field}) {
     // 米读：不再禁用 JS / XPath / state 语法，统一走 fjs 沙箱或原生 fallback；
@@ -121,6 +121,65 @@ class LegadoRuleEngine {
     bool resolveUrl = false,
   }) async {
     ensureSupported(rule, field: 'value rule');
+    // 米读：中段 @js: 规则整体路由——先按 @js: 拆分，左侧（可含 ## 正则替换）
+    // 先求值作为 result，再执行 JS。避免 _splitTransform 把 @js: 代码误吞进
+    // 正则 replacement（如 intro: "id.intro@text##pat##rep@js:result.replace(...)"）。
+    final jsMarker = _jsMarkerIndex(rule);
+    if (jsMarker != null) {
+      final left = rule.substring(0, jsMarker.index).trim();
+      final jsPart = rule.substring(jsMarker.index).trim();
+      if (left.isNotEmpty) {
+        final leftResult = await evaluateString(
+          document,
+          context,
+          left,
+          resolveUrl: false,
+        );
+        final jsBody = _stripJsTag(jsPart).trim();
+        // @js:##pattern##replacement 形式：仅对 result 做正则替换（无需 JS）
+        if (jsBody.startsWith('##')) {
+          final transformed = _splitTransform(jsBody);
+          if (transformed.pattern == null) {
+            return resolveUrl
+                ? _resolveUrlString(document, leftResult)
+                : leftResult;
+          }
+          try {
+            final replaced = _replaceRegex(
+              leftResult,
+              RegExp(transformed.pattern!, multiLine: true, dotAll: true),
+              transformed.replacement,
+            );
+            return resolveUrl
+                ? _resolveUrlString(document, replaced)
+                : replaced;
+          } on FormatException {
+            return resolveUrl
+                ? _resolveUrlString(document, leftResult)
+                : leftResult;
+          }
+        }
+        if (jsBody.isEmpty) {
+          return resolveUrl
+              ? _resolveUrlString(document, leftResult)
+              : leftResult;
+        }
+        final jsCode = jsPart.contains('{{')
+            ? await _interpolateJs(jsPart, context ?? document.value, document)
+            : jsPart;
+        final jsValues = await _runJsRule(
+          document,
+          context,
+          jsCode,
+          listMode: false,
+          result: leftResult,
+        );
+        if (jsValues == null || jsValues.isEmpty) return '';
+        var value = _stringValue(jsValues.first);
+        if (resolveUrl && value.isNotEmpty) value = _resolveUrlString(document, value);
+        return value;
+      }
+    }
     final transformed = _splitTransform(rule);
     // 米读：先处理 @put:{...} / @get:{...} 操作符（可能在 ||/&& 拆分前执行，
     // 且 @get 替换结果需要作为字面量返回，而不是再当选择器解析）。
@@ -171,29 +230,33 @@ class LegadoRuleEngine {
     }
     result = result.trim();
     if (resolveUrl && result.isNotEmpty) {
-      // 米读：如果提取结果已是完整绝对 URL（带 scheme），直接返回不再 resolve，
-      // 避免被调用方 LegadoRequestTemplate.parse(source.baseUri) 二次 resolve
-      // 时产生重复路径拼接（饿狼小说 hop=1 的路径重复 bug）。
-      // 以 "//" 开头的协议相对 URL 同样跳过 resolve。
-      if (result.startsWith('http://') ||
-          result.startsWith('https://') ||
-          result.startsWith('//')) {
-        if (result.startsWith('//')) {
-          final scheme =
-              document.baseUri.scheme == 'https' ? 'https:' : 'http:';
-          return '$scheme$result';
-        }
-        return result;
-      }
-      final uri = document.baseUri.resolve(result);
-      if (uri.scheme != 'http' && uri.scheme != 'https') {
-        throw const BookSourceProtocolException(
-          'Legado rule produced a non-HTTP URL.',
-        );
-      }
-      return uri.toString();
+      return _resolveUrlString(document, result);
     }
     return result;
+  }
+
+  /// 把相对 URL 解析为绝对 URL（与 evaluateString 的 resolve 语义一致）。
+  ///
+  /// 提取结果已是完整绝对 URL（带 scheme）或协议相对 URL（// 开头）时直接返回，
+  /// 避免被调用方二次 resolve 产生重复路径拼接。
+  String _resolveUrlString(LegadoRuleDocument document, String value) {
+    if (value.startsWith('http://') ||
+        value.startsWith('https://') ||
+        value.startsWith('//')) {
+      if (value.startsWith('//')) {
+        final scheme =
+            document.baseUri.scheme == 'https' ? 'https:' : 'http:';
+        return '$scheme$value';
+      }
+      return value;
+    }
+    final uri = document.baseUri.resolve(value);
+    if (uri.scheme != 'http' && uri.scheme != 'https') {
+      throw const BookSourceProtocolException(
+        'Legado rule produced a non-HTTP URL.',
+      );
+    }
+    return uri.toString();
   }
 
   /// 先处理 @put / @get 操作符，返回清理后的选择器与（可选）字面量结果。
@@ -258,9 +321,9 @@ class LegadoRuleEngine {
     String selector, {
     required bool listMode,
   }) async {
-    for (final fallback in _splitTopLevel(selector, '||')) {
+    for (final fallback in _splitAlternatives(selector)) {
       final concatenated = <Object?>[];
-      for (final part in _splitTopLevel(fallback, '&&')) {
+      for (final part in _splitAlternatives(fallback, andSplit: true)) {
         concatenated.addAll(
           await _evaluateSingle(document, context, part.trim(), listMode: listMode),
         );
@@ -270,6 +333,31 @@ class LegadoRuleEngine {
       }
     }
     return const [];
+  }
+
+  /// 拆分 `||`（及 [andSplit] 时的 `&&`）候选项。
+  ///
+  /// 纯 `@js:`/`<js>` 规则或中段 `@js:` 标记之后的 JS 代码整体作为一个单元，
+  /// 不再拆分——JS 代码内可能有顶层 `||`/`&&`（如 `java.get("跳")==1||re==baseUrl&&...`），
+  /// 误拆会破坏代码。仅 JS 标记之前的提取规则部分按 `||`/`&&` 拆分。
+  List<String> _splitAlternatives(String selector, {bool andSplit = false}) {
+    final delimiter = andSplit ? '&&' : '||';
+    final lower = selector.trimLeft().toLowerCase();
+    if (lower.startsWith('@js:') || lower.startsWith('<js>')) {
+      return [selector];
+    }
+    final marker = _jsMarkerIndex(selector);
+    if (marker != null) {
+      final prefix = selector.substring(0, marker.index);
+      final rest = selector.substring(marker.index);
+      final parts = _splitTopLevel(prefix, delimiter);
+      if (parts.isEmpty) {
+        return [rest];
+      }
+      parts[parts.length - 1] = parts.last + rest;
+      return parts;
+    }
+    return _splitTopLevel(selector, delimiter);
   }
 
   Future<List<Object?>> _evaluateSingle(
@@ -287,12 +375,64 @@ class LegadoRuleEngine {
     if (normalized.startsWith('-')) {
       normalized = normalized.substring(1).trimLeft();
     }
-    // 米读：@js / <js> 规则直接进入 fjs 沙箱
+    // 米读：@js / <js> 规则直接进入 JS 沙箱
     final lower = normalized.toLowerCase();
     if (lower.startsWith('@js:') || lower.startsWith('<js>')) {
-      final jsResult = await _runJsRule(document, context, normalized, listMode: listMode);
+      // 米读：Legado 先插值 {{...}} 再执行 JS（如 "@js:...bookId: {{$..bookId}}..."）
+      final jsCode = normalized.contains('{{')
+          ? await _interpolateJs(normalized, context ?? document.value, document)
+          : normalized;
+      final jsResult = await _runJsRule(document, context, jsCode, listMode: listMode);
       if (jsResult != null) return jsResult;
       return const [];
+    }
+    // 米读：中段 @js:（提取规则@js:JS代码）。先求值左侧提取规则作为 result，
+    // 再执行 JS（如 coverUrl: "a@href\n@js:var id=result.match(...)"、
+    // chapterUrl: "href@js:result+',{webView:\"true\"}'"）。
+    // 左侧可含 ## 正则替换（如 intro: "id.intro@text##pat##rep@js:result.replace(...)"）。
+    final jsMarker = _jsMarkerIndex(normalized);
+    if (jsMarker != null) {
+      final left = normalized.substring(0, jsMarker.index).trim();
+      final jsPart = normalized.substring(jsMarker.index).trim();
+      if (left.isNotEmpty) {
+        final leftValues = await _evaluateSingle(
+          document,
+          context,
+          left,
+          listMode: listMode,
+        );
+        final leftResult = leftValues.map(_stringValue).join('\n');
+        final jsBody = _stripJsTag(jsPart).trim();
+        // @js:##pattern##replacement 形式：仅对 result 做正则替换（无需 JS）
+        if (jsBody.startsWith('##')) {
+          final transformed = _splitTransform(jsBody);
+          if (transformed.pattern == null) return leftValues;
+          try {
+            return [
+              _replaceRegex(
+                leftResult,
+                RegExp(transformed.pattern!, multiLine: true, dotAll: true),
+                transformed.replacement,
+              ),
+            ];
+          } on FormatException {
+            return leftValues;
+          }
+        }
+        if (jsBody.isEmpty) return leftValues;
+        final jsCode = jsPart.contains('{{')
+            ? await _interpolateJs(jsPart, context ?? document.value, document)
+            : jsPart;
+        final jsResult = await _runJsRule(
+          document,
+          context,
+          jsCode,
+          listMode: listMode,
+          result: leftResult,
+        );
+        if (jsResult != null) return jsResult;
+        return const [];
+      }
     }
     // 米读：XPath 规则 —— 先通过 fjs polyfill 模拟
     if (lower.startsWith('@xpath:') || normalized.trimLeft().startsWith('//')) {
@@ -320,7 +460,7 @@ class LegadoRuleEngine {
       return [root.expand(normalized)];
     }
     if (normalized.contains('{{') || _singleBraceTemplate.hasMatch(normalized)) {
-      return [_interpolate(normalized, root, document)];
+      return [await _interpolate(normalized, root, document)];
     }
     if ((normalized.startsWith('"') && normalized.endsWith('"')) ||
         (normalized.startsWith("'") && normalized.endsWith("'"))) {
@@ -348,6 +488,7 @@ class LegadoRuleEngine {
     Object? context,
     String rule, {
     required bool listMode,
+    String result = '',
   }) async {
     final s = sandbox;
     if (s == null) return null;
@@ -361,6 +502,8 @@ class LegadoRuleEngine {
           : null;
       final globals = <String, dynamic>{
         'contextHtml': ?ctxValue,
+        // 中段 @js: 规则：左侧提取结果作为 result 注入（JS 内可直接读 result）
+        if (result.isNotEmpty) 'result': result,
       };
       final str = await s.evalJs(
         rule,
@@ -845,33 +988,101 @@ class LegadoRuleEngine {
     }
   }
 
-  String _interpolate(
+  Future<String> _interpolate(
     String template,
     Object? context,
     LegadoRuleDocument doc,
-  ) {
-    var result = template.replaceAllMapped(
-      RegExp(r'\{\{\s*([^{}]+?)\s*\}\}'),
-      (match) => _evalInterpolation(match.group(1)!, context, doc),
-    );
-    // 米读：单花括号模板（如 {$.book_id} / {$.book.totalWordSize}字）同样插值
-    result = result.replaceAllMapped(_singleBraceTemplate, (match) {
-      return _evalInterpolation(match.group(1)!.trim(), context, doc);
-    });
-    return result;
+  ) async {
+    // 单趟：同时插值 {{...}} 与单花括号 {$.x} 模板
+    return _interpolateTemplate(template, context, doc, singleBrace: true);
   }
 
-  /// 求值 {{...}} / {...} 内的插值表达式。支持：
+  /// 只插值 {{...}}（JS 规则专用）：避免单花括号破坏 JS 对象字面量。
+  Future<String> _interpolateJs(
+    String code,
+    Object? context,
+    LegadoRuleDocument doc,
+  ) async {
+    return _interpolateTemplate(code, context, doc, singleBrace: false);
+  }
+
+  /// 插值模板：{{...}} 必须插值；[singleBrace] 时同时插值单花括号 {...}。
+  Future<String> _interpolateTemplate(
+    String template,
+    Object? context,
+    LegadoRuleDocument doc, {
+    required bool singleBrace,
+  }) async {
+    var result = '';
+    // 惰性匹配 {{...}}，允许内容含花括号（如 {{result=String(...).replace(/\{|\}/g,"")}}）
+    final doubleBrace = RegExp(r'\{\{\s*([\s\S]*?)\s*\}\}');
+    var cursor = 0;
+    for (final match in doubleBrace.allMatches(template)) {
+      result += template.substring(cursor, match.start);
+      result += await _evalInterpolation(match.group(1)!, context, doc);
+      cursor = match.end;
+    }
+    result += template.substring(cursor);
+    if (!singleBrace) return result;
+    var out = '';
+    var c = 0;
+    for (final match in _singleBraceTemplate.allMatches(result)) {
+      out += result.substring(c, match.start);
+      out += await _evalInterpolation(match.group(1)!.trim(), context, doc);
+      c = match.end;
+    }
+    out += result.substring(c);
+    return out;
+  }
+
+  /// 返回规则中第一个 `@js:` / `<js>` 标记的位置（仅当位于中段，即不是开头）。
+  /// 开头形式的 `@js:` / `<js>` 已由纯 JS 分支处理，这里返回 null。
+  ({int index, String marker})? _jsMarkerIndex(String rule) {
+    final jsIdx = rule.indexOf('@js:');
+    final tagIdx = rule.toLowerCase().indexOf('<js>');
+    final int idx;
+    if (jsIdx < 0 && tagIdx < 0) return null;
+    if (tagIdx < 0 || (jsIdx >= 0 && jsIdx < tagIdx)) {
+      idx = jsIdx;
+    } else {
+      idx = tagIdx;
+    }
+    if (idx <= 0) return null;
+    return (index: idx, marker: rule.substring(idx, idx + 4));
+  }
+
+  /// 去掉 `@js:` / `<js>`…`</js>` 包裹标记，得到纯 JS 代码。
+  static String _stripJsTag(String raw) {
+    var s = raw.trim();
+    if (s.toLowerCase().startsWith('@js:')) s = s.substring(4);
+    s = s.replaceFirst(RegExp(r'^\s*<js>\s*', caseSensitive: false), '');
+    s = s.replaceFirst(RegExp(r'\s*</js>\s*$', caseSensitive: false), '');
+    return s;
+  }
+
+  /// 求值 {{...}} / {...} 内的插值表达式，支持 `||` 回退（{{$.a||$.b}}）。支持：
   /// - @htmlRule（@@ 作用于整页，@ 作用于当前上下文），含 ## 正则转换
   /// - $.jsonPath，含 ## 正则转换
   /// - 纯变量名（{{bid}} 等）优先查 @put 变量存储
   /// - 引号包裹的字面量
-  String _evalInterpolation(
+  /// - JS 表达式（{{java.getString('$.x')}} / {{source.get('k')}} / {{result=...}}）
+  Future<String> _evalInterpolation(
     String raw,
     Object? context,
     LegadoRuleDocument doc,
-  ) {
-    var expression = raw.trim();
+  ) async {
+    for (final alternative in _splitTopLevel(raw, '||')) {
+      final value = await _evalInterpolationSingle(alternative.trim(), context, doc);
+      if (value.isNotEmpty) return value;
+    }
+    return '';
+  }
+
+  Future<String> _evalInterpolationSingle(
+    String expression,
+    Object? context,
+    LegadoRuleDocument doc,
+  ) async {
     if (expression.startsWith('@')) {
       final wholeDoc = expression.startsWith('@@');
       final ruleBody = wholeDoc ? expression.substring(2) : expression.substring(1);
@@ -933,7 +1144,35 @@ class LegadoRuleEngine {
         // 无效正则：保留原值
       }
     }
-    return value;
+    if (value.isNotEmpty) return value;
+    // 米读：非 JSON 路径表达式 → 尝试 JS 求值（{{java.getString('$.x')}}、
+    // {{source.get('k')}}、{{result=String(...).replace(...)}} 等 Legado 插值 JS
+    // 形态），避免 {{...}} 模板残留。
+    if (RegExp(r'[()=+/]').hasMatch(expression)) {
+      final js = await _evalJsInterpolation(expression, doc);
+      if (js.isNotEmpty) return js;
+    }
+    return '';
+  }
+
+  /// 对插值表达式做 JS 求值：`@js:finalResult = (<expr>);`
+  /// 赋值表达式（{{result=...}}）整体作为表达式求值即可返回其结果。
+  Future<String> _evalJsInterpolation(
+    String expression,
+    LegadoRuleDocument doc,
+  ) async {
+    final s = sandbox;
+    if (s == null) return '';
+    try {
+      final r = await s.evalJs(
+        '@js:finalResult = ($expression);',
+        docHtml: doc.rawBody,
+        baseUri: doc.baseUri,
+      );
+      return r.trim();
+    } catch (_) {
+      return '';
+    }
   }
 
   // ===== @put / @get 变量操作 =====
