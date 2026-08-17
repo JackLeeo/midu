@@ -196,11 +196,14 @@ class _HomeShellPageState extends State<HomeShellPage> {
         )
         .toList(growable: false);
     // 米读：首页"发现"快捷入口切换底栏到发现页 tab，避免 push 新实例。
+    // 必须先设置 _pendingPageControllerIndex，否则 _schedulePageControllerSync
+    // 会因 pending 为 null 而跳过 PageView 跳转，导致底栏高亮但页面不切换。
     _homeDashboardController.onNavigateToDiscover = () {
       final discoverIndex = _navigationItems.indexWhere(
         (item) => item.destination == HomeNavigationDestination.discover,
       );
       if (discoverIndex >= 0) {
+        _queuePageControllerSync(discoverIndex);
         _updateSelectedIndex(discoverIndex);
       }
     };

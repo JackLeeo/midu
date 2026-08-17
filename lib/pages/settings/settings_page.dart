@@ -4,6 +4,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -29,6 +30,7 @@ import 'package:midu/services/sync/sync_models.dart';
 import 'package:midu/services/sync/webdav_sync_controller.dart';
 import 'package:midu/utils/app_themes.dart';
 import 'package:midu/utils/app_themes_translator.dart';
+import 'package:midu/utils/debug_logger.dart';
 import 'package:midu/utils/font_catalog_helper.dart';
 import 'package:midu/utils/localization_extension.dart';
 import 'package:midu/utils/page_style_helper.dart';
@@ -166,6 +168,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _enablePerformanceMonitor = false;
   bool _enableMemoryStats = false;
   bool _showFPS = false;
+  bool _debugModeEnabled = false;
   String _appVersion = '0.9.1';
   bool _isCheckingForUpdates = false;
   AppCacheUsage? _cacheUsage;
@@ -226,7 +229,10 @@ class _SettingsPageState extends State<SettingsPage> {
           prefs.getBool('enablePerformanceMonitor') ?? false;
       _enableMemoryStats = prefs.getBool('enableMemoryStats') ?? false;
       _showFPS = prefs.getBool('showFPS') ?? false;
+      _debugModeEnabled = prefs.getBool('midu_debug_enabled') ?? false;
     });
+
+    DebugLogger.instance.enabled = _debugModeEnabled;
 
     if (prefs.getBool('enableAnimations') != true) {
       await prefs.setBool('enableAnimations', true);
@@ -297,6 +303,49 @@ class _SettingsPageState extends State<SettingsPage> {
     await prefs.setBool('enablePerformanceMonitor', _enablePerformanceMonitor);
     await prefs.setBool('enableMemoryStats', _enableMemoryStats);
     await prefs.setBool('showFPS', _showFPS);
+  }
+
+  Future<void> _setDebugMode(bool value) async {
+    setState(() => _debugModeEnabled = value);
+    DebugLogger.instance.enabled = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('midu_debug_enabled', value);
+  }
+
+  Future<void> _exportDebugLogs() async {
+    if (DebugLogger.instance.entries.isEmpty) {
+      showSideToast(context, '暂无日志记录', icon: Icons.info_outline);
+      return;
+    }
+    try {
+      final dir = await getTemporaryDirectory();
+      final path = await DebugLogger.instance.exportToFile(dir.path);
+      if (!mounted) return;
+      showSideToast(
+        context,
+        '日志已导出：$path',
+        icon: Icons.check_circle_outline,
+        kind: SideToastKind.success,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      showSideToast(
+        context,
+        '导出失败：$e',
+        icon: Icons.error_outline,
+        kind: SideToastKind.error,
+      );
+    }
+  }
+
+  void _clearDebugLogs() {
+    DebugLogger.instance.clear();
+    showSideToast(
+      context,
+      '已清空调试日志',
+      icon: Icons.check_circle_outline,
+      kind: SideToastKind.success,
+    );
   }
 
   void _setKeepScreenOn(bool value) {
@@ -532,6 +581,35 @@ class _SettingsPageState extends State<SettingsPage> {
                 onChanged: (value) => setState(() => _enableAutoSave = value),
                 icon: Icons.save_outlined,
               ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          _buildSectionCard(
+            title: '高级设置',
+            icon: Icons.developer_mode_rounded,
+            children: [
+              _buildSwitchSetting(
+                title: '调试模式',
+                subtitle: '开启后记录详细操作日志，用于问题定位',
+                value: _debugModeEnabled,
+                onChanged: (value) => unawaited(_setDebugMode(value)),
+                icon: Icons.bug_report_outlined,
+                persistPageSettings: false,
+              ),
+              if (_debugModeEnabled) ...[
+                _buildActionSetting(
+                  title: '导出调试日志',
+                  subtitle: '导出日志文件用于分享或反馈',
+                  onTap: () => unawaited(_exportDebugLogs()),
+                  icon: Icons.file_download_outlined,
+                ),
+                _buildActionSetting(
+                  title: '清空调试日志',
+                  subtitle: '清空所有已记录的日志',
+                  onTap: _clearDebugLogs,
+                  icon: Icons.delete_sweep_outlined,
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 20),

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
+import '../../utils/debug_logger.dart';
 import '../models/registered_book_source.dart';
 import '../protocol/book_source_protocol.dart';
 import 'legado_book_source.dart';
@@ -43,26 +44,55 @@ class LegadoRuntime {
     int page = 1,
     int pageSize = 20,
   }) async {
+    final logger = DebugLogger.instance;
+    logger.log('search', '开始搜索', details: {
+      'source': registered.name,
+      'query': query,
+      'page': page,
+    });
     await _ensureSandbox();
     final source = _source(registered);
     _ensureRunnable(source);
+    logger.log('search', '搜索URL模板', details: {
+      'source': source.name,
+      'searchUrl': source.searchUrl,
+    });
     final response = await _request(
       source,
       source.searchUrl,
       variables: {'key': query.trim(), 'page': '$page'},
     );
+    logger.log('search', '搜索响应', details: {
+      'source': source.name,
+      'bodyLength': response.body.length,
+    });
     final document = LegadoRuleDocument.parse(response.body, response.finalUri);
     final rule = source.rule('ruleSearch');
+    logger.log('search', 'ruleSearch 规则', details: {
+      'source': source.name,
+      'bookList': _requiredRule(rule, 'bookList'),
+      'name': _optionalRule(rule, 'name'),
+      'bookUrl': _optionalRule(rule, 'bookUrl'),
+    });
     final contexts = await _rules.evaluateList(
       document,
       null,
       _requiredRule(rule, 'bookList'),
     );
+    logger.log('search', 'bookList 匹配数', details: {
+      'source': source.name,
+      'count': contexts.length,
+    });
     final books = <BookSourceBook>[];
     for (final context in contexts.take(_maxSearchItems)) {
       final book = await _bookFromRules(document, context, rule);
       if (book != null) books.add(book);
     }
+    logger.log('search', '搜索结果', details: {
+      'source': source.name,
+      'books': books.length,
+      'titles': books.map((b) => b.title).take(5).toList(),
+    });
     return BookSourceSearchPage(
       items: books.take(pageSize).toList(growable: false),
       page: page,
@@ -156,33 +186,82 @@ class LegadoRuntime {
     required String bookId,
     required String chapterId,
   }) async {
+    final logger = DebugLogger.instance;
+    logger.log('content', '开始加载章节', details: {
+      'source': registered.name,
+      'bookId': bookId,
+      'chapterId': chapterId,
+    });
     await _ensureSandbox();
     final source = _source(registered);
     _ensureRunnable(source);
     final rule = source.rule('ruleContent');
+    logger.log('content', 'ruleContent 规则', details: {
+      'source': source.name,
+      'content': _optionalRule(rule, 'content'),
+      'nextContentUrl': _optionalRule(rule, 'nextContentUrl'),
+      'replaceRegex': _optionalRule(rule, 'replaceRegex'),
+    });
     final parts = <String>[];
     final seenPages = <String>{};
     var nextUrl = chapterId;
     for (var hop = 0; hop < _maxPageHops && nextUrl.isNotEmpty; hop++) {
       if (!seenPages.add(nextUrl)) break;
-      final response = await _request(source, nextUrl);
-      final document = LegadoRuleDocument.parse(
-        response.body,
-        response.finalUri,
-      );
-      var content = await _value(document, null, rule, 'content', required: true);
-      content = _rules.applyReplaceRule(
-        content,
-        _optionalRule(rule, 'replaceRegex'),
-      );
-      if (content.trim().isNotEmpty) parts.add(content.trim());
-      nextUrl = await _url(document, null, rule, 'nextContentUrl');
+      logger.log('content', '请求章节页面 (hop=$hop)', details: {
+        'source': source.name,
+        'url': nextUrl,
+      });
+      try {
+        final response = await _request(source, nextUrl).timeout(
+          const Duration(seconds: 15),
+          onTimeout: () =>
+              throw const BookSourceProtocolException(
+                '章节内容请求超时（15秒）。',
+              ),
+        );
+        logger.log('content', '章节页面响应', details: {
+          'source': source.name,
+          'bodyLength': response.body.length,
+          'finalUri': response.finalUri.toString(),
+        });
+        final document = LegadoRuleDocument.parse(
+          response.body,
+          response.finalUri,
+        );
+        var content = await _value(document, null, rule, 'content', required: true);
+        logger.log('content', '提取的内容长度', details: {
+          'source': source.name,
+          'contentLength': content.length,
+          'preview': content.length > 200
+              ? content.substring(0, 200)
+              : content,
+        });
+        content = _rules.applyReplaceRule(
+          content,
+          _optionalRule(rule, 'replaceRegex'),
+        );
+        if (content.trim().isNotEmpty) parts.add(content.trim());
+        nextUrl = await _url(document, null, rule, 'nextContentUrl');
+      } catch (e, st) {
+        logger.logError('content', '章节加载失败 (hop=$hop)', e, st);
+        rethrow;
+      }
     }
     if (parts.isEmpty) {
+      logger.log('content', '章节内容为空', details: {
+        'source': source.name,
+        'chapterId': chapterId,
+        'hops': _maxPageHops,
+      });
       throw const BookSourceProtocolException(
         'Compatible source did not return chapter content.',
       );
     }
+    logger.log('content', '章节加载成功', details: {
+      'source': source.name,
+      'parts': parts.length,
+      'totalLength': parts.join('\n\n').length,
+    });
     return BookSourceChapterContent(
       bookId: bookId,
       chapterId: chapterId,
@@ -274,11 +353,19 @@ class LegadoRuntime {
     RegisteredBookSource registered, {
     String? exploreUrlOverride,
   }) async {
+    final logger = DebugLogger.instance;
     await _ensureSandbox();
     final source = _source(registered);
     _ensureRunnable(source);
     final urlText = exploreUrlOverride ?? source.exploreUrl;
+    logger.log('discover', 'getDiscovery 调用', details: {
+      'source': source.name,
+      'exploreUrl': source.exploreUrl,
+      'override': exploreUrlOverride,
+      'hasRuleExplore': source.rule('ruleExplore').isNotEmpty,
+    });
     if (urlText.trim().isEmpty) {
+      logger.log('discover', 'exploreUrl 为空', details: {'source': source.name});
       throw const BookSourceProtocolException(
         'Compatible source does not provide an exploreUrl.',
       );
@@ -291,6 +378,11 @@ class LegadoRuntime {
 
     // 分支 B：解析 exploreUrl 为分类列表
     final categories = _parseExploreCategories(urlText);
+    logger.log('discover', '解析分类列表', details: {
+      'source': source.name,
+      'categories': categories.length,
+      'titles': categories.map((c) => c.title).take(10).toList(),
+    });
     if (categories.isEmpty) {
       // 无分类列表时，直接当作单一 URL 请求
       return _fetchDiscoveryPage(source, urlText);

@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:midu/book_sources/legado/legado_book_source.dart';
 import 'package:midu/book_sources/legado/legado_source_import_service.dart';
 import 'package:midu/book_sources/legado/legado_source_verifier.dart';
 import 'package:midu/book_sources/models/registered_book_source.dart';
@@ -12,6 +13,7 @@ import 'package:midu/book_sources/services/book_source_client.dart';
 import 'package:midu/book_sources/services/book_source_health_service.dart';
 import 'package:midu/book_sources/services/book_source_import_analyzer.dart';
 import 'package:midu/book_sources/services/book_source_registry.dart';
+import 'package:midu/utils/debug_logger.dart';
 import 'package:midu/utils/layout_helper.dart';
 import 'package:midu/utils/localization_extension.dart';
 import 'package:midu/utils/page_style_helper.dart';
@@ -1425,23 +1427,33 @@ class _BookSourceManagementPageState extends State<BookSourceManagementPage> {
         if (detected.kind == BookSourceImportKind.orsp) {
           sources = await _registry.upsert(detected.sources.single);
         } else {
+          // 米读：导入时不做网络验证，直接导入所有兼容性扫描通过的源。
+          // 网络验证太慢且会过滤掉大量源（DNS被墙/服务器关闭/搜索词不匹配）。
+          // 用户可后续通过书源健康检查手动验证并屏蔽失效源。
           final preview = detected.additionalPreview!;
-          final verified = await _additionalSourceVerifier.verify(
-            preview.sources,
-            onProgress: (completed, total, available) {
-              if (!routeContext.mounted) return;
-              setRouteState(() {
-                verificationCompleted = completed;
-                verificationTotal = total;
-                verificationAvailable = available;
-              });
-            },
-          );
-          if (verified.available.isEmpty) {
+          const scanner = LegadoCompatibilityScanner();
+          final importList = <RegisteredBookSource>[];
+          final rejectedList = <String>[];
+          for (final source in preview.sources) {
+            final report = scanner.scan(source);
+            if (report.canRun) {
+              importList.add(source.toRegisteredSource(enabled: true));
+            } else {
+              rejectedList.add('${source.name} (${source.url}): ${report.level.name}');
+            }
+          }
+          DebugLogger.instance.log('import', '导入结果', details: {
+            'total': preview.sources.length,
+            'imported': importList.length,
+            'rejected': rejectedList.length,
+            'rejectedSamples': rejectedList.take(10).toList(),
+            'parseErrors': preview.errors.length,
+          });
+          if (importList.isEmpty) {
             throw BookSourceProtocolException(noWorkingSourcesMessage);
           }
-          importedAdditionalCount = verified.available.length;
-          sources = await _registry.upsertAll(verified.available);
+          importedAdditionalCount = importList.length;
+          sources = await _registry.upsertAll(importList);
         }
         if (!mounted || !routeContext.mounted) return;
         Navigator.pop(routeContext);
