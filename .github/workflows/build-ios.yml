@@ -16,7 +16,7 @@ on:
 jobs:
   build-ios:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -32,12 +32,32 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Build fjs binary (Rust xcframework)
+        run: |
+          FJS_SCRIPT=$(find "$HOME/.pub-cache/hosted/pub.dev" -path "*/fjs-*/tool/build_fjs_xcframework.sh" 2>/dev/null | head -1)
+          if [ -z "$FJS_SCRIPT" ]; then
+            FJS_SCRIPT=$(find "$HOME/Library/Application Support/Pub/Cache/hosted/pub.dev" -path "*/fjs-*/tool/build_fjs_xcframework.sh" 2>/dev/null | head -1)
+          fi
+          if [ -n "$FJS_SCRIPT" ]; then
+            echo "Building fjs xcframework with: $FJS_SCRIPT"
+            sh "$FJS_SCRIPT" --configuration Release
+            echo "fjs binary built successfully"
+          else
+            echo "ERROR: build_fjs_xcframework.sh not found in pub cache"
+            exit 1
+          fi
+
       - name: Analyze
         run: flutter analyze --no-pub --fatal-infos
         continue-on-error: true
 
       - name: Build IPA (no codesign — for TrollStore / Sideload)
-        run: flutter build ipa --${{ github.event.inputs.build_mode || 'release' }} --no-codesign
+        run: flutter build ipa --${{ github.event.inputs.build_mode || 'release' }} --no-codesign --no-tree-shake-icons
 
       - name: Locate IPA
         id: ipa
