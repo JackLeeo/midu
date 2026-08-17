@@ -729,14 +729,51 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         ),
       ];
     }
-    final selectedCategory = _selectedCategory ?? categories.first;
+    // 保证选中态有效；未选时选第一个
+    final selectedCategory = (_selectedCategory != null &&
+            categories.any((c) =>
+                c.id == _selectedCategory!.id &&
+                c.source.id == _selectedCategory!.source.id))
+        ? _selectedCategory!
+        : categories.first;
+    if (!identical(selectedCategory, _selectedCategory)) {
+      // 初次渲染或过滤导致原选中不可见时，自动触发加载对应分类内容
+      Future<void>.delayed(Duration.zero, () {
+        if (mounted) _selectCategory(selectedCategory);
+      });
+    }
     final slivers = <Widget>[
-      _paddedSectionSliver(
-        _CategoryPickerButton(
-          category: selectedCategory,
-          onTap: () => _openCategoryPicker(categories),
+      // 横向分类标签条（替代原来的 picker 按钮）
+      SliverToBoxAdapter(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              height: 56,
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                scrollDirection: Axis.horizontal,
+                itemCount: categories.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 10),
+                itemBuilder: (context, index) {
+                  final category = categories[index];
+                  final isSelected =
+                      category.id == selectedCategory.id &&
+                          category.source.id == selectedCategory.source.id;
+                  final scheme = Theme.of(context).colorScheme;
+                  return _CategoryChip(
+                    label: category.name,
+                    sourceLabel: category.source.name,
+                    selected: isSelected,
+                    onTap: () => _selectCategory(category),
+                    scheme: scheme,
+                  );
+                },
+              ),
+            ),
+            const Divider(height: 1, indent: 16, endIndent: 16),
+          ],
         ),
-        bottomPadding: 18,
       ),
     ];
     if (_loadingCategoryBooks) {
@@ -746,7 +783,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
             padding: EdgeInsets.symmetric(vertical: 36),
             child: Center(child: CircularProgressIndicator()),
           ),
-          topPadding: 0,
+          topPadding: 24,
           bottomPadding: bottomPadding,
         ),
       );
@@ -758,13 +795,13 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
             title: context.l10n.bookSourcesNoResults,
             message: context.l10n.discoverCategoryEmpty,
           ),
-          topPadding: 0,
+          topPadding: 24,
           bottomPadding: bottomPadding,
         ),
       );
     } else {
       slivers.add(
-        _bookListSliver(_categoryBooks, bottomPadding: bottomPadding),
+        _bookGridSliver(_categoryBooks, bottomPadding: bottomPadding),
       );
     }
     return slivers;
@@ -784,7 +821,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         ),
       ];
     }
-    return [_bookListSliver(books, bottomPadding: bottomPadding)];
+    return [_bookGridSliver(books, bottomPadding: bottomPadding)];
   }
 
   Widget _bookListSliver(
@@ -802,6 +839,45 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
             SourcedBookListTile(
               result: result,
               onTap: () => _actions.showBookDetails(result),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _bookGridSliver(
+    List<SourcedBook> books, {
+    required double bottomPadding,
+  }) {
+    return SliverPadding(
+      padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPadding),
+      sliver: SliverLayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.crossAxisExtent;
+          // 窄屏 2 列，宽屏 3 列（>=720），超宽屏 4 列（>=1080）
+          final columns = switch (width) {
+            >= 1080 => 4,
+            >= 720 => 3,
+            _ => 2,
+          };
+          const spacing = 12.0;
+          return SliverGrid(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              mainAxisSpacing: spacing,
+              crossAxisSpacing: spacing,
+              childAspectRatio: 0.68, // 更接近书卡（封面高+标题短）
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, index) {
+                final result = books[index];
+                return _DiscoverGridBookCard(
+                  result: result,
+                  onTap: () => _actions.showBookDetails(result),
+                );
+              },
+              childCount: books.length,
             ),
           );
         },
@@ -1219,4 +1295,142 @@ class _CategoryPickerEntry {
   const _CategoryPickerEntry.header(this.header) : category = null;
 
   const _CategoryPickerEntry.category(this.category) : header = null;
+}
+
+/// 发现页分类标签（横向滚动条里的条目）
+class _CategoryChip extends StatelessWidget {
+  final String label;
+  final String sourceLabel;
+  final bool selected;
+  final VoidCallback onTap;
+  final ColorScheme scheme;
+
+  const _CategoryChip({
+    required this.label,
+    required this.sourceLabel,
+    required this.selected,
+    required this.onTap,
+    required this.scheme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bgColor =
+        selected ? scheme.primaryContainer : scheme.surfaceContainerHigh;
+    final accentTextColor =
+        selected ? scheme.onPrimaryContainer : scheme.primary;
+    return Material(
+      color: bgColor,
+      borderRadius: BorderRadius.circular(999),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: selected ? scheme.onPrimaryContainer : scheme.onSurface,
+                  height: 1.1,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                sourceLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  color: accentTextColor.withValues(alpha: 0.85),
+                  height: 1,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 发现页网格书卡（无外层 SizedBox 宽高，根据 SliverGrid 自适应）
+class _DiscoverGridBookCard extends StatelessWidget {
+  final SourcedBook result;
+  final VoidCallback onTap;
+
+  const _DiscoverGridBookCard({
+    required this.result,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              flex: 7,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: result.book.coverUrl == null
+                    ? GeneratedBookCover(
+                        title: result.book.title,
+                        author: result.book.author,
+                      )
+                    : SourceCoverImage(
+                        url: result.book.coverUrl!,
+                        fit: BoxFit.cover,
+                        cacheWidth: (220 * dpr).round(),
+                        fallback: GeneratedBookCover(
+                          title: result.book.title,
+                          author: result.book.author,
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 9),
+            Text(
+              result.book.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                color: scheme.onSurface,
+                fontSize: 13.5,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              result.book.author.isEmpty
+                  ? result.source.name
+                  : result.book.author,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: scheme.onSurfaceVariant,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

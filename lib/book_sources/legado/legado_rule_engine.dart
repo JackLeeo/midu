@@ -114,7 +114,12 @@ class LegadoRuleEngine {
         .map(_stringValue)
         .where((value) => value.isNotEmpty)
         .toList();
-    var result = values.join();
+    // 米读：URL 规则不应该把多个候选 join 在一起。
+    // 例如 chapterUrl/nextContentUrl/bookUrl 匹配多个元素时，只取第一个有效值
+    // （避免 "下一页" 链接在页首/页尾重复出现时被拼成 url1url2 导致后续 baseUri.resolve 出错）
+    var result = resolveUrl
+        ? (values.isNotEmpty ? values.first : '')
+        : values.join();
     if (transformed.pattern != null) {
       try {
         final pattern = RegExp(
@@ -135,6 +140,20 @@ class LegadoRuleEngine {
     }
     result = result.trim();
     if (resolveUrl && result.isNotEmpty) {
+      // 米读：如果提取结果已是完整绝对 URL（带 scheme），直接返回不再 resolve，
+      // 避免被调用方 LegadoRequestTemplate.parse(source.baseUri) 二次 resolve
+      // 时产生重复路径拼接（饿狼小说 hop=1 的路径重复 bug）。
+      // 以 "//" 开头的协议相对 URL 同样跳过 resolve。
+      if (result.startsWith('http://') ||
+          result.startsWith('https://') ||
+          result.startsWith('//')) {
+        if (result.startsWith('//')) {
+          final scheme =
+              document.baseUri.scheme == 'https' ? 'https:' : 'http:';
+          return '$scheme$result';
+        }
+        return result;
+      }
       final uri = document.baseUri.resolve(result);
       if (uri.scheme != 'http' && uri.scheme != 'https') {
         throw const BookSourceProtocolException(

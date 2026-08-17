@@ -48,6 +48,7 @@ import 'package:midu/services/library/library_event_bus_service.dart';
 import 'package:midu/services/tts_service.dart';
 import 'package:midu/services/reader_aloud_service.dart';
 import 'package:midu/utils/book_open_transition.dart';
+import 'package:midu/utils/debug_logger.dart';
 import 'package:midu/utils/font_catalog_helper.dart';
 import 'package:midu/utils/glass_config.dart';
 import 'package:midu/utils/localization_extension.dart';
@@ -791,15 +792,47 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     double restoreProgress = 0,
     bool saveCurrent = true,
   }) async {
-    if (index < 0 || index >= _chapters.length || _loadingContent) return;
+    final logger = DebugLogger.instance;
+    if (index < 0 || index >= _chapters.length || _loadingContent) {
+      logger.log('reader', '跳过加载章节', details: {
+        'reason': index < 0
+            ? 'index<0'
+            : index >= _chapters.length
+                ? 'index超出章节范围'
+                : '已有章节加载进行中',
+        'index': index,
+        'total': _chapters.length,
+        'loadingContent': _loadingContent,
+      });
+      return;
+    }
     if (saveCurrent && index > _chapterIndex) _sessionPagesRead++;
     if (saveCurrent && _content != null) unawaited(_saveProgress());
     if (!mounted) return;
     final loadSerial = ++_chapterLoadSerial;
+    logger.log('reader', '开始加载章节', details: {
+      'index': index,
+      'serial': loadSerial,
+      'title': index < _chapters.length ? _chapters[index].title : '',
+      'currentChapterIndex': _chapterIndex,
+      'loadingContentBefore': _loadingContent,
+    });
     final prefetched = _prefetchedContent[index];
     if (prefetched != null && _readableChapterText.containsKey(index)) {
+      logger.log('reader', '命中预缓存', details: {
+        'index': index,
+        'serial': loadSerial,
+      });
       if (await _deferChapterApplyForOpeningFlight(index)) {
-        if (!mounted || loadSerial != _chapterLoadSerial) return;
+        if (!mounted || loadSerial != _chapterLoadSerial) {
+          logger.log('reader', 'defer后取消(缓存路径)', details: {
+            'index': index,
+            'serial': loadSerial,
+            'currentSerial': _chapterLoadSerial,
+            'mounted': mounted,
+          });
+          return;
+        }
       }
       _applyLoadedChapter(index, prefetched, restoreProgress: restoreProgress);
       return;
@@ -808,16 +841,81 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       _loadingContent = true;
       _error = null;
     });
+    logger.log('reader', 'setState 设置loading=true', details: {
+      'index': index,
+      'serial': loadSerial,
+    });
     try {
       final contentFuture = _continuousContentFor(index);
       final content = await contentFuture;
-      if (!mounted || loadSerial != _chapterLoadSerial) return;
-      if (await _deferChapterApplyForOpeningFlight(index)) {
-        if (!mounted || loadSerial != _chapterLoadSerial) return;
+      logger.log('reader', 'contentFuture完成', details: {
+        'index': index,
+        'serial': loadSerial,
+        'contentParts': content.parts.length,
+        'totalLength': content.parts.fold<int>(0, (s, p) => s + p.text.length),
+      });
+      if (!mounted || loadSerial != _chapterLoadSerial) {
+        logger.log('reader', 'content返回后取消→重置loading', details: {
+          'index': index,
+          'serial': loadSerial,
+          'currentSerial': _chapterLoadSerial,
+          'mounted': mounted,
+          'willResetLoading': true,
+        });
+        if (mounted) {
+          setState(() {
+            _loadingContent = false;
+          });
+        }
+        return;
       }
+      if (await _deferChapterApplyForOpeningFlight(index)) {
+        logger.log('reader', 'defer完成后二次检查', details: {
+          'index': index,
+          'serial': loadSerial,
+          'currentSerial': _chapterLoadSerial,
+          'mounted': mounted,
+        });
+        if (!mounted || loadSerial != _chapterLoadSerial) {
+          logger.log('reader', 'defer后取消→重置loading', details: {
+            'index': index,
+            'serial': loadSerial,
+            'currentSerial': _chapterLoadSerial,
+            'mounted': mounted,
+          });
+          if (mounted) {
+            setState(() {
+              _loadingContent = false;
+            });
+          }
+          return;
+        }
+      }
+      logger.log('reader', '进入applyLoadedChapter', details: {
+        'index': index,
+        'serial': loadSerial,
+      });
       _applyLoadedChapter(index, content, restoreProgress: restoreProgress);
+      logger.log('reader', 'applyLoadedChapter完成', details: {
+        'index': index,
+        'serial': loadSerial,
+        'loadingContentAfter': _loadingContent,
+      });
     } catch (error) {
-      if (!mounted || loadSerial != _chapterLoadSerial) return;
+      logger.log('reader', '加载异常', details: {
+        'index': index,
+        'serial': loadSerial,
+        'error': error.runtimeType.toString(),
+        'message': error.toString().substring(0, error.toString().length > 500 ? 500 : error.toString().length),
+      });
+      if (!mounted || loadSerial != _chapterLoadSerial) {
+        if (mounted) {
+          setState(() {
+            _loadingContent = false;
+          });
+        }
+        return;
+      }
       setState(() {
         _loadingContent = false;
         _error = error;
@@ -936,6 +1034,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     if (inFlight != null) return inFlight;
     late final Future<BookSourceChapterContent> future;
     final generation = _contentGeneration;
+    final logger = DebugLogger.instance;
     final contentFuture = cached != null
         ? Future<BookSourceChapterContent>.value(cached)
         : _client.getChapterContent(
@@ -943,16 +1042,53 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
             bookId: _activeBook.id,
             chapterId: _chapters[index].id,
           );
+    logger.log('reader', '_continuousContentFor:发起', details: {
+      'index': index,
+      'generation': generation,
+      'cached': cached != null,
+      'title': index < _chapters.length ? _chapters[index].title : '',
+    });
     future = contentFuture
         .then((content) async {
+          logger.log('reader', '_continuousContentFor:getChapterContent返回',
+              details: {
+                'index': index,
+                'parts': content.parts.length,
+                'totalLength':
+                    content.parts.fold<int>(0, (s, p) => s + p.text.length),
+              });
           // 换源后，上一源仍在飞行中的回调直接丢弃，不写缓存/状态。
-          if (_contentGeneration != generation) return content;
+          if (_contentGeneration != generation) {
+            logger.log('reader', '_continuousContentFor:generation变→丢弃',
+                details: {
+                  'index': index,
+                  'expect': generation,
+                  'actual': _contentGeneration,
+                });
+            return content;
+          }
           _readableChapterText.remove(index);
-          _readableChapterText[index] =
-              await readableBookSourceChapterTextAsync(
-                content,
-                fallbackTitle: _chapters[index].title,
-              );
+          try {
+            final rendered = await readableBookSourceChapterTextAsync(
+              content,
+              fallbackTitle: _chapters[index].title,
+            );
+            _readableChapterText[index] = rendered;
+            logger.log('reader', '_continuousContentFor:排版渲染完成', details: {
+              'index': index,
+              'renderedLength': rendered.text.length,
+            });
+          } catch (e) {
+            logger.log('reader', '_continuousContentFor:排版渲染异常', details: {
+              'index': index,
+              'error': e.runtimeType.toString(),
+              'message': e.toString().substring(
+                    0,
+                    e.toString().length > 500 ? 500 : e.toString().length,
+                  ),
+            });
+            rethrow;
+          }
           if (_contentGeneration != generation) return content;
           while (_readableChapterText.length > _readableChapterTextLimit) {
             _readableChapterText.remove(_readableChapterText.keys.first);
