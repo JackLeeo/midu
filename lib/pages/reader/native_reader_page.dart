@@ -514,7 +514,7 @@ class _NativeReaderPageState extends State<NativeReaderPage>
     if (identical(next, _openingFlightSettled)) return;
     _openingFlightSettled?.removeListener(_onOpeningFlightSettledChanged);
     _openingFlightSettled = next;
-    if (next != null && !next.value) {
+    if (!next.value) {
       next.addListener(_onOpeningFlightSettledChanged);
     }
   }
@@ -540,7 +540,7 @@ class _NativeReaderPageState extends State<NativeReaderPage>
     if (identical(next, _openingCoverHoldReached)) return;
     _openingCoverHoldReached?.removeListener(_onOpeningCoverHoldChanged);
     _openingCoverHoldReached = next;
-    if (next != null && !next.value) {
+    if (!next.value) {
       next.addListener(_onOpeningCoverHoldChanged);
     }
   }

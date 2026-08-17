@@ -59,8 +59,19 @@ jobs:
         id: fjs_cache
         uses: actions/cache@v4
         with:
-          path: ${{ steps.fjs_locate.outputs.fjs_src }}/darwin/fjs/Binaries
-          key: fjs-xcframework-${{ steps.fjs_locate.outputs.fjs_version }}-release-v2
+          path: ${{ github.workspace }}/fjs-bin
+          key: fjs-xcframework-${{ steps.fjs_locate.outputs.fjs_version }}-release-v3
+
+      - name: Install fjs binary from cache
+        if: steps.fjs_cache.outputs.cache-hit == 'true'
+        run: |
+          FJS_SRC="${{ steps.fjs_locate.outputs.fjs_src }}"
+          mkdir -p "$FJS_SRC/darwin/fjs/Binaries"
+          cp "$GITHUB_WORKSPACE/fjs-bin/fjs.xcframework.zip" "$FJS_SRC/darwin/fjs/Binaries/"
+          if [ -f "$GITHUB_WORKSPACE/fjs-bin/fjs.xcframework.zip.checksum" ]; then
+            cp "$GITHUB_WORKSPACE/fjs-bin/fjs.xcframework.zip.checksum" "$FJS_SRC/darwin/fjs/Binaries/"
+          fi
+          echo "fjs binary installed from cache"
 
       - name: Build fjs binary (Rust xcframework)
         if: steps.fjs_cache.outputs.cache-hit != 'true'
@@ -76,7 +87,13 @@ jobs:
           sh "$FJS_TEMP/tool/build_fjs_xcframework.sh" \
             --configuration Release \
             --zip-output "$FJS_SRC/darwin/fjs/Binaries/fjs.xcframework.zip"
-          echo "fjs binary built successfully"
+          # Copy to workspace for reliable cross-run caching
+          mkdir -p "$GITHUB_WORKSPACE/fjs-bin"
+          cp "$FJS_SRC/darwin/fjs/Binaries/fjs.xcframework.zip" "$GITHUB_WORKSPACE/fjs-bin/"
+          if [ -f "$FJS_SRC/darwin/fjs/Binaries/fjs.xcframework.zip.checksum" ]; then
+            cp "$FJS_SRC/darwin/fjs/Binaries/fjs.xcframework.zip.checksum" "$GITHUB_WORKSPACE/fjs-bin/"
+          fi
+          echo "fjs binary built and cached successfully"
 
       - name: Verify fjs binary
         run: |

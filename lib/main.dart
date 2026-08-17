@@ -37,7 +37,6 @@ import 'services/reader_aloud_service.dart';
 import 'package:path_provider/path_provider.dart';
 import 'utils/glass_config.dart';
 import 'utils/localization_extension.dart';
-import 'utils/font_catalog_helper.dart';
 import 'utils/ui_style.dart';
 import 'widgets/side_toast.dart';
 import 'widgets/update_check_gate.dart';
@@ -906,63 +905,6 @@ class _MiduAppState extends State<MiduApp> with WidgetsBindingObserver {
     return base.copyWith(
       textTheme: base.textTheme.apply(fontFamily: appFontFamily),
       primaryTextTheme: base.primaryTextTheme.apply(fontFamily: appFontFamily),
-    );
-  }
-
-  ThemeData _buildThemeData({
-    required ColorScheme colorScheme,
-    required Brightness brightness,
-    required String? appFontFamily,
-    required AppUiStyle uiStyle,
-  }) {
-    final isDark = brightness == Brightness.dark;
-    final isMaterial3Style = uiStyle == AppUiStyle.material3;
-    final systemBarColor = isMaterial3Style
-        ? colorScheme.surface
-        : Colors.transparent;
-
-    return ThemeData(
-      useMaterial3: true,
-      brightness: brightness,
-      colorScheme: colorScheme,
-      scaffoldBackgroundColor: colorScheme.surface,
-      cardColor: isMaterial3Style
-          ? colorScheme.surfaceContainerLow
-          : colorScheme.surface.withValues(alpha: isDark ? 0.82 : 0.9),
-      dialogTheme: DialogThemeData(
-        backgroundColor: isMaterial3Style
-            ? colorScheme.surfaceContainerHigh
-            : colorScheme.surface.withValues(alpha: isDark ? 0.9 : 0.96),
-      ),
-      fontFamily: appFontFamily,
-      fontFamilyFallback: FontCatalog.appFallbacks(appFontFamily),
-      appBarTheme: AppBarTheme(
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        backgroundColor: systemBarColor,
-        surfaceTintColor: Colors.transparent,
-        systemOverlayStyle: SystemUiOverlayStyle(
-          statusBarColor: systemBarColor,
-          statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
-          statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
-          systemNavigationBarColor: systemBarColor,
-          systemNavigationBarIconBrightness: isDark
-              ? Brightness.light
-              : Brightness.dark,
-          systemNavigationBarDividerColor: Colors.transparent,
-          systemStatusBarContrastEnforced: false,
-          systemNavigationBarContrastEnforced: false,
-        ),
-      ),
-      dividerTheme: DividerThemeData(
-        color: colorScheme.outline.withValues(
-          alpha: isMaterial3Style ? 0.32 : 0.18,
-        ),
-        thickness: 0.7,
-      ),
-      extensions: <ThemeExtension<dynamic>>[
-        UiStyleThemeExtension(style: uiStyle),
-      ],
     );
   }
 }

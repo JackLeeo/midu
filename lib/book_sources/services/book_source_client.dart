@@ -2,9 +2,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../services/core/app_settings_service.dart';
 import '../../utils/source_protocol_meta.dart';
 import '../legado/legado_runtime.dart';
 import '../models/registered_book_source.dart';

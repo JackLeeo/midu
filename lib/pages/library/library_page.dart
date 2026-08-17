@@ -20,7 +20,6 @@ import 'package:midu/pages/home/home_shell_page.dart';
 import 'package:midu/pages/reader/book_source_reader_page.dart';
 import 'package:midu/pages/settings/sync/book_file_sync_page.dart';
 import 'package:midu/services/books/book_services.dart';
-import 'package:midu/services/books/book_text_extraction_service.dart';
 import 'package:midu/services/core/app_settings_service.dart';
 import 'package:midu/services/library/library_services.dart';
 import 'package:midu/services/library/download_task_controller.dart';

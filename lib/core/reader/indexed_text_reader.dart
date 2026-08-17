@@ -32,7 +32,7 @@ Future<String> readIndexedUtf8Range({
     final bytes = await handle.read(endOffset - startOffset);
     // 文件 IO 是异步的，但 UTF-8 解码仍在调用方 isolate 同步执行；
     // 大章节可达数十毫秒，打点以便在时间线中定位。
-    return developer.Timeline.timeSync(
+    return await developer.Timeline.timeSync(
       'chapterUtf8Decode',
       arguments: {'bytes': bytes.length},
       () => utf8.decode(bytes),

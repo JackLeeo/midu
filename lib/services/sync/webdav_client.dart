@@ -379,7 +379,7 @@ class WebDavClient {
             'The WebDAV server attempted to redirect credentials to another origin.',
           );
         }
-        return _request(
+        return await _request(
           method,
           redirected,
           headers: headers,

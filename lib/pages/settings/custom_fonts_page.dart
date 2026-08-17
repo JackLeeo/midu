@@ -188,7 +188,7 @@ class CustomFontsPage extends StatelessWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(l10n.deleteCustomFontTitle(font.displayName ?? '')),
+        title: Text(l10n.deleteCustomFontTitle(font.displayName)),
         content: Text(
           appInUse || readerInUse
               ? l10n.deleteCustomFontInUse
@@ -314,7 +314,7 @@ class _CustomFontCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    font.displayName ?? '',
+                    font.displayName,
                     style: TextStyle(
                       inherit: false,
                       fontFamily: font.family,

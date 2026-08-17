@@ -133,7 +133,7 @@ class CustomFontService {
       if (bytes == null) {
         throw const CustomFontException(CustomFontErrorCode.readFailed);
       }
-      return importFontBytes(fileName: selected.name, bytes: bytes);
+      return await importFontBytes(fileName: selected.name, bytes: bytes);
     } on CustomFontException {
       rethrow;
     } catch (error) {

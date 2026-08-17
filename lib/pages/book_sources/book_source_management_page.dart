@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:midu/book_sources/legado/legado_source_import_service.dart';
 import 'package:midu/book_sources/legado/legado_source_verifier.dart';
@@ -11,7 +10,6 @@ import 'package:midu/book_sources/protocol/book_source_protocol.dart';
 import 'package:midu/book_sources/services/book_source_client.dart';
 import 'package:midu/book_sources/services/book_source_import_analyzer.dart';
 import 'package:midu/book_sources/services/book_source_registry.dart';
-import 'package:midu/services/core/app_settings_service.dart';
 import 'package:midu/utils/layout_helper.dart';
 import 'package:midu/utils/localization_extension.dart';
 import 'package:midu/utils/page_style_helper.dart';

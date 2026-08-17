@@ -307,7 +307,7 @@ class BookSourceShelfService {
           _downloadDirectory ?? await getApplicationDocumentsDirectory();
       if (book.coverUrl != null) {
         final bytes = await _sourceCoverCache.load(book.coverUrl!);
-        return CoverGenerator.saveCover(
+        return await CoverGenerator.saveCover(
           bytes,
           '${source.id}_${book.id}',
           documentsDirectory: documents,
@@ -319,7 +319,7 @@ class BookSourceShelfService {
         title: book.title,
         author: book.author,
       );
-      return CoverGenerator.saveCover(
+      return await CoverGenerator.saveCover(
         bytes,
         '${source.id}_${book.id}.png',
         documentsDirectory: documents,

@@ -998,7 +998,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       final settled = BookOpenTransition.openingFlightSettledListenableOf(
         context,
       );
-      if (settled != null && !settled.value) {
+      if (!settled.value) {
         late final VoidCallback onSettled;
         onSettled = () {
           settled.removeListener(onSettled);
@@ -2281,7 +2281,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
   Future<bool> _deferChapterApplyForOpeningFlight(int index) async {
     if (!mounted || _pagedLayouts[index] != null) return false;
     final listenable = BookOpenTransition.openingCoverHoldListenableOf(context);
-    if (listenable == null || listenable.value) return false;
+    if (listenable.value) return false;
     final completer = Completer<void>();
     late final VoidCallback onChanged;
     onChanged = () {
