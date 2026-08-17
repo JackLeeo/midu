@@ -13,6 +13,8 @@ import 'package:midu/pages/home/home_mobile_chrome.dart';
 import 'package:midu/pages/home/home_shell_page.dart';
 import 'package:midu/utils/localization_extension.dart';
 import 'package:midu/utils/page_style_helper.dart';
+import 'package:midu/widgets/generated_book_cover.dart';
+import 'package:midu/widgets/source_cover_image.dart';
 
 import 'book_source_management_page.dart';
 import 'source_search_page.dart';

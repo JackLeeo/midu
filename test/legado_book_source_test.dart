@@ -5,7 +5,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:midu/book_sources/legado/legado_book_source.dart';
 import 'package:midu/book_sources/models/registered_book_source.dart';
 import 'package:midu/book_sources/services/book_source_registry.dart';
-import 'package:midu/services/core/app_settings_service.dart';
 
 Map<String, dynamic> _source({
   String name = 'Declarative source',
@@ -78,22 +77,41 @@ void main() {
     final supported = scanner.scan(LegadoBookSource.fromJson(_source()));
     expect(supported.level, LegadoCompatibilityLevel.supported);
 
+    // 图片/漫画源：可以搜索与进入详情，但正文为图片链（阅读体验由上层处理）
     final image = scanner.scan(
       LegadoBookSource.fromJson(_source(type: 2, name: 'Images')),
     );
     expect(image.level, LegadoCompatibilityLevel.partial);
-    expect(image.canRun, isFalse);
+    expect(image.canRun, isTrue);
 
+    // audio/video 类源不可作为文本书源运行
     for (final raw in [
       _source(type: 1, name: 'Audio'),
       _source(type: 4, name: 'Video'),
-      _source(cookies: true, name: 'Cookies'),
-      _source(contentRule: '@js:result', name: 'Script'),
     ]) {
       expect(
         scanner.scan(LegadoBookSource.fromJson(raw)).level,
         LegadoCompatibilityLevel.unsupported,
       );
+    }
+
+    // 缺少搜索或阅读规则 → unsupported
+    final noSearch = LegadoBookSource.fromJson(
+      _source()..['searchUrl'] = '',
+    );
+    expect(
+      scanner.scan(noSearch).level,
+      LegadoCompatibilityLevel.unsupported,
+    );
+
+    // cookie 与 JS 规则通过 cookie jar / fjs 沙箱可运行 → partial 且 canRun
+    for (final raw in [
+      _source(cookies: true, name: 'Cookies'),
+      _source(contentRule: '@js:result', name: 'Script'),
+    ]) {
+      final report = scanner.scan(LegadoBookSource.fromJson(raw));
+      expect(report.level, LegadoCompatibilityLevel.partial);
+      expect(report.canRun, isTrue);
     }
   });
 
@@ -131,37 +149,37 @@ void main() {
   });
 
   test(
-    'registry hides legacy compatible imports without live verification',
+    'registry exposes compatible imports without live verification',
     () async {
       final source = LegadoBookSource.fromJson(_source()).toRegisteredSource();
       SharedPreferences.setMockInitialValues({
         'open_reading_book_sources_v1': jsonEncode([source.toJson()]),
       });
 
-      expect(await BookSourceRegistry().load(), isEmpty);
+      // 兼容性扫描通过（capabilities 非空）的 Legado 源直接可见，无需网络验证
+      final loaded = await BookSourceRegistry().load();
+      expect(loaded, hasLength(1));
+      expect(loaded.single.id, source.id);
     },
   );
 
   test(
-    'verified bulk import stays enabled and respects runtime gate',
+    'imported Legado source runs without extra toggle',
     () async {
       final registry = BookSourceRegistry();
       final original = LegadoBookSource.fromJson(
         _source(),
-      ).toRegisteredSource(enabled: true, readingChainVerified: true);
+      ).toRegisteredSource(enabled: true);
       await registry.upsertAll([original]);
       await registry.setEnabled(original.id, true);
 
       final updated = LegadoBookSource.fromJson(
         _source(name: 'Updated'),
-      ).toRegisteredSource(enabled: true, readingChainVerified: true);
+      ).toRegisteredSource(enabled: true);
       final saved = await registry.upsertAll([updated]);
       expect(saved.single.name, 'Updated');
       expect(saved.single.enabled, isTrue);
-      expect(await registry.loadRunnable(), isEmpty);
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(additionalSourceProtocolsPreferenceKey, true);
+      // 兼容性扫描通过的源无需 additionalSourceProtocols 开关即可运行
       expect(await registry.loadRunnable(), hasLength(1));
     },
   );

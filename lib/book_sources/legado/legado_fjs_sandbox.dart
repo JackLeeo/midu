@@ -29,8 +29,14 @@ class LegadoFjsSandbox {
   JsEngine? _engine;
   bool _inited = false;
 
-  /// source.put/get 变量缓存（沙箱级）
+  /// source.put/get 变量缓存（沙箱级），同时被规则引擎的 @put/@get 复用
   final Map<String, String> _sourceVars = <String, String>{};
+
+  /// 读取规则 @put 存入的变量（跨规则/跨请求共享）。
+  String? getSourceVar(String key) => _sourceVars[key];
+
+  /// 写入规则 @put 变量。
+  void putSourceVar(String key, String value) => _sourceVars[key] = value;
 
   /// 当前 HTML（用于 document 查询）
   String _currentHtml = '';

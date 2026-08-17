@@ -13,11 +13,11 @@ void main() {
   test('detects an ORSP discovery document', () {
     final result = BookSourceImportAnalyzer().analyzeBytes(
       _bytes({
-        'protocol': 'open-reading-source',
+        'protocol': 'midu-book-source',
         'protocolVersion': '1.5',
         'id': 'org.example.books',
         'name': 'Example Books',
-        'description': '',
+        'description': 'Example book source',
         'apiBaseUrl': 'https://example.org/api/',
         'languages': ['en'],
         'capabilities': ['search', 'detail', 'catalog', 'content'],

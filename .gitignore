@@ -114,3 +114,6 @@ secrets.json
 
 # Analyze reports
 midu_analyze.txt
+
+# flutter_js 本地测试复制到项目根的 QuickJS 动态库
+quickjs_c_bridge.dll

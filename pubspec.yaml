@@ -79,6 +79,12 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  test: ^1.26.3
+
+  # JS 规则本地测试引擎（仅 dev）：flutter_js 提供预编译 V8/JavaScriptCore，
+  # 无需 Rust 构建，可在本机 flutter test 中执行 Legado 的 @js / <js> 规则。
+  # 生产运行仍使用 fjs（见 dependencies）。
+  flutter_js: ^0.8.7
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

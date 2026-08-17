@@ -851,8 +851,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       logger.log('reader', 'contentFuture完成', details: {
         'index': index,
         'serial': loadSerial,
-        'contentParts': content.parts.length,
-        'totalLength': content.parts.fold<int>(0, (s, p) => s + p.text.length),
+        'totalLength': content.content.length,
       });
       if (!mounted || loadSerial != _chapterLoadSerial) {
         logger.log('reader', 'content返回后取消→重置loading', details: {
@@ -1053,9 +1052,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
           logger.log('reader', '_continuousContentFor:getChapterContent返回',
               details: {
                 'index': index,
-                'parts': content.parts.length,
-                'totalLength':
-                    content.parts.fold<int>(0, (s, p) => s + p.text.length),
+                'totalLength': content.content.length,
               });
           // 换源后，上一源仍在飞行中的回调直接丢弃，不写缓存/状态。
           if (_contentGeneration != generation) {
@@ -1076,7 +1073,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
             _readableChapterText[index] = rendered;
             logger.log('reader', '_continuousContentFor:排版渲染完成', details: {
               'index': index,
-              'renderedLength': rendered.text.length,
+              'renderedLength': rendered.length,
             });
           } catch (e) {
             logger.log('reader', '_continuousContentFor:排版渲染异常', details: {

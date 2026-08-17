@@ -46,17 +46,15 @@ class BookSourceNetworkPolicy {
   }
 
   HttpClient createPinnedHttpClient() {
-    final client = HttpClient();
-    client.connectionFactory = (uri, proxyHost, proxyPort) async {
-      final targetHost = proxyHost ?? uri.host;
-      final targetPort = proxyPort ?? uri.port;
-      final targetUri = proxyHost == null
-          ? uri
-          : Uri(scheme: 'http', host: targetHost, port: targetPort);
-      final addresses = await resolve(targetUri);
-      return Socket.startConnect(addresses.first, targetPort);
-    };
-    return client;
+    // 米读（关键修复）：不再自定义 connectionFactory。
+    // 之前的实现用 Socket.startConnect 直连，会产生两个致命问题：
+    //  1) 只连解析出的第一个 IP——IPv6 优先的域名（如 Cloudflare CDN）会
+    //     一直挂到超时，导致大量书源搜索/正文请求失败；
+    //  2) 自定义 socket 未按 HttpClient 期望完成初始化，服务器会拒绝请求，
+    //     实测所有请求都返回 400 Bad Request（默认 HttpClient 同 URL 为 200）。
+    // 直接返回系统默认 HttpClient：Dart 内置连接管理自动做多 IP 轮询与
+    // happy-eyeballs；SSRF 防护由调用方在请求前执行 resolve/validate 承担。
+    return HttpClient();
   }
 
   static bool isBlockedAddress(

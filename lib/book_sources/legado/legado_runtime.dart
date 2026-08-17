@@ -310,35 +310,112 @@ class LegadoRuntime {
   }) async {
     await _ensureSandbox();
     // ===== 米读：before-send JS 预处理 =====
-    // 当 URL 模板或 header 中包含 @js / <js> 表达式时，先通过 fjs 执行
-    // （Legado 书源常用 java.crypto.md5Encode 构造签名、cookie 计算等）
-    final processedTemplate = await _preprocessJsInString(template);
+    // 当 URL 模板或 header 中包含 @js / <js> 表达式，或 {{...}} 内嵌 JS 表达式
+    // （如 {{java.connect(...)}}、{{source.get('k')}}）时，先通过 fjs 执行
+    final processedTemplate = await _preprocessJsInString(
+      template,
+      variables: variables,
+    );
     final rawHeaders = _sourceHeaders(source);
     final processedHeaders = <String, String>{};
     for (final entry in rawHeaders.entries) {
-      processedHeaders[entry.key] = await _preprocessJsInString(entry.value);
+      processedHeaders[entry.key] = await _preprocessJsInString(
+        entry.value,
+        variables: variables,
+      );
     }
     return _transport.send(
       LegadoRequestTemplate.parse(
-        processedTemplate,
+        _expandSourceVars(processedTemplate),
         baseUri: source.baseUri,
         variables: variables,
-        sourceHeaders: processedHeaders,
+        sourceHeaders: _expandHeaderVars(processedHeaders),
       ),
     );
   }
 
+  /// 把 URL 模板中的 {{varName}}（@put 规则或 JS source.put 存入的变量）展开。
+  /// 纯变量名才展开；JSON 路径（{{$.x}}）与查询变量（{{key}}/{{page}}）保持原样。
+  String _expandSourceVars(String input) {
+    return input.replaceAllMapped(RegExp(r'\{\{\s*([^{}]+?)\s*\}\}'), (match) {
+      final name = match.group(1)!.trim();
+      if (name.isEmpty || !RegExp(r'^[a-zA-Z_][a-zA-Z0-9_]*$').hasMatch(name)) {
+        return match.group(0)!;
+      }
+      final stored = _sandbox.getSourceVar(name);
+      if (stored == null || stored.isEmpty) return match.group(0)!;
+      return stored;
+    });
+  }
+
+  Map<String, String> _expandHeaderVars(Map<String, String> headers) {
+    if (headers.isEmpty) return headers;
+    return headers.map((key, value) => MapEntry(key, _expandSourceVars(value)));
+  }
+
   /// 检测字符串中是否包含 @js: 或 <js>…</js>，如是则交给 fjs 执行并返回结果；
+  /// 同时处理 {{...}} 内嵌的 JS 表达式（{{java.xxx()}}、{{source.get('k')}} 等）。
   /// 否则原样返回。
-  Future<String> _preprocessJsInString(String value) async {
+  Future<String> _preprocessJsInString(
+    String value, {
+    Map<String, String> variables = const {},
+  }) async {
     if (value.isEmpty) return value;
     final lower = value.toLowerCase();
-    if (!lower.contains('@js:') && !lower.contains('<js>')) return value;
+    if (lower.contains('@js:') || lower.contains('<js>')) {
+      try {
+        final r = await _sandbox.evalJs(value);
+        return r.isEmpty ? value : r;
+      } catch (_) {
+        return value;
+      }
+    }
+    // 处理 {{...}} 内嵌 JS 表达式：仅当表达式中含 JS 调用/运算符时才交给 fjs。
+    // 纯变量（{{key}}、{{page}}）保持原样，由 LegadoRequestTemplate 展开。
+    if (!RegExp(r'\{\{[^{}]*\{\{').hasMatch(value) &&
+        RegExp(r'(\{\{[^{}]*\b(java\.|source\.|Date\.|Math\.|String\.|global)\b[^{}]*\}\})',
+                caseSensitive: false)
+            .hasMatch(value)) {
+      return _evalTemplateJsExpressions(value, variables);
+    }
+    return value;
+  }
+
+  Future<String> _evalTemplateJsExpressions(
+    String value,
+    Map<String, String> variables,
+  ) async {
+    final pattern = RegExp(r'\{\{\s*([^{}]+?)\s*\}\}');
+    final matches = pattern.allMatches(value).toList(growable: false);
+    if (matches.isEmpty) return value;
+    var result = value;
+    for (final match in matches.reversed) {
+      final expression = match.group(1)!;
+      final trimmed = expression.trim();
+      if (trimmed.isEmpty) continue;
+      // 纯变量/字面量不处理
+      if (RegExp(r'^[a-zA-Z_][a-zA-Z0-9_]*$').hasMatch(trimmed) ||
+          ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+              (trimmed.startsWith("'") && trimmed.endsWith("'")))) {
+        continue;
+      }
+      final evaluated = await _evalJsExpression(trimmed, variables);
+      result = result.replaceRange(match.start, match.end, evaluated);
+    }
+    return result;
+  }
+
+  Future<String> _evalJsExpression(
+    String expression,
+    Map<String, String> variables,
+  ) async {
+    final globals = variables.map((key, value) => MapEntry(key, value));
     try {
-      final r = await _sandbox.evalJs(value);
-      return r.isEmpty ? value : r;
+      final code = '@js:finalResult = $expression;';
+      final r = await _sandbox.evalJs(code, extraGlobals: globals);
+      return r.trim();
     } catch (_) {
-      return value;
+      return '';
     }
   }
 
