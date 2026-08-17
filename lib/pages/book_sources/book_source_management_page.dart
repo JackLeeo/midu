@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:midu/book_sources/legado/legado_source_verifier.dart';
 import 'package:midu/book_sources/models/registered_book_source.dart';
 import 'package:midu/book_sources/protocol/book_source_protocol.dart';
 import 'package:midu/book_sources/services/book_source_client.dart';
+import 'package:midu/book_sources/services/book_source_health_service.dart';
 import 'package:midu/book_sources/services/book_source_import_analyzer.dart';
 import 'package:midu/book_sources/services/book_source_registry.dart';
 import 'package:midu/utils/layout_helper.dart';
@@ -80,6 +82,11 @@ class _BookSourceManagementPageState extends State<BookSourceManagementPage> {
       appBar: AppBar(
         title: Text(context.l10n.bookSourceManagementTitle),
         actions: [
+          IconButton(
+            tooltip: '健康检查',
+            onPressed: _runHealthCheck,
+            icon: const Icon(Icons.health_and_safety_outlined),
+          ),
           IconButton(
             tooltip: context.l10n.bookSourcesAdd,
             onPressed: _showAddSourceDialog,
@@ -738,6 +745,477 @@ class _BookSourceManagementPageState extends State<BookSourceManagementPage> {
     }
   }
 
+  // ===== 健康检查 =====
+
+  Future<void> _runHealthCheck() async {
+    final legadoSources = _sources
+        .where((s) => s.sourceProtocol == BookSourceProtocolKind.legado)
+        .toList();
+    if (legadoSources.isEmpty) {
+      showSideToast(
+        context,
+        '暂无可检查的 Legado 书源',
+        kind: SideToastKind.error,
+      );
+      return;
+    }
+    final checker = BookSourceHealthChecker(client: _sourceClient);
+    final report = await showDialog<HealthCheckReport>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => _HealthCheckProgressDialog(
+        checker: checker,
+        sources: legadoSources,
+      ),
+    );
+    if (!mounted || report == null) return;
+    if (report.total == 0) {
+      showSideToast(
+        context,
+        '暂无可检查的 Legado 书源',
+        kind: SideToastKind.error,
+      );
+      return;
+    }
+    _showHealthCheckResultDialog(report);
+  }
+
+  void _showHealthCheckResultDialog(HealthCheckReport report) {
+    final scheme = Theme.of(context).colorScheme;
+    final failures = report.failures;
+    final passed = report.results.where((r) => r.isHealthy).toList();
+    final blockedIds = <String>{};
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 28,
+            vertical: 24,
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(28),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        scheme.primary.withValues(alpha: 0.18),
+                        scheme.surface.withValues(alpha: 0.96),
+                      ],
+                    ),
+                    border: Border.all(
+                      color: scheme.primary.withValues(alpha: 0.34),
+                    ),
+                    borderRadius: BorderRadius.circular(28),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 16, 8, 8),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.health_and_safety_rounded,
+                              color: scheme.primary,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                '健康检查结果',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleLarge
+                                    ?.copyWith(fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: '关闭',
+                              onPressed: () => Navigator.of(context).pop(),
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _summaryChip('总数 ${report.total}', scheme.primary),
+                            _summaryChip(
+                              '通过 ${report.healthyCount}',
+                              Colors.green,
+                            ),
+                            _summaryChip(
+                              '失败 ${report.failedCount}',
+                              scheme.error,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Divider(
+                        height: 1,
+                        color: scheme.outline.withValues(alpha: 0.2),
+                      ),
+                      Flexible(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 460),
+                          child: ListView(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                            shrinkWrap: true,
+                            children: [
+                              if (failures.isEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 28,
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Icon(
+                                        Icons.check_circle_rounded,
+                                        color: Colors.green,
+                                        size: 48,
+                                      ),
+                                      const SizedBox(height: 10),
+                                      const Text('全部书源通过检查'),
+                                    ],
+                                  ),
+                                )
+                              else ...[
+                                Padding(
+                                  padding: const EdgeInsets.only(
+                                    left: 4,
+                                    bottom: 8,
+                                  ),
+                                  child: Text(
+                                    '失败 (${failures.length})',
+                                    style: TextStyle(
+                                      color: scheme.error,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                                ...failures.map(
+                                  (r) => _buildFailureCard(
+                                    r,
+                                    blocked: blockedIds.contains(r.source.id),
+                                    scheme: scheme,
+                                    onBlock: () async {
+                                      await BookSourceBlocklistStore.instance
+                                          .block(r.source.id);
+                                      if (!context.mounted) return;
+                                      setState(
+                                        () => blockedIds.add(r.source.id),
+                                      );
+                                      showSideToast(
+                                        context,
+                                        '已屏蔽「${r.source.name}」7 天',
+                                        kind: SideToastKind.success,
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
+                              if (passed.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                _buildPassedSection(passed, scheme),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                      Container(
+                        decoration: BoxDecoration(
+                          border: Border(
+                            top: BorderSide(
+                              color: scheme.outline.withValues(alpha: 0.2),
+                            ),
+                          ),
+                        ),
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton.icon(
+                                onPressed: failures.isEmpty ||
+                                        blockedIds.length >= failures.length
+                                    ? null
+                                    : () async {
+                                        for (final r in failures) {
+                                          if (!blockedIds
+                                              .contains(r.source.id)) {
+                                            await BookSourceBlocklistStore
+                                                .instance
+                                                .block(r.source.id);
+                                          }
+                                        }
+                                        if (!context.mounted) return;
+                                        setState(
+                                          () => blockedIds.addAll(
+                                            failures.map((r) => r.source.id),
+                                          ),
+                                        );
+                                        showSideToast(
+                                          context,
+                                          '已屏蔽全部失败书源 7 天',
+                                          kind: SideToastKind.success,
+                                        );
+                                      },
+                                icon: const Icon(Icons.block_rounded),
+                                label: Text('全部屏蔽（${failures.length}）'),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            OutlinedButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: const Text('关闭'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _summaryChip(String label, Color accent) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: accent.withValues(alpha: 0.42)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: accent,
+          fontWeight: FontWeight.w800,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFailureCard(
+    HealthCheckResult r, {
+    required bool blocked,
+    required ColorScheme scheme,
+    required Future<void> Function() onBlock,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.errorContainer.withValues(alpha: 0.32),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: scheme.error.withValues(alpha: 0.32)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.error_outline_rounded,
+                color: scheme.error,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  r.source.name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    height: 1.25,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: scheme.error.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  _stageLabel(r.stage),
+                  style: TextStyle(
+                    color: scheme.error,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            r.error ?? '未知错误',
+            style: TextStyle(
+              color: scheme.onSurfaceVariant,
+              fontSize: 12,
+              height: 1.4,
+            ),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              if (r.latencyMs != null)
+                Text(
+                  '${r.latencyMs}ms',
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 11,
+                  ),
+                ),
+              const Spacer(),
+              if (blocked)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.check_rounded,
+                        size: 14,
+                        color: scheme.primary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '已屏蔽 7 天',
+                        style: TextStyle(
+                          color: scheme.primary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                FilledButton.tonalIcon(
+                  onPressed: onBlock,
+                  icon: const Icon(Icons.shield_outlined, size: 16),
+                  label: const Text('暂时屏蔽7天'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPassedSection(
+    List<HealthCheckResult> passed,
+    ColorScheme scheme,
+  ) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: ExpansionTile(
+        initiallyExpanded: false,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Colors.green.withValues(alpha: 0.32)),
+        ),
+        collapsedShape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Colors.green.withValues(alpha: 0.32)),
+        ),
+        backgroundColor: Colors.green.withValues(alpha: 0.08),
+        collapsedBackgroundColor: Colors.green.withValues(alpha: 0.08),
+        tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+        title: Row(
+          children: [
+            Icon(
+              Icons.check_circle_outline_rounded,
+              color: Colors.green,
+              size: 20,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '${passed.length} 个源通过检查',
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
+        children: passed
+            .map(
+              (r) => ListTile(
+                dense: true,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 14),
+                leading: Icon(
+                  Icons.check_rounded,
+                  color: Colors.green,
+                  size: 18,
+                ),
+                title: Text(
+                  r.source.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: r.latencyMs != null
+                    ? Text(
+                        '${r.latencyMs}ms',
+                        style: TextStyle(
+                          color: scheme.onSurfaceVariant,
+                          fontSize: 11,
+                        ),
+                      )
+                    : null,
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+
+  String _stageLabel(HealthCheckStage stage) {
+    switch (stage) {
+      case HealthCheckStage.init:
+        return '初始化';
+      case HealthCheckStage.search:
+        return '搜索';
+      case HealthCheckStage.detail:
+        return '书籍详情';
+      case HealthCheckStage.catalog:
+        return '章节目录';
+      case HealthCheckStage.content:
+        return '章节正文';
+      case HealthCheckStage.done:
+        return '成功';
+    }
+  }
+
   Future<void> _confirmRemoveSource(RegisteredBookSource source) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -1378,6 +1856,133 @@ class _DetectedSourceSummary extends StatelessWidget {
                 preview.unsupported,
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HealthCheckProgressDialog extends StatefulWidget {
+  const _HealthCheckProgressDialog({
+    required this.checker,
+    required this.sources,
+  });
+
+  final BookSourceHealthChecker checker;
+  final List<RegisteredBookSource> sources;
+
+  @override
+  State<_HealthCheckProgressDialog> createState() =>
+      _HealthCheckProgressDialogState();
+}
+
+class _HealthCheckProgressDialogState extends State<_HealthCheckProgressDialog> {
+  int _completed = 0;
+  int _total = 0;
+  int _healthy = 0;
+  String? _currentId;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_run());
+  }
+
+  Future<void> _run() async {
+    try {
+      final report = await widget.checker.run(
+        widget.sources,
+        onlyLegado: false,
+        onProgress: (completed, total, healthy, currentId) {
+          if (!mounted) return;
+          setState(() {
+            _completed = completed;
+            _total = total;
+            _healthy = healthy;
+            _currentId = currentId;
+          });
+        },
+      );
+      if (!mounted) return;
+      await Future<void>.delayed(const Duration(milliseconds: 280));
+      if (!mounted) return;
+      Navigator.of(context).pop(report);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = '$e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final progress = _total > 0 ? _completed / _total : 0.0;
+    String? currentName;
+    if (_currentId != null) {
+      for (final s in widget.sources) {
+        if (s.id == _currentId) {
+          currentName = s.name;
+          break;
+        }
+      }
+    }
+    return AlertDialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(24),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.health_and_safety_rounded,
+            color: scheme.primary,
+            size: 40,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '健康检查进行中',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          const SizedBox(height: 16),
+          LinearProgressIndicator(value: progress),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('$_completed / $_total'),
+              Text(
+                '通过 $_healthy',
+                style: TextStyle(color: scheme.primary),
+              ),
+            ],
+          ),
+          if (currentName != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              '正在检查：$currentName',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: scheme.onSurfaceVariant,
+                fontSize: 12,
+              ),
+            ),
+          ],
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _error!,
+              style: TextStyle(color: scheme.error, fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('关闭'),
+            ),
+          ],
         ],
       ),
     );

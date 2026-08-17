@@ -1,20 +1,24 @@
 // 文件说明：跨书源聚合搜索页，由发现页右上角搜索按钮进入。
-// 技术要点：Flutter UI、并发书源请求、按源分页加载更多。
+// 技术要点：调用 BookSourceAggregatedSearch 三级相关性排序、紫色玻璃拟态 UI、按 tier 分组展示。
 
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:midu/book_sources/models/registered_book_source.dart';
+import 'package:midu/book_sources/protocol/book_source_protocol.dart';
+import 'package:midu/book_sources/services/book_source_aggregated_search.dart';
 import 'package:midu/book_sources/services/book_source_client.dart';
 import 'package:midu/book_sources/services/book_source_shelf_service.dart';
 import 'package:midu/utils/localization_extension.dart';
-import 'package:midu/utils/page_style_helper.dart';
+import 'package:midu/widgets/generated_book_cover.dart';
+import 'package:midu/widgets/source_cover_image.dart';
 
 import 'widgets/sourced_book_widgets.dart';
 
 /// 跨已启用书源的聚合搜索页。
 ///
-/// 搜索范围与分页状态都在本页内维护；发现页只负责展示书籍。
+/// 搜索范围与结果状态都在本页内维护；结果按相关性 tier 分组展示。
 class SourceSearchPage extends StatefulWidget {
   final List<RegisteredBookSource> sources;
   final BookSourceClient client;
@@ -44,9 +48,15 @@ class SourceSearchPage extends StatefulWidget {
 }
 
 class _SourceSearchPageState extends State<SourceSearchPage> {
+  // 米读品牌紫
+  static const Color _brandPurple = Color(0xFF6C4CF6);
+  static const Color _brandPurpleLight = Color(0xFF9B7CF7);
+
   final TextEditingController _queryController = TextEditingController();
   final FocusNode _queryFocus = FocusNode();
   final ScrollController _scrollController = ScrollController();
+  late final BookSourceAggregatedSearch _aggregated =
+      BookSourceAggregatedSearch(widget.client);
   late final SourcedBookActions _actions = SourcedBookActions(
     context: context,
     client: widget.client,
@@ -54,17 +64,17 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
   );
 
   String? _selectedSourceId;
-  List<SourcedBook> _results = const [];
-  Map<String, _SearchPageState> _pageStates = const {};
+  List<AggregatedSearchHit> _results = const [];
   bool _searching = false;
   bool _hasSearched = false;
   bool _loadingMore = false;
   bool _loadMoreFailed = false;
   int _failedSourceCount = 0;
+  int _respondedSourceCount = 0;
   String _activeQuery = '';
   int _searchGeneration = 0;
-
-  bool get _hasMore => _pageStates.values.any((state) => state.hasMore);
+  int _nextPage = 2;
+  bool _hasMore = false;
 
   @override
   void initState() {
@@ -112,44 +122,35 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
       _searching = true;
       _hasSearched = true;
       _failedSourceCount = 0;
+      _respondedSourceCount = 0;
       _activeQuery = query;
       _results = const [];
-      _pageStates = const {};
       _loadingMore = false;
       _loadMoreFailed = false;
+      _hasMore = false;
+      _nextPage = 2;
     });
 
-    final batches = await Future.wait(
-      targetSources.map((source) async {
-        try {
-          final page = await widget.client.search(source, query);
-          return _SearchBatch(
-            source: source,
-            items: page.items
-                .map((book) => SourcedBook(source: source, book: book))
-                .toList(growable: false),
-            page: page.page,
-            hasMore: page.hasMore && page.items.isNotEmpty,
-          );
-        } catch (_) {
-          return _SearchBatch(source: source, items: const [], failed: true);
-        }
-      }),
-    );
+    AggregatedSearchPage page;
+    try {
+      page = await _aggregated.search(targetSources, query, page: 1);
+    } catch (_) {
+      if (!mounted || generation != _searchGeneration) return;
+      setState(() {
+        _searching = false;
+        _results = const [];
+        _failedSourceCount = targetSources.length;
+      });
+      return;
+    }
 
     if (!mounted || generation != _searchGeneration) return;
     setState(() {
-      _results = batches.expand((batch) => batch.items).toList(growable: false);
-      _pageStates = {
-        for (final batch in batches)
-          if (!batch.failed)
-            batch.source.id: _SearchPageState(
-              source: batch.source,
-              page: batch.page,
-              hasMore: batch.hasMore,
-            ),
-      };
-      _failedSourceCount = batches.where((batch) => batch.failed).length;
+      _results = page.hits;
+      _failedSourceCount = page.perSourceErrors.length;
+      _respondedSourceCount = page.respondedSourceCount;
+      _hasMore = page.hasMore;
+      _nextPage = 2;
       _searching = false;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => _handleScroll());
@@ -159,70 +160,49 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
     if (_searching || _loadingMore || !_hasSearched || _activeQuery.isEmpty) {
       return;
     }
-    final targets = _pageStates.values
-        .where((state) => state.hasMore)
-        .toList(growable: false);
-    if (targets.isEmpty) return;
-
+    if (!_hasMore) return;
+    final targets = _targets;
     final query = _activeQuery;
     final generation = _searchGeneration;
+    final pageToFetch = _nextPage;
     setState(() {
       _loadingMore = true;
       _loadMoreFailed = false;
     });
 
-    final batches = await Future.wait(
-      targets.map((state) async {
-        try {
-          final page = await widget.client.search(
-            state.source,
-            query,
-            page: state.page + 1,
-          );
-          return _SearchBatch(
-            source: state.source,
-            items: page.items
-                .map((book) => SourcedBook(source: state.source, book: book))
-                .toList(growable: false),
-            page: page.page,
-            hasMore: page.hasMore && page.items.isNotEmpty,
-          );
-        } catch (_) {
-          return _SearchBatch(
-            source: state.source,
-            items: const [],
-            failed: true,
-          );
-        }
-      }),
-    );
+    AggregatedSearchPage page;
+    try {
+      page = await _aggregated.search(targets, query, page: pageToFetch);
+    } catch (_) {
+      if (!mounted || generation != _searchGeneration || query != _activeQuery) {
+        return;
+      }
+      setState(() {
+        _loadingMore = false;
+        _loadMoreFailed = true;
+      });
+      return;
+    }
 
     if (!mounted || generation != _searchGeneration || query != _activeQuery) {
       return;
     }
+    // 跨页去重：以 (canonicalTitle, canonicalAuthor) 为 key
     final seen = _results
-        .map((item) => '${item.source.id}\u0000${item.book.id}')
+        .map((h) => '${h.canonicalTitle}\u0000${h.canonicalAuthor}')
         .toSet();
-    final appended = <SourcedBook>[];
-    final nextStates = Map<String, _SearchPageState>.from(_pageStates);
-    for (final batch in batches) {
-      if (batch.failed) continue;
-      nextStates[batch.source.id] = _SearchPageState(
-        source: batch.source,
-        page: batch.page,
-        hasMore: batch.hasMore,
-      );
-      for (final item in batch.items) {
-        final key = '${item.source.id}\u0000${item.book.id}';
-        if (seen.add(key)) appended.add(item);
-      }
+    final appended = <AggregatedSearchHit>[];
+    for (final hit in page.hits) {
+      final key = '${hit.canonicalTitle}\u0000${hit.canonicalAuthor}';
+      if (seen.add(key)) appended.add(hit);
     }
 
     setState(() {
       _results = [..._results, ...appended];
-      _pageStates = nextStates;
+      _hasMore = page.hasMore && appended.isNotEmpty;
+      _nextPage = pageToFetch + 1;
       _loadingMore = false;
-      _loadMoreFailed = batches.any((batch) => batch.failed);
+      _loadMoreFailed = false;
     });
   }
 
@@ -231,97 +211,17 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
     _queryController.clear();
     setState(() {
       _results = const [];
-      _pageStates = const {};
       _hasSearched = false;
       _failedSourceCount = 0;
+      _respondedSourceCount = 0;
       _activeQuery = '';
       _searching = false;
       _loadingMore = false;
       _loadMoreFailed = false;
+      _hasMore = false;
+      _nextPage = 2;
     });
     _queryFocus.requestFocus();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final enabledSources = widget.sources
-        .where((source) => source.enabled)
-        .toList(growable: false);
-    return Scaffold(
-      appBar: AppBar(titleSpacing: 0, title: _buildQueryField(enabledSources)),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: PageStyleHelper.backgroundGradient(context),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (enabledSources.isNotEmpty) _buildScopeChips(enabledSources),
-              Expanded(child: _buildBody(enabledSources)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildQueryField(List<RegisteredBookSource> enabledSources) {
-    final canSearch = enabledSources.isNotEmpty && !_searching;
-    return Padding(
-      padding: const EdgeInsets.only(right: 12),
-      child: TextField(
-        key: const Key('bookSourceQueryControl'),
-        controller: _queryController,
-        focusNode: _queryFocus,
-        enabled: canSearch,
-        textInputAction: TextInputAction.search,
-        onSubmitted: (_) => _search(),
-        decoration: InputDecoration(
-          hintText: context.l10n.bookSourcesSearchHint,
-          border: InputBorder.none,
-          suffixIcon: _queryController.text.isEmpty
-              ? null
-              : IconButton(
-                  key: const Key('bookSourceSearchClearButton'),
-                  tooltip: MaterialLocalizations.of(
-                    context,
-                  ).deleteButtonTooltip,
-                  icon: const Icon(Icons.close_rounded),
-                  onPressed: _clearSearch,
-                ),
-        ),
-        onChanged: (_) => setState(() {}),
-      ),
-    );
-  }
-
-  Widget _buildScopeChips(List<RegisteredBookSource> enabledSources) {
-    return SizedBox(
-      key: const Key('bookSourceScopeControl'),
-      height: 48,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        children: [
-          ChoiceChip(
-            selected: _selectedSourceId == null,
-            label: Text(context.l10n.statsRangeAll),
-            onSelected: (_) => _changeScope(null),
-          ),
-          const SizedBox(width: 8),
-          for (final source in enabledSources) ...[
-            ChoiceChip(
-              selected: _selectedSourceId == source.id,
-              label: Text(source.name),
-              onSelected: (_) => _changeScope(source.id),
-            ),
-            const SizedBox(width: 8),
-          ],
-        ],
-      ),
-    );
   }
 
   void _changeScope(String? sourceId) {
@@ -332,7 +232,7 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
       if (_hasSearched) {
         _searching = true;
         _results = const [];
-        _pageStates = const {};
+        _hasMore = false;
       }
     });
     if (_hasSearched && _activeQuery.isNotEmpty) {
@@ -341,8 +241,241 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
     }
   }
 
+  /// 将聚合 hit 还原为 SourcedBook 以复用既有详情/阅读/加入书架流程。
+  SourcedBook _resolveSourcedBook(AggregatedSearchHit hit) {
+    final pointer = hit.primary;
+    RegisteredBookSource? source;
+    for (final s in widget.sources) {
+      if (s.id == pointer.sourceId) {
+        source = s;
+        break;
+      }
+    }
+    source ??= widget.sources.first;
+    final book = pointer.book ??
+        BookSourceBook(
+          id: pointer.bookId,
+          title: hit.canonicalTitle,
+          author: hit.canonicalAuthor,
+          coverUrl: hit.coverUrl,
+          description: hit.description,
+          latestChapter: hit.latestChapter,
+          categories: hit.categories,
+        );
+    return SourcedBook(source: source, book: book);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final enabledSources = widget.sources
+        .where((source) => source.enabled)
+        .toList(growable: false);
+    return Scaffold(
+      body: Container(
+        decoration: BoxDecoration(gradient: _buildBackgroundGradient(context)),
+        child: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildHeader(enabledSources),
+              if (enabledSources.isNotEmpty) _buildScopeChips(enabledSources),
+              Expanded(child: _buildBody(enabledSources)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  LinearGradient _buildBackgroundGradient(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    if (isDark) {
+      return const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Color(0xFF1C1633), Color(0xFF13111C), Color(0xFF0E0D14)],
+      );
+    }
+    return const LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [Color(0xFFECE6FF), Color(0xFFF6F2FF), Color(0xFFFBFAFF)],
+    );
+  }
+
+  Widget _buildHeader(List<RegisteredBookSource> enabledSources) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(6, 6, 14, 4),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+            onPressed: () {
+              final nav = Navigator.maybeOf(context);
+              if (nav != null && nav.canPop()) nav.pop();
+            },
+          ),
+          const SizedBox(width: 2),
+          Expanded(child: _buildSearchBar(enabledSources)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchBar(List<RegisteredBookSource> enabledSources) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final canSearch = enabledSources.isNotEmpty && !_searching;
+    return _GlassContainer(
+      radius: 16,
+      blur: 14,
+      tint: isDark
+          ? Colors.white.withValues(alpha: 0.08)
+          : Colors.white.withValues(alpha: 0.62),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: Row(
+          children: [
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [_brandPurple, _brandPurpleLight],
+                ),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.search_rounded,
+                color: Colors.white,
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                key: const Key('bookSourceQueryControl'),
+                controller: _queryController,
+                focusNode: _queryFocus,
+                enabled: canSearch,
+                textInputAction: TextInputAction.search,
+                onSubmitted: (_) => _search(),
+                style: const TextStyle(fontSize: 15),
+                decoration: InputDecoration(
+                  hintText: context.l10n.bookSourcesSearchHint,
+                  hintStyle: TextStyle(
+                    color: Theme.of(context).hintColor,
+                    fontSize: 14,
+                  ),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 13),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+            if (_searching)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: _brandPurple,
+                  ),
+                ),
+              )
+            else if (_queryController.text.isNotEmpty)
+              IconButton(
+                key: const Key('bookSourceSearchClearButton'),
+                tooltip: MaterialLocalizations.of(
+                  context,
+                ).deleteButtonTooltip,
+                icon: const Icon(Icons.close_rounded, size: 20),
+                onPressed: _clearSearch,
+              )
+            else
+              const SizedBox(width: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScopeChips(List<RegisteredBookSource> enabledSources) {
+    return SizedBox(
+      key: const Key('bookSourceScopeControl'),
+      height: 46,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        children: [
+          _buildScopeChip(
+            label: context.l10n.statsRangeAll,
+            selected: _selectedSourceId == null,
+            onSelected: (_) => _changeScope(null),
+          ),
+          const SizedBox(width: 8),
+          for (final source in enabledSources) ...[
+            _buildScopeChip(
+              label: source.name,
+              selected: _selectedSourceId == source.id,
+              onSelected: (_) => _changeScope(source.id),
+            ),
+            const SizedBox(width: 8),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScopeChip({
+    required String label,
+    required bool selected,
+    required ValueChanged<bool> onSelected,
+  }) {
+    return GestureDetector(
+      onTap: () => onSelected(true),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          gradient: selected
+              ? const LinearGradient(colors: [_brandPurple, _brandPurpleLight])
+              : null,
+          color: selected
+              ? null
+              : Colors.white.withValues(
+                  alpha: Theme.of(context).brightness == Brightness.dark
+                      ? 0.08
+                      : 0.6,
+                ),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected
+                ? Colors.transparent
+                : _brandPurple.withValues(alpha: 0.25),
+            width: 0.8,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected
+                ? Colors.white
+                : (Theme.of(context).brightness == Brightness.dark
+                      ? Colors.white.withValues(alpha: 0.85)
+                      : const Color(0xFF4A4458)),
+            fontSize: 13,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildBody(List<RegisteredBookSource> enabledSources) {
-    final scheme = Theme.of(context).colorScheme;
     if (enabledSources.isEmpty) {
       return _buildMessage(
         icon: Icons.travel_explore_outlined,
@@ -351,14 +484,10 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
       );
     }
     if (_searching) {
-      return const Center(child: CircularProgressIndicator());
+      return _buildLoadingView();
     }
     if (!_hasSearched) {
-      return _buildMessage(
-        icon: Icons.manage_search_rounded,
-        title: context.l10n.bookSourcesSearch,
-        message: context.l10n.bookSourcesSearchHint,
-      );
+      return _buildEmptyInitial();
     }
     if (_results.isEmpty) {
       return _buildMessage(
@@ -366,9 +495,15 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
         title: context.l10n.bookSourcesNoResults,
         message: _failedSourceCount > 0
             ? context.l10n.bookSourcesFailedCount(_failedSourceCount)
-            : '',
+            : '换一个关键词试试吧',
       );
     }
+    return _buildResults();
+  }
+
+  Widget _buildResults() {
+    final groups = _tierGroups();
+    final scheme = Theme.of(context).colorScheme;
     return CustomScrollView(
       controller: _scrollController,
       slivers: [
@@ -379,10 +514,12 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
               children: [
                 Expanded(
                   child: Text(
-                    '${context.l10n.bookSourcesSearch}'
-                    ' · ${_scopeLabel()} · ${_results.length}',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    '为「$_activeQuery」找到 ${_results.length} 本'
+                    '${_respondedSourceCount > 0 ? ' · $_respondedSourceCount 个源响应' : ''}',
+                    style: TextStyle(
                       fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: scheme.onSurfaceVariant,
                     ),
                   ),
                 ),
@@ -392,58 +529,47 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
         ),
         if (_failedSourceCount > 0)
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
             sliver: SliverToBoxAdapter(
               child: Text(
                 context.l10n.bookSourcesFailedCount(_failedSourceCount),
-                style: TextStyle(color: scheme.error, fontSize: 12),
+                style: TextStyle(color: scheme.error, fontSize: 11),
               ),
             ),
           ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-          sliver: SliverList.separated(
-            itemCount: _results.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              final result = _results[index];
-              return Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 1048),
-                  child: SourcedBookListTile(
-                    result: result,
-                    onTap: () => _actions.showBookDetails(result),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
+        for (var i = 0; i < groups.length; i++) ...[
+          if (groups[i].isNotEmpty) ...[
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+              sliver: SliverToBoxAdapter(
+                child: _buildTierHeader(i, groups[i].length),
+              ),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+              sliver: SliverList.builder(
+                itemCount: groups[i].length,
+                itemBuilder: (context, index) =>
+                    _buildResultCard(groups[i][index]),
+              ),
+            ),
+          ],
+        ],
         if (_hasMore || _loadingMore || _loadMoreFailed)
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
             sliver: SliverToBoxAdapter(
               child: Center(
                 child: _loadingMore
                     ? const SizedBox(
                         width: 24,
                         height: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2.4),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.4,
+                          color: _brandPurple,
+                        ),
                       )
-                    : OutlinedButton.icon(
-                        key: const Key('bookSourceLoadMoreButton'),
-                        onPressed: _loadMore,
-                        icon: Icon(
-                          _loadMoreFailed
-                              ? Icons.refresh_rounded
-                              : Icons.expand_more_rounded,
-                        ),
-                        label: Text(
-                          _loadMoreFailed
-                              ? context.l10n.retry
-                              : context.l10n.bookSourcesLoadMore,
-                        ),
-                      ),
+                    : _buildLoadMoreButton(),
               ),
             ),
           ),
@@ -451,11 +577,286 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
     );
   }
 
-  String _scopeLabel() {
-    for (final source in widget.sources) {
-      if (source.id == _selectedSourceId) return source.name;
+  Widget _buildLoadMoreButton() {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(colors: [_brandPurple, _brandPurpleLight]),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: TextButton.icon(
+        key: const Key('bookSourceLoadMoreButton'),
+        onPressed: _loadMore,
+        style: TextButton.styleFrom(
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        ),
+        icon: Icon(
+          _loadMoreFailed ? Icons.refresh_rounded : Icons.expand_more_rounded,
+        ),
+        label: Text(
+          _loadMoreFailed
+              ? context.l10n.retry
+              : context.l10n.bookSourcesLoadMore,
+        ),
+      ),
+    );
+  }
+
+  /// 按 tier 分组：0 完全匹配 / 1 书名匹配 / 2 相关结果
+  List<List<AggregatedSearchHit>> _tierGroups() {
+    final g0 = <AggregatedSearchHit>[];
+    final g1 = <AggregatedSearchHit>[];
+    final g2 = <AggregatedSearchHit>[];
+    for (final hit in _results) {
+      switch (hit.tier) {
+        case 0:
+          g0.add(hit);
+          break;
+        case 1:
+          g1.add(hit);
+          break;
+        default:
+          g2.add(hit);
+      }
     }
-    return context.l10n.statsRangeAll;
+    return [g0, g1, g2];
+  }
+
+  Widget _buildTierHeader(int tier, int count) {
+    final (label, color) = switch (tier) {
+      0 => ('完全匹配', const Color(0xFF22C55E)),
+      1 => ('书名匹配', const Color(0xFFF59E0B)),
+      _ => ('相关结果', const Color(0xFF6B7280)),
+    };
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: 0.35),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          '$count 本',
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontSize: 12,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildResultCard(AggregatedSearchHit hit) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: _GlassContainer(
+        radius: 20,
+        blur: 10,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => _actions.showBookDetails(_resolveSourcedBook(hit)),
+            borderRadius: BorderRadius.circular(20),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _HitCoverThumb(hit: hit),
+                  const SizedBox(width: 12),
+                  Expanded(child: _buildCardText(hit)),
+                  const SizedBox(width: 8),
+                  _buildCardMeta(hit),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCardText(AggregatedSearchHit hit) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          hit.canonicalTitle,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            height: 1.25,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          hit.canonicalAuthor.isEmpty ? '未知作者' : hit.canonicalAuthor,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
+        ),
+        if ((hit.description ?? '').isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            hit.description!,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+              height: 1.3,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildCardMeta(AggregatedSearchHit hit) {
+    final count = hit.sources.length;
+    final multi = count > 1;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            gradient: multi
+                ? const LinearGradient(
+                    colors: [_brandPurple, _brandPurpleLight],
+                  )
+                : null,
+            color: multi
+                ? null
+                : Theme.of(context).colorScheme.outline.withValues(alpha: 0.16),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            '$count个源',
+            style: TextStyle(
+              color: multi
+                  ? Colors.white
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        if (hit.tier == 2 && hit.score > 0) ...[
+          const SizedBox(height: 6),
+          _buildRelevanceIndicator(hit.score),
+        ],
+        const SizedBox(height: 4),
+        Icon(
+          Icons.chevron_right_rounded,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          size: 20,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRelevanceIndicator(double score) {
+    final pct = (score * 100).clamp(0, 100).round();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '相关度 $pct%',
+          style: TextStyle(
+            fontSize: 10,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 3),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(3),
+          child: SizedBox(
+            width: 44,
+            height: 4,
+            child: LinearProgressIndicator(
+              value: score.clamp(0.0, 1.0),
+              backgroundColor: Theme.of(context)
+                  .colorScheme
+                  .outline
+                  .withValues(alpha: 0.2),
+              color: _brandPurple,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyInitial() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _GlassContainer(
+              radius: 64,
+              blur: 16,
+              tint: _brandPurple.withValues(
+                alpha: isDark ? 0.18 : 0.12,
+              ),
+              child: SizedBox(
+                width: 104,
+                height: 104,
+                child: const Icon(
+                  Icons.auto_stories_rounded,
+                  size: 46,
+                  color: _brandPurple,
+                ),
+              ),
+            ),
+            const SizedBox(height: 22),
+            const Text(
+              '搜索你的下一本好书',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '跨多个书源聚合，按相关性排序',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoadingView() {
+    return const _SearchLoadingView();
   }
 
   Widget _buildMessage({
@@ -473,15 +874,16 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
             Icon(
               icon,
               size: 42,
-              color: scheme.onSurfaceVariant.withValues(alpha: 0.55),
+              color: _brandPurple.withValues(alpha: 0.7),
             ),
             const SizedBox(height: 12),
             Text(
               title,
               textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 16,
+              ),
             ),
             if (message.isNotEmpty) ...[
               const SizedBox(height: 6),
@@ -498,30 +900,247 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
   }
 }
 
-class _SearchBatch {
-  final RegisteredBookSource source;
-  final List<SourcedBook> items;
-  final bool failed;
-  final int page;
-  final bool hasMore;
+// ============================================================
+//  玻璃拟态容器
+// ============================================================
 
-  const _SearchBatch({
-    required this.source,
-    required this.items,
-    this.failed = false,
-    this.page = 1,
-    this.hasMore = false,
+class _GlassContainer extends StatelessWidget {
+  const _GlassContainer({
+    required this.child,
+    this.radius = 16,
+    this.blur = 12,
+    this.tint,
   });
+
+  final Widget child;
+  final double radius;
+  final double blur;
+  final Color? tint;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final baseTint = tint ??
+        (isDark
+            ? Colors.white.withValues(alpha: 0.08)
+            : Colors.white.withValues(alpha: 0.55));
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+        child: Container(
+          decoration: BoxDecoration(
+            color: baseTint,
+            borderRadius: BorderRadius.circular(radius),
+            border: Border.all(
+              color: Colors.white.withValues(
+                alpha: isDark ? 0.12 : 0.4,
+              ),
+              width: 0.8,
+            ),
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
 }
 
-class _SearchPageState {
-  final RegisteredBookSource source;
-  final int page;
-  final bool hasMore;
+// ============================================================
+//  结果卡片封面缩略图
+// ============================================================
 
-  const _SearchPageState({
-    required this.source,
-    required this.page,
-    required this.hasMore,
-  });
+class _HitCoverThumb extends StatelessWidget {
+  const _HitCoverThumb({required this.hit});
+
+  final AggregatedSearchHit hit;
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = SizedBox(
+      width: 50,
+      height: 70,
+      child: GeneratedBookCover(
+        title: hit.canonicalTitle,
+        author: hit.canonicalAuthor,
+      ),
+    );
+    if (hit.coverUrl == null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: fallback,
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: SourceCoverImage(
+        url: hit.coverUrl!,
+        width: 50,
+        height: 70,
+        fit: BoxFit.cover,
+        cacheWidth: (50 * MediaQuery.devicePixelRatioOf(context)).round(),
+        fallback: fallback,
+      ),
+    );
+  }
+}
+
+// ============================================================
+//  搜索中：紫色 shimmer 占位
+// ============================================================
+
+class _SearchLoadingView extends StatefulWidget {
+  const _SearchLoadingView();
+
+  @override
+  State<_SearchLoadingView> createState() => _SearchLoadingViewState();
+}
+
+class _SearchLoadingViewState extends State<_SearchLoadingView>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      children: [
+        Row(
+          children: [
+            SizedBox(
+              width: 12,
+              height: 12,
+              child: const CircularProgressIndicator(
+                strokeWidth: 1.8,
+                color: _SourceSearchPageState._brandPurple,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              '正在跨源搜索…',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        for (var i = 0; i < 6; i++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _ShimmerCard(animation: _ctrl),
+          ),
+      ],
+    );
+  }
+}
+
+class _ShimmerCard extends StatelessWidget {
+  const _ShimmerCard({required this.animation});
+
+  final Animation<double> animation;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, _) {
+        final t = animation.value;
+        final baseAlpha = isDark ? 0.06 : 0.5;
+        final peakAlpha = isDark ? 0.14 : 0.78;
+        final alpha = baseAlpha + (peakAlpha - baseAlpha) * t;
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+            child: Container(
+              height: 94,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: alpha),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: Colors.white.withValues(
+                    alpha: isDark ? 0.1 : 0.35,
+                  ),
+                  width: 0.8,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 50,
+                    height: 70,
+                    decoration: BoxDecoration(
+                      color: _SourceSearchPageState._brandPurple.withValues(
+                        alpha: 0.16 + 0.1 * t,
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          height: 14,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: _SourceSearchPageState._brandPurple
+                                .withValues(alpha: 0.14 + 0.1 * t),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          height: 10,
+                          width: 130,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(
+                              alpha: isDark ? 0.1 : 0.5,
+                            ),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Container(
+                          height: 8,
+                          width: 90,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(
+                              alpha: isDark ? 0.06 : 0.4,
+                            ),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 }

@@ -3,14 +3,19 @@
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:midu/book_sources/services/book_source_client.dart';
+import 'package:midu/book_sources/services/book_source_registry.dart';
 import 'package:midu/book_sources/services/book_source_shelf_service.dart';
 import 'package:midu/core/reader/native_reader_service.dart';
 import 'package:midu/models/book.dart';
+import 'package:midu/pages/book_sources/book_source_management_page.dart';
+import 'package:midu/pages/book_sources/book_sources_page.dart';
+import 'package:midu/pages/book_sources/source_search_page.dart';
 import 'package:midu/pages/reader/book_source_reader_page.dart';
 import 'package:midu/pages/reading_stats/detailed_stats_page.dart';
 import 'package:midu/services/books/book_services.dart';
@@ -362,6 +367,8 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
     final maxWidth = useRailNavigation
         ? (mediaQuery.size.width >= 1600 ? 1080.0 : 920.0)
         : double.infinity;
+    final firstBook = _recentBooks.isEmpty ? null : _recentBooks.first;
+    final carouselBooks = _recentBooks.skip(1).toList(growable: false);
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -373,55 +380,85 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
         ),
       ),
       child: _isInitialLoading
-          ? Center(child: CircularProgressIndicator(color: palette.accentColor))
+          ? Center(
+              child: CircularProgressIndicator(
+                color: const Color(0xFF6C4CF6),
+                strokeWidth: 2.4,
+              ),
+            )
           : RefreshIndicator(
               onRefresh: _loadAllStats,
               edgeOffset: metrics.refreshEdgeOffset,
-              color: palette.accentColor,
+              color: const Color(0xFF6C4CF6),
               backgroundColor: palette.cardColor,
-              child: ListView(
-                scrollCacheExtent: const ScrollCacheExtent.pixels(720),
-                physics: const AlwaysScrollableScrollPhysics(
-                  parent: BouncingScrollPhysics(),
+              child: CustomScrollView(
+                physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
                 ),
-                padding: EdgeInsets.fromLTRB(
-                  metrics.horizontalPadding,
-                  metrics.contentTopPadding,
-                  metrics.horizontalPadding,
-                  metrics.contentBottomPadding,
-                ),
-                children: [
-                  Align(
-                    alignment: Alignment.topCenter,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: maxWidth),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          if (useRailNavigation) ...[
-                            _buildPageHeading(),
-                            const SizedBox(height: 28),
-                          ],
-                          _buildContinueReadingCard(
-                            _recentBooks.isEmpty ? null : _recentBooks.first,
+                slivers: [
+                  SliverPersistentHeader(
+                    pinned: false,
+                    delegate: _HeroHeaderDelegate(
+                      greeting: _greetingForTime(DateTime.now()),
+                      bookCount: _recentBooks.length,
+                      todayMinutes: _todayMinutes,
+                      topInset: mediaQuery.padding.top,
+                    ),
+                  ),
+                  SliverList(
+                    delegate: SliverChildListDelegate([
+                      const SizedBox(height: 16),
+                      _buildMaxWidthBox(
+                        maxWidth: maxWidth,
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: metrics.horizontalPadding,
+                          ),
+                          child: _buildContinueReadingCard(
+                            firstBook,
                             spacious: useRailNavigation,
                           ),
-                          const SizedBox(height: 18),
-                          _buildReadingRhythmCard(_normalizedWeekBars()),
-                          if (_recentBooks.length > 1) ...[
-                            const SizedBox(height: 28),
-                            _buildSectionHeading(
-                              context.l10n.homeRecentReading,
-                            ),
-                            const SizedBox(height: 14),
-                            _buildRecentBooks(
-                              _recentBooks.skip(1).toList(growable: false),
-                              useGrid: useRailNavigation,
-                            ),
-                          ],
-                        ],
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 20),
+                      _buildMaxWidthBox(
+                        maxWidth: maxWidth,
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: metrics.horizontalPadding,
+                          ),
+                          child: _buildQuickActions(),
+                        ),
+                      ),
+                      const SizedBox(height: 28),
+                      _buildMaxWidthBox(
+                        maxWidth: maxWidth,
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: metrics.horizontalPadding,
+                          ),
+                          child: _buildSectionLabel(
+                            context.l10n.homeRecentReading,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      _buildMaxWidthBox(
+                        maxWidth: maxWidth,
+                        child: _buildRecentBooksCarousel(carouselBooks),
+                      ),
+                      const SizedBox(height: 24),
+                      _buildMaxWidthBox(
+                        maxWidth: maxWidth,
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: metrics.horizontalPadding,
+                          ),
+                          child: _buildWeeklyMiniStats(),
+                        ),
+                      ),
+                      SizedBox(height: metrics.contentBottomPadding + 16),
+                    ]),
                   ),
                 ],
               ),
@@ -429,424 +466,360 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
     );
   }
 
-  Widget _buildPageHeading() {
-    final palette = _palette;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          context.l10n.home,
-          style: TextStyle(
-            color: palette.primaryTextColor,
-            fontSize: 34,
-            height: 1.05,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.8,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          _todayMinutes > 0
-              ? context.l10n.homeTodayReadingKeepRhythm
-              : context.l10n.homeTodayReadingPrompt,
-          style: TextStyle(color: palette.secondaryTextColor, fontSize: 15),
-        ),
-      ],
+  Widget _buildMaxWidthBox({
+    required double maxWidth,
+    required Widget child,
+  }) {
+    if (maxWidth == double.infinity) return child;
+    return Center(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: child,
+      ),
     );
+  }
+
+  Color _glassBackgroundColor() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.black.withValues(alpha: 0.03);
+  }
+
+  Color _glassBorderColor() {
+    return Colors.white.withValues(alpha: 0.12);
+  }
+
+  String _greetingForTime(DateTime time) {
+    final hour = time.hour;
+    if (hour >= 18) return '晚上好';
+    if (hour >= 12) return '下午好';
+    if (hour >= 6) return '上午好';
+    return '夜深了';
   }
 
   Widget _buildContinueReadingCard(Book? book, {required bool spacious}) {
-    final palette = _palette;
-    final radius = BorderRadius.circular(26);
     if (book == null) {
-      return Container(
-        key: const ValueKey('home-continue-reading-empty-card'),
-        padding: const EdgeInsets.all(24),
-        decoration: _cardDecoration(color: palette.heroColor, radius: 26),
-        child: Row(
-          children: [
-            Container(
-              width: 56,
-              height: 72,
-              decoration: BoxDecoration(
-                color: palette.accentColor.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(
-                Icons.menu_book_rounded,
-                color: palette.accentColor,
-                size: 28,
-              ),
-            ),
-            const SizedBox(width: 18),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    context.l10n.homeTodayReadingJourneyStart,
-                    style: TextStyle(
-                      color: palette.primaryTextColor,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    context.l10n.homeNoRecentReading,
-                    style: TextStyle(
-                      color: palette.secondaryTextColor,
-                      fontSize: 14,
-                      height: 1.45,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
+      return _buildContinueReadingEmptyCard();
     }
 
+    final palette = _palette;
     final progress = book.progress;
     final percent = (progress * 100).round();
-    final coverWidth = spacious ? 118.0 : 102.0;
-    final coverHeight = spacious ? 164.0 : 142.0;
+    final coverWidth = spacious ? 110.0 : 100.0;
+    final coverHeight = spacious ? 154.0 : 140.0;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: () => _openBook(book),
-        borderRadius: radius,
-        child: Ink(
-          key: const ValueKey('home-continue-reading-card'),
-          padding: EdgeInsets.all(spacious ? 24 : 18),
-          decoration: _cardDecoration(color: palette.heroColor, radius: 26),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              _buildBookCover(
-                book,
-                width: coverWidth,
-                height: coverHeight,
-                radius: 14,
-                elevated: true,
+        borderRadius: BorderRadius.circular(24),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Container(
+              key: const ValueKey('home-continue-reading-card'),
+              padding: EdgeInsets.all(spacious ? 22 : 18),
+              decoration: BoxDecoration(
+                color: _glassBackgroundColor(),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: _glassBorderColor(), width: 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF6C4CF6).withValues(alpha: 0.18),
+                    blurRadius: 26,
+                    offset: const Offset(0, 12),
+                  ),
+                ],
               ),
-              SizedBox(width: spacious ? 28 : 20),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  _buildBookCover(
+                    book,
+                    width: coverWidth,
+                    height: coverHeight,
+                    radius: 12,
+                    elevated: true,
+                  ),
+                  SizedBox(width: spacious ? 24 : 20),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Container(
-                          width: 4,
-                          height: 18,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
-                            color: palette.accentColor,
+                            color:
+                                const Color(0xFF6C4CF6).withValues(alpha: 0.16),
                             borderRadius: BorderRadius.circular(99),
                           ),
-                        ),
-                        const SizedBox(width: 9),
-                        Text(
-                          context.l10n.continueReading,
-                          style: TextStyle(
-                            color: palette.accentColor,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.3,
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: spacious ? 22 : 16),
-                    Text(
-                      book.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: palette.primaryTextColor,
-                        fontSize: spacious ? 28 : 23,
-                        height: 1.16,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                    const SizedBox(height: 7),
-                    Text(
-                      book.author,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: palette.secondaryTextColor,
-                        fontSize: 14,
-                      ),
-                    ),
-                    SizedBox(height: spacious ? 24 : 18),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(99),
-                            child: LinearProgressIndicator(
-                              value: progress,
-                              minHeight: 5,
-                              backgroundColor: palette.mutedColor,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                palette.accentColor,
-                              ),
+                          child: const Text(
+                            '继续阅读',
+                            style: TextStyle(
+                              color: Color(0xFF6C4CF6),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.3,
                             ),
                           ),
                         ),
-                        const SizedBox(width: 12),
+                        SizedBox(height: spacious ? 14 : 12),
                         Text(
-                          '$percent%',
-                          style: TextStyle(
-                            color: palette.secondaryTextColor,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: spacious ? 18 : 14),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          context.l10n.continueReading,
+                          book.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: palette.primaryTextColor,
+                            fontSize: spacious ? 24 : 22,
+                            height: 1.16,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          book.author,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: palette.secondaryTextColor,
+                            fontSize: 14,
+                          ),
+                        ),
+                        SizedBox(height: spacious ? 16 : 14),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(99),
+                                child: LinearProgressIndicator(
+                                  value: progress,
+                                  minHeight: 6,
+                                  backgroundColor: palette.mutedColor,
+                                  valueColor: const AlwaysStoppedAnimation<Color>(
+                                    Color(0xFF6C4CF6),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              '$percent%',
+                              style: TextStyle(
+                                color: palette.secondaryTextColor,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: spacious ? 14 : 12),
+                        Text(
+                          '→ ${context.l10n.continueReading}',
+                          style: const TextStyle(
+                            color: Color(0xFF6C4CF6),
                             fontSize: 14,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        const SizedBox(width: 6),
-                        Icon(
-                          Icons.arrow_forward_rounded,
-                          size: 17,
-                          color: palette.accentColor,
-                        ),
                       ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildReadingRhythmCard(List<double> bars) {
+  Widget _buildContinueReadingEmptyCard() {
     final palette = _palette;
-    final weekdays = _weekDayLabels();
-
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: _openStats,
-        borderRadius: BorderRadius.circular(22),
-        child: Ink(
-          key: const ValueKey('home-reading-rhythm-card'),
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-          decoration: _cardDecoration(color: palette.cardColor, radius: 22),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+        onTap: _navigateToSearch,
+        borderRadius: BorderRadius.circular(24),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Container(
+              key: const ValueKey('home-continue-reading-empty-card'),
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: _glassBackgroundColor(),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: _glassBorderColor(), width: 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF6C4CF6).withValues(alpha: 0.12),
+                    blurRadius: 22,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Row(
                 children: [
-                  Text(
-                    context.l10n.homeReadingRhythm,
-                    style: TextStyle(
-                      color: palette.primaryTextColor,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color:
+                          const Color(0xFF6C4CF6).withValues(alpha: 0.14),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.search_rounded,
+                      color: Color(0xFF6C4CF6),
+                      size: 26,
                     ),
                   ),
-                  const Spacer(),
-                  Icon(
-                    Icons.arrow_forward_ios_rounded,
-                    size: 13,
-                    color: palette.secondaryTextColor,
+                  const SizedBox(width: 18),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          context.l10n.homeTodayReadingJourneyStart,
+                          style: TextStyle(
+                            color: palette.primaryTextColor,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          context.l10n.homeNoRecentReading,
+                          style: TextStyle(
+                            color: palette.secondaryTextColor,
+                            fontSize: 13,
+                            height: 1.45,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
-              Row(
-                children: [
-                  _buildMetric(
-                    value: _formatNumber(_todayMinutes),
-                    label: context.l10n.statsToday,
-                  ),
-                  _buildMetricDivider(),
-                  _buildMetric(
-                    value: _formatNumber(_weekMinutes),
-                    label: context.l10n.homeWeeklyTotal,
-                  ),
-                  _buildMetricDivider(),
-                  _buildMetric(
-                    value: _formatNumber(_totalMinutes),
-                    label: context.l10n.homeTotalReading,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 22),
-              SizedBox(
-                height: 62,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: List.generate(7, (index) {
-                    final value = bars[index];
-                    final height = value <= 0 ? 5.0 : 8 + (value * 28);
-                    return Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 220),
-                            curve: Curves.easeOutCubic,
-                            width: 7,
-                            height: height,
-                            decoration: BoxDecoration(
-                              color: value <= 0
-                                  ? palette.mutedColor
-                                  : palette.accentColor.withValues(
-                                      alpha: 0.48 + value * 0.52,
-                                    ),
-                              borderRadius: BorderRadius.circular(99),
-                            ),
-                          ),
-                          const SizedBox(height: 7),
-                          Text(
-                            weekdays[index],
-                            style: TextStyle(
-                              color: palette.secondaryTextColor,
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildMetric({required String value, required String label}) {
+  Widget _buildQuickActions() {
+    return Row(
+      children: [
+        Expanded(
+          child: _buildQuickActionButton(
+            icon: Icons.search_rounded,
+            label: context.l10n.search,
+            onTap: _navigateToSearch,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _buildQuickActionButton(
+            icon: Icons.explore_rounded,
+            label: context.l10n.discover,
+            onTap: _navigateToDiscover,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _buildQuickActionButton(
+            icon: Icons.dns_rounded,
+            label: context.l10n.bookSources,
+            onTap: _navigateToBookSources,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuickActionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
     final palette = _palette;
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Flexible(
-                child: Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.fade,
-                  softWrap: false,
-                  style: TextStyle(
-                    color: palette.primaryTextColor,
-                    fontSize: 25,
-                    height: 1,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.7,
-                  ),
-                ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(
+              height: 64,
+              decoration: BoxDecoration(
+                color: _glassBackgroundColor(),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: _glassBorderColor(), width: 1),
               ),
-              const SizedBox(width: 3),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 1),
-                child: Text(
-                  context.l10n.unitMinute,
-                  style: TextStyle(
-                    color: palette.secondaryTextColor,
-                    fontSize: 10,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, color: const Color(0xFF6C4CF6), size: 22),
+                  const SizedBox(height: 5),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: palette.primaryTextColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
-          const SizedBox(height: 7),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: palette.secondaryTextColor, fontSize: 12),
-          ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildMetricDivider() {
-    final palette = _palette;
-    return Container(
-      width: 1,
-      height: 42,
-      margin: const EdgeInsets.symmetric(horizontal: 12),
-      color: palette.outlineColor,
-    );
-  }
-
-  Widget _buildSectionHeading(String title) {
-    final palette = _palette;
-    return Text(
-      title,
-      style: TextStyle(
-        color: palette.primaryTextColor,
-        fontSize: 20,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -0.25,
-      ),
-    );
-  }
-
-  Widget _buildRecentBooks(List<Book> books, {required bool useGrid}) {
-    if (useGrid) {
-      return LayoutBuilder(
-        builder: (context, constraints) {
-          const spacing = 14.0;
-          final columns = constraints.maxWidth >= 900 ? 5 : 4;
-          final width =
-              (constraints.maxWidth - spacing * (columns - 1)) / columns;
-          return Wrap(
-            spacing: spacing,
-            runSpacing: 18,
-            children: books
-                .map(
-                  (book) =>
-                      SizedBox(width: width, child: _buildRecentBookItem(book)),
-                )
-                .toList(growable: false),
-          );
-        },
+  Widget _buildRecentBooksCarousel(List<Book> books) {
+    if (books.isEmpty) {
+      final palette = _palette;
+      return SizedBox(
+        height: 200,
+        child: Center(
+          child: Text(
+            context.l10n.homeTodayReadingJourneyStart,
+            style: TextStyle(
+              color: palette.secondaryTextColor,
+              fontSize: 14,
+            ),
+          ),
+        ),
       );
     }
 
     return SizedBox(
-      height: 206,
+      height: 200,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         itemCount: books.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 14),
-        itemBuilder: (context, index) =>
-            SizedBox(width: 112, child: _buildRecentBookItem(books[index])),
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, index) => _buildCarouselItem(books[index]),
       ),
     );
   }
 
-  Widget _buildRecentBookItem(Book book) {
+  Widget _buildCarouselItem(Book book) {
     final palette = _palette;
     final progress = (book.progress * 100).round();
     return Semantics(
@@ -855,37 +828,199 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
           '${book.title}，${context.l10n.homeReadingProgressPercent('$progress')}',
       child: InkWell(
         onTap: () => _openBook(book),
-        borderRadius: BorderRadius.circular(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AspectRatio(
-              aspectRatio: 0.72,
-              child: _buildBookCover(
+        borderRadius: BorderRadius.circular(10),
+        child: SizedBox(
+          width: 130,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildBookCover(
                 book,
-                width: double.infinity,
-                height: double.infinity,
-                radius: 12,
+                width: 120,
+                height: 168,
+                radius: 10,
+                elevated: true,
               ),
-            ),
-            const SizedBox(height: 9),
-            Text(
-              book.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: palette.primaryTextColor,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
+              const SizedBox(height: 8),
+              Text(
+                book.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: palette.primaryTextColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              '$progress%',
-              style: TextStyle(color: palette.secondaryTextColor, fontSize: 11),
-            ),
-          ],
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildWeeklyMiniStats() {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _openStats,
+        borderRadius: BorderRadius.circular(20),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            child: Container(
+              key: const ValueKey('home-weekly-mini-stats-card'),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+              decoration: BoxDecoration(
+                color: _glassBackgroundColor(),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: _glassBorderColor(), width: 1),
+              ),
+              child: Row(
+                children: [
+                  _buildMiniStat(
+                    value: _formatNumber(_todayMinutes),
+                    unit: context.l10n.unitMinute,
+                    label: context.l10n.statsToday,
+                  ),
+                  _buildMiniStatDivider(),
+                  _buildMiniStat(
+                    value: _formatNumber((_weekMinutes / 60).round()),
+                    unit: 'h',
+                    label: context.l10n.homeWeeklyTotal,
+                  ),
+                  _buildMiniStatDivider(),
+                  _buildMiniStat(
+                    value: _formatNumber((_totalMinutes / 60).round()),
+                    unit: 'h',
+                    label: context.l10n.homeTotalReading,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMiniStat({
+    required String value,
+    required String unit,
+    required String label,
+  }) {
+    final palette = _palette;
+    return Expanded(
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Flexible(
+                child: Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.fade,
+                  softWrap: false,
+                  style: const TextStyle(
+                    color: Color(0xFF6C4CF6),
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 2),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: Text(
+                  unit,
+                  style: TextStyle(
+                    color: palette.secondaryTextColor,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: palette.secondaryTextColor,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniStatDivider() {
+    return Container(
+      width: 1,
+      height: 30,
+      margin: const EdgeInsets.symmetric(horizontal: 10),
+      color: _palette.outlineColor,
+    );
+  }
+
+  Widget _buildSectionLabel(String title) {
+    final palette = _palette;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            color: palette.primaryTextColor,
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.2,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _navigateToSearch() async {
+    try {
+      final sources = await BookSourceRegistry().loadRunnable();
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SourceSearchPage(
+            sources: sources,
+            client: _sourceClient,
+            shelfService: _sourceShelfService,
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        showSideToast(context, '$error', kind: SideToastKind.error);
+      }
+    }
+  }
+
+  Future<void> _navigateToDiscover() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const BookSourcesPage(),
+      ),
+    );
+  }
+
+  Future<void> _navigateToBookSources() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const BookSourceManagementPage(),
       ),
     );
   }
@@ -949,5 +1084,111 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
         ),
       ],
     );
+  }
+}
+
+class _HeroHeaderDelegate extends SliverPersistentHeaderDelegate {
+  _HeroHeaderDelegate({
+    required this.greeting,
+    required this.bookCount,
+    required this.todayMinutes,
+    required this.topInset,
+  });
+
+  final String greeting;
+  final int bookCount;
+  final int todayMinutes;
+  final double topInset;
+
+  @override
+  double get minExtent => 180;
+
+  @override
+  double get maxExtent => 200;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return ClipRRect(
+      borderRadius: const BorderRadius.only(
+        bottomLeft: Radius.circular(28),
+        bottomRight: Radius.circular(28),
+      ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF6C4CF6), Color(0xFF8B7CF8)],
+          ),
+        ),
+        child: Padding(
+          padding: EdgeInsets.only(
+            top: topInset + 18,
+            left: 20,
+            right: 20,
+            bottom: 26,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '米读',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      _buildHeroBadge('📖 $bookCount本'),
+                      const SizedBox(width: 12),
+                      _buildHeroBadge('⏱ $todayMinutes分'),
+                    ],
+                  ),
+                ],
+              ),
+              Text(
+                greeting,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeroBadge(String text) {
+    return Text(
+      text,
+      style: TextStyle(
+        color: Colors.white.withValues(alpha: 0.6),
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _HeroHeaderDelegate oldDelegate) {
+    return greeting != oldDelegate.greeting ||
+        bookCount != oldDelegate.bookCount ||
+        todayMinutes != oldDelegate.todayMinutes ||
+        topInset != oldDelegate.topInset;
   }
 }
