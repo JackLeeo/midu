@@ -2677,7 +2677,9 @@ class _NativeReaderPageState extends State<NativeReaderPage>
           } else {
             _queuedHorizontalPaginationWarms.remove(key);
           }
-        }, onError: (_, _) => _queuedHorizontalPaginationWarms.remove(key));
+        }, onError: (_, __) {
+          _queuedHorizontalPaginationWarms.remove(key);
+        });
         return;
       }
       _queuedHorizontalPaginationWarms.remove(key);

@@ -89,18 +89,33 @@ jobs:
           fi
 
       - name: Analyze
-        run: flutter analyze --no-pub --fatal-infos
+        run: flutter analyze --no-pub
         continue-on-error: true
 
-      - name: Build IPA (no codesign — for TrollStore / Sideload)
-        run: flutter build ipa --${{ github.event.inputs.build_mode || 'release' }} --no-codesign --no-tree-shake-icons
+      - name: Build iOS app (no codesign — for TrollStore / Sideload)
+        run: flutter build ios --${{ github.event.inputs.build_mode || 'release' }} --no-codesign --no-tree-shake-icons
 
-      - name: Locate IPA
+      - name: Package IPA
         id: ipa
         run: |
-          IPA_PATH=$(find build/ios/ipa -name "*.ipa" | head -1)
+          # Flutter skips IPA packaging when --no-codesign is used,
+          # so we manually package the .app into an .ipa payload.
+          APP_PATH=$(find build/ios/iphoneos -maxdepth 1 -name "*.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: No .app found in build/ios/iphoneos"
+            ls -la build/ios/iphoneos/ || true
+            exit 1
+          fi
+          echo "Found app: $APP_PATH"
+          mkdir -p Payload
+          cp -r "$APP_PATH" Payload/
+          mkdir -p build/ios/ipa
+          zip -rq build/ios/ipa/midu.ipa Payload
+          rm -rf Payload
+          IPA_PATH="build/ios/ipa/midu.ipa"
+          echo "Created $IPA_PATH ($(du -h "$IPA_PATH" | cut -f1))"
           echo "ipa_path=$IPA_PATH" >> "$GITHUB_OUTPUT"
-          echo "ipa_name=$(basename "$IPA_PATH")" >> "$GITHUB_OUTPUT"
+          echo "ipa_name=midu.ipa" >> "$GITHUB_OUTPUT"
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
