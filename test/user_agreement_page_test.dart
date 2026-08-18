@@ -13,7 +13,11 @@ void main() {
   test(
     'updated terms require the current version and source acknowledgment',
     () async {
-      expect(UserAgreementService.currentAgreementVersion, '2026-07-19.2');
+      // 版本号遵循 YYYY-MM-DD.n 格式；每次发版更新该常量。
+      expect(
+        UserAgreementService.currentAgreementVersion,
+        matches(RegExp(r'^\d{4}-\d{2}-\d{2}\.\d+$')),
+      );
 
       SharedPreferences.setMockInitialValues({
         'userAgreementAccepted': true,

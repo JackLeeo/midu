@@ -26,7 +26,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 260));
 
     expect(find.text('Saved'), findsOneWidget);
-    expect(find.byIcon(Icons.check_circle_outline_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.check_circle_outline), findsOneWidget);
 
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();

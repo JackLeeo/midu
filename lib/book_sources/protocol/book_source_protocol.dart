@@ -419,6 +419,7 @@ class AggregatedSearchHit {
     this.coverUrl,
     this.description,
     this.latestChapter,
+    this.lastUpdateTime,
     this.categories = const [],
   });
 
@@ -430,6 +431,7 @@ class AggregatedSearchHit {
   final Uri? coverUrl;
   final String? description;
   final String? latestChapter;
+  final DateTime? lastUpdateTime;
   final List<String> categories;
 
   /// 主源（优先取 tier 内排名第一的源）

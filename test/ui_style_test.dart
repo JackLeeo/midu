@@ -3,8 +3,8 @@ import 'package:midu/utils/ui_style.dart';
 
 void main() {
   group('appUiStyleFromStorage', () {
-    test('defaults to Material 3 so glass effects start disabled', () {
-      expect(appUiStyleFromStorage(null), AppUiStyle.material3);
+    test('defaults to glass so glass effects start enabled', () {
+      expect(appUiStyleFromStorage(null), AppUiStyle.glass);
     });
 
     test('keeps explicitly saved glass preference', () {

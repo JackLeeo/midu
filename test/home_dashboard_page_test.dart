@@ -104,8 +104,14 @@ void main() {
       find.byKey(const ValueKey('home-continue-reading-card')),
       findsOneWidget,
     );
+    // 320x740 小屏下底部卡片在首屏视口外（Sliver 惰性构建），先滚动到可见再断言。
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('home-weekly-mini-stats-card')),
+      160,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(
-      find.byKey(const ValueKey('home-reading-rhythm-card')),
+      find.byKey(const ValueKey('home-weekly-mini-stats-card')),
       findsOneWidget,
     );
     expect(find.text('最近阅读'), findsOneWidget);
@@ -120,7 +126,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('首页'), findsOneWidget);
+    expect(find.text('米读'), findsOneWidget);
     expect(find.text('今日阅读计划'), findsNothing);
     expect(find.textContaining('AI'), findsNothing);
     expect(tester.takeException(), isNull);

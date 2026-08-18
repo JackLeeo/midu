@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:crypto/crypto.dart';
 
@@ -178,6 +179,103 @@ class LegadoRuntime {
     if (chapters.isEmpty) {
       throw const BookSourceProtocolException(
         'Compatible source did not return any chapters.',
+      );
+    }
+    // 部分源目录会整表倒序，或在顶部插入最近更新章节（随后的才是第 1 章起）；
+    // 依据章节名中提取到的序号做归一化，保证按故事顺序返回。
+    return _normalizeChapterOrder(chapters);
+  }
+
+  /// 从章节名中提取首个数字序号（如「第123章」= 123、「1000 目标」= 1000）。
+  static int? _extractChapterOrdinal(String title) {
+    final match = RegExp(r'\d+').firstMatch(title);
+    return match == null ? null : int.tryParse(match.group(0)!);
+  }
+
+  /// 依据序号把目录归一化为「第 1 章在前」的顺序，并重排 order 字段。
+  ///
+  /// 处理两类异常：
+  ///  1. 整表倒序（如 [.., 第3章, 第2章, 第1章]）→ 整体反转。
+  ///  2. 顶部插入了 N 章「最近更新」（如 [第100章..第96章, 第1章..第95章]）→
+  ///     把顶部块移动到末尾，并在块内按其真实顺序排列。
+  /// 其余正常情况原样返回。
+  List<BookSourceChapter> _normalizeChapterOrder(
+    List<BookSourceChapter> raw,
+  ) {
+    if (raw.length <= 6) return raw;
+    final ord = raw
+        .map((c) => _extractChapterOrdinal(c.title))
+        .toList(growable: false);
+    final n = raw.length;
+
+    var decreasingPairs = 0;
+    var comparablePairs = 0;
+    for (var i = 0; i + 1 < n; i++) {
+      final a = ord[i];
+      final b = ord[i + 1];
+      if (a == null || b == null) continue;
+      comparablePairs++;
+      if (a > b) decreasingPairs++;
+    }
+    // 1) 整表倒序：绝大多数相邻对是递减。
+    if (comparablePairs >= 3 && decreasingPairs * 10 >= comparablePairs * 6) {
+      return _renumber(raw.reversed.toList());
+    }
+
+    // 2) 顶部「最近更新」块：找到第一个「跌回低序号（第 1、2 章）重启」的边界。
+    final maxPrefix = math.min(30, n ~/ 2);
+    for (var k = 1; k <= maxPrefix; k++) {
+      final boundary = ord[k - 1];
+      final restart = ord[k];
+      if (boundary == null || restart == null) continue;
+      if (restart > 2 || boundary < 10) continue;
+      // 确认 k..n 是从低序号开始单调递增的正常目录。
+      var restAscending = true;
+      for (var i = k; i + 1 < n; i++) {
+        final a = ord[i];
+        final b = ord[i + 1];
+        if (a != null && b != null && a > b) {
+          restAscending = false;
+          break;
+        }
+      }
+      if (!restAscending) continue;
+      final prefix = raw.sublist(0, k);
+      final rp = ord.sublist(0, k);
+      final prefixAdjusted = _reorderPrefixByOrdinal(prefix, rp);
+      return _renumber([...raw.sublist(k), ...prefixAdjusted]);
+    }
+    return raw;
+  }
+
+  /// 顶部块内若呈倒序（最近更新通常按新到旧显示），则反转使其从小到大。
+  List<BookSourceChapter> _reorderPrefixByOrdinal(
+    List<BookSourceChapter> prefix,
+    List<int?> ord,
+  ) {
+    var decreasing = 0;
+    var total = 0;
+    for (var i = 0; i + 1 < ord.length; i++) {
+      final a = ord[i];
+      final b = ord[i + 1];
+      if (a == null || b == null) continue;
+      total++;
+      if (a > b) decreasing++;
+    }
+    if (total >= 1 && decreasing > total / 2) return prefix.reversed.toList();
+    return prefix;
+  }
+
+  /// 重排后按新的索引重新写入 order 字段，保证下游按 order 排序即得正确顺序。
+  List<BookSourceChapter> _renumber(List<BookSourceChapter> chapters) {
+    for (var i = 0; i < chapters.length; i++) {
+      final c = chapters[i];
+      if (c.order == i) continue;
+      chapters[i] = BookSourceChapter(
+        id: c.id,
+        title: c.title,
+        order: i,
+        updatedAt: c.updatedAt,
       );
     }
     return chapters;

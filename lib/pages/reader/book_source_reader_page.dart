@@ -11,6 +11,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:midu/book_sources/models/registered_book_source.dart';
 import 'package:midu/book_sources/protocol/book_source_protocol.dart';
 import 'package:midu/book_sources/services/book_source_client.dart';
+import 'package:midu/book_sources/services/book_source_aggregated_search.dart';
 import 'package:midu/book_sources/services/book_source_chapter_text.dart';
 import 'package:midu/book_sources/services/book_source_reading_progress.dart';
 import 'package:midu/book_sources/services/book_source_shelf_service.dart';
@@ -85,6 +86,7 @@ class BookSourceReaderPage extends StatefulWidget {
   final BookSourceReadingProgressStore progressStore;
   final BookSourceShelfService? shelfService;
   final ReaderThemePalette? initialTheme;
+  final List<SourcedBookPointer>? alternateSources;
 
   const BookSourceReaderPage({
     super.key,
@@ -94,6 +96,7 @@ class BookSourceReaderPage extends StatefulWidget {
     this.progressStore = const BookSourceReadingProgressStore(),
     this.shelfService,
     this.initialTheme,
+    this.alternateSources,
   });
 
   @override
@@ -117,6 +120,8 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
   late BookSourceBook _activeBook;
   // 已加入书架的 Book 记录缓存（含多源信息），用于换源面板列出备选源。
   Book? _shelfBook;
+  // 从搜索结果带入的备选源指针；即便未加入书架，也用于换源面板列表。
+  List<SourcedBookPointer> _extraAlternates = const [];
   PageController _pageController = PageController();
   final ItemScrollController _verticalPageScrollController =
       ItemScrollController();
@@ -324,6 +329,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     super.initState();
     _activeSource = widget.source;
     _activeBook = widget.book;
+    _extraAlternates = widget.alternateSources ?? const [];
     _showOpeningLoader = widget.initialTheme == null;
     if (!_showOpeningLoader) {
       _openingLoaderTimer = Timer(_openingLoaderDelay, () {
@@ -678,6 +684,25 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       return;
     }
     if (!mounted) return;
+    // 若搜索结果带了备选源，把当前源连同备选一起并进书架书的多源信息。
+    if (shelfBook != null && _extraAlternates.isNotEmpty) {
+      final merged = _mergePointers(
+        [...shelfBook!.decodeAllSources(), ..._extraAlternates],
+      );
+      if (merged.length > shelfBook!.decodeAllSources().length) {
+        try {
+          final updated = shelfBook!.withMultiSourceList(merged).copyWith(
+            currentSourceId: _activeSource.id,
+            sourceId: _activeSource.id,
+            sourceBookId: _activeBook.id,
+          );
+          await _bookDao.updateBook(updated);
+          shelfBook = updated;
+        } catch (error) {
+          debugPrint('persist multi-source into shelf book failed: $error');
+        }
+      }
+    }
     _shelfBook = shelfBook;
     setState(() => _shelfBookId = shelfBook?.id);
     final shelfBookId = _shelfBookId;
@@ -2082,7 +2107,23 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       }
     }
     if (!mounted) return;
-    final pointers = shelfBook?.decodeAllSources() ?? const <SourcedBookPointer>[];
+    final shelfPointers =
+        shelfBook?.decodeAllSources() ?? const <SourcedBookPointer>[];
+    final pointers = _mergePointers([...shelfPointers, ..._extraAlternates]);
+    // 若书架书尚未记录这些备选源，则补全并存档；下次从书架打开即可直接用。
+    if (shelfBook != null && pointers.length > shelfPointers.length) {
+      try {
+        final updated = shelfBook!.withMultiSourceList(pointers).copyWith(
+          currentSourceId: _activeSource.id,
+          sourceId: _activeSource.id,
+          sourceBookId: _activeBook.id,
+        );
+        await _bookDao.updateBook(updated);
+        _shelfBook = updated;
+      } catch (error) {
+        debugPrint('persist alternates on switch panel open failed: $error');
+      }
+    }
     List<RegisteredBookSource> registered;
     try {
       registered = await BookSourceRegistry().load();
@@ -2119,8 +2160,46 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
           pointer: pointer,
           targetBook: book,
         ),
+        onSearchMore: _onSearchMoreSources,
       ),
     );
+  }
+
+  // 换源面板里点击"自动搜索其他源"后回调：把新发现的源一并储存到书架与本次会话。
+  Future<void> _onSearchMoreSources(
+    List<SourcedBookPointer> allSources,
+  ) async {
+    final merged = _mergePointers([..._extraAlternates, ...allSources]);
+    _extraAlternates = merged;
+    final shelfBook = _shelfBook;
+    if (shelfBook == null) return;
+    try {
+      final updated = shelfBook
+          .withMultiSourceList(_mergePointers([
+            ...shelfBook.decodeAllSources(),
+            ...allSources,
+          ]))
+          .copyWith(
+            currentSourceId: _activeSource.id,
+            sourceId: _activeSource.id,
+            sourceBookId: _activeBook.id,
+          );
+      await _bookDao.updateBook(updated);
+      _shelfBook = updated;
+    } catch (error) {
+      debugPrint('persist searched alternate sources failed: $error');
+    }
+  }
+
+  /// 按 sourceId 去重合并指针，保留先出现的项；保证主源在前。
+  List<SourcedBookPointer> _mergePointers(
+    Iterable<SourcedBookPointer> sources,
+  ) {
+    final bySource = <String, SourcedBookPointer>{};
+    for (final p in sources) {
+      bySource.putIfAbsent(p.sourceId, () => p);
+    }
+    return bySource.values.toList(growable: false);
   }
 
   // 执行真正的换源：拉取目标源目录 → 对齐 → 刷新阅读器状态并跳转对齐章节。
@@ -4398,6 +4477,7 @@ class _BookSourceSwitchSheet extends StatefulWidget {
     required this.fallbackBookTitle,
     required this.fallbackBookAuthor,
     required this.onSwitch,
+    required this.onSearchMore,
   });
 
   final ReaderThemePalette palette;
@@ -4415,6 +4495,7 @@ class _BookSourceSwitchSheet extends StatefulWidget {
     SourcedBookPointer pointer,
     BookSourceBook book,
   ) onSwitch;
+  final Future<void> Function(List<SourcedBookPointer> allSources) onSearchMore;
 
   @override
   State<_BookSourceSwitchSheet> createState() => _BookSourceSwitchSheetState();
@@ -4423,6 +4504,9 @@ class _BookSourceSwitchSheet extends StatefulWidget {
 class _BookSourceSwitchSheetState extends State<_BookSourceSwitchSheet> {
   late final List<_SwitchRowData> _rows;
   String? _switchingSourceId;
+  bool _searchingMore = false;
+  String? _searchMoreError;
+  String? _lastSearchTerm;
 
   @override
   void initState() {
@@ -4497,6 +4581,100 @@ class _BookSourceSwitchSheetState extends State<_BookSourceSwitchSheet> {
       Navigator.of(context).pop();
     } else {
       setState(() => _switchingSourceId = null);
+    }
+  }
+
+  // 在换源面板内主动跨源搜索同名书籍，把发现的新源并入列表并储存。
+  Future<void> _searchMore() async {
+    if (_searchingMore) return;
+    final query = widget.fallbackBookTitle.trim();
+    if (query.isEmpty) return;
+    final enabled = widget.registeredSources.values
+        .where((s) => s.enabled)
+        .toList(growable: false);
+    if (enabled.isEmpty) {
+      setState(() => _searchMoreError = '当前没有可搜索的已启用书源');
+      return;
+    }
+    setState(() {
+      _searchingMore = true;
+      _searchMoreError = null;
+    });
+    try {
+      final page = await BookSourceAggregatedSearch(widget.client)
+          .search(enabled, query);
+      AggregatedSearchHit? matched;
+      for (final hit in page.hits) {
+        if (hit.canonicalTitle.trim() == query) {
+          matched = hit;
+          break;
+        }
+      }
+      matched ??= page.hits.isEmpty ? null : page.hits.first;
+      if (!mounted) return;
+      if (matched == null || matched.sources.isEmpty) {
+        setState(() {
+          _searchingMore = false;
+          _searchMoreError = '未搜索到同名书籍的其他源';
+        });
+        return;
+      }
+      final existingIds = <String>{
+        for (final r in _rows) r.pointer.sourceId,
+        widget.currentSourceId,
+      };
+      final existingPointer = <String, SourcedBookPointer>{
+        for (final r in _rows) r.pointer.sourceId: r.pointer,
+      };
+      final newPointers = <SourcedBookPointer>[];
+      for (final pointer in matched.sources) {
+        if (existingIds.contains(pointer.sourceId)) continue;
+        existingIds.add(pointer.sourceId);
+        newPointers.add(pointer);
+      }
+      // 把新源回传给阅读页（储存到书架与本次会话），下次打开也保留。
+      final allSources = <SourcedBookPointer>[
+        ...existingPointer.values,
+        ...newPointers,
+      ];
+      await widget.onSearchMore(allSources);
+      if (!mounted) return;
+      setState(() {
+        _searchingMore = false;
+        _lastSearchTerm = query;
+        _searchMoreError = null;
+        if (newPointers.isEmpty) _searchMoreError = '未发现新的其他源';
+      });
+      if (newPointers.isNotEmpty) {
+        for (final pointer in newPointers) {
+          final source = widget.registeredSources[pointer.sourceId];
+          final isCurrent = pointer.sourceId == widget.currentSourceId;
+          final status = isCurrent
+              ? _SwitchRowStatus.ready
+              : (source == null
+                    ? _SwitchRowStatus.unavailable
+                    : _SwitchRowStatus.loading);
+          _rows.add(_SwitchRowData(
+            pointer: pointer,
+            source: source,
+            isCurrent: isCurrent,
+            status: status,
+          ));
+        }
+        for (var i = 0; i < _rows.length; i++) {
+          final row = _rows[i];
+          if (row.isCurrent || row.source == null) continue;
+          if (row.status == _SwitchRowStatus.loading) {
+            unawaited(_loadRowAlignment(i));
+          }
+        }
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _searchingMore = false;
+        _searchMoreError = '搜索其他源失败：$error';
+      });
     }
   }
 
@@ -4582,45 +4760,119 @@ class _BookSourceSwitchSheetState extends State<_BookSourceSwitchSheet> {
   }
 
   Widget _buildBody({required bool dark}) {
+    final searchMoreHeader = _buildSearchMoreStatus();
     if (_rows.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.compare_arrows_rounded,
-                size: 40,
-                color: widget.palette.secondaryText,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                '暂无其他可用源',
-                style: TextStyle(
-                  color: widget.palette.secondaryText,
-                  fontSize: 14,
+      return Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(28, 28, 28, 6),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.compare_arrows_rounded,
+                      size: 40,
+                      color: widget.palette.secondaryText,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      '暂无其他可用源',
+                      style: TextStyle(
+                        color: widget.palette.secondaryText,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '可自动搜索同名书籍，发现并储存可切换的书源',
+                      style: TextStyle(
+                        color: widget.palette.secondaryText,
+                        fontSize: 12,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 6),
-              Text(
-                '加入书架并搜索同名书籍可发现更多源',
-                style: TextStyle(
-                  color: widget.palette.secondaryText,
-                  fontSize: 12,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
+            ),
           ),
-        ),
+          _buildSearchMoreButton(),
+          const SizedBox(height: 12),
+        ],
       );
     }
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(10, 10, 10, 18),
-      shrinkWrap: true,
-      itemCount: _rows.length,
-      itemBuilder: (context, index) => _buildRow(_rows[index], dark: dark),
+    return Column(
+      children: [
+        if (searchMoreHeader != null) searchMoreHeader,
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
+            itemCount: _rows.length,
+            itemBuilder: (context, index) => _buildRow(_rows[index], dark: dark),
+          ),
+        ),
+        _buildSearchMoreButton(),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  // 展示搜索更多源的状态提示（错误信息等）。
+  Widget? _buildSearchMoreStatus() {
+    final error = _searchMoreError;
+    if (error == null) return null;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          error,
+          style: TextStyle(
+            color: widget.palette.secondaryText,
+            fontSize: 12,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchMoreButton() {
+    final searching = _searchingMore;
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: SizedBox(
+        width: double.infinity,
+        height: 46,
+        child: TextButton.icon(
+          key: const Key('bookSourceSearchMoreButton'),
+          onPressed: searching ? null : _searchMore,
+          style: TextButton.styleFrom(
+            foregroundColor: scheme.primary,
+            backgroundColor: scheme.primary.withValues(alpha: 0.1),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(MiduRadius.md),
+            ),
+          ),
+          icon: searching
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.search_rounded, size: 20),
+          label: Text(
+            searching
+                ? '正在搜索其他源…'
+                : (_lastSearchTerm != null
+                      ? '重新搜索「$_lastSearchTerm」的其他源'
+                      : '自动搜索并储存其他源'),
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
+      ),
     );
   }
 

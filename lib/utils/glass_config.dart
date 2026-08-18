@@ -87,8 +87,10 @@ class GlassConfig {
 class GlassEffectConfig {
   GlassEffectConfig._();
 
+  static bool _disableAllGlass = false;
+
   /// 当设备不支持或用户关闭玻璃效果时返回 true。
-  static bool get shouldDisableBlur => false;
+  static bool get shouldDisableBlur => _disableAllGlass;
 
   /// 对基础透明度做 clamp 归一化。
   static double effectiveOpacity(double base) => base.clamp(0.0, 1.0);
@@ -122,11 +124,13 @@ class GlassEffectConfig {
     return Theme.of(context).colorScheme.surface;
   }
 
-  /// 全局关闭所有玻璃效果（存根）。
-  static void setDisableAllGlassEffects(bool value) {}
+  /// 全局关闭所有玻璃效果。
+  static void setDisableAllGlassEffects(bool value) => _disableAllGlass = value;
 
   /// 应用性能模式：当 reduceEffects 为 true 时关闭玻璃态等高开销效果。
-  static void applyPerformanceMode({bool reduceEffects = false}) {}
+  static void applyPerformanceMode({bool reduceEffects = false}) {
+    if (reduceEffects) _disableAllGlass = true;
+  }
 
   /// 导航栏模糊强度。
   static double get navigationBarBlur => 22.0;

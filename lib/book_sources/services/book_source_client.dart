@@ -2,8 +2,10 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../../utils/source_protocol_meta.dart';
+import '../legado/legado_fjs_sandbox.dart';
 import '../legado/legado_runtime.dart';
 import '../models/registered_book_source.dart';
 import '../protocol/book_source_protocol.dart';
@@ -25,7 +27,14 @@ class BookSourceClient {
   final Dio _dio;
   final BookSourceChapterCache _chapterCache;
   final BookSourceNetworkPolicy _networkPolicy;
-  LegadoRuntime? _legadoRuntime;
+  // 米读：按源隔离 Legado runtime。健康检测/聚合搜索会并发请求多个源，
+  // 若共享单个 runtime（单 JS 引擎 + 单变量空间），不同源的 @put/@get 变量
+  // 与 document 状态会互相污染，导致大量源解析失败。
+  final Map<String, LegadoRuntime> _legadoRuntimes = {};
+
+  // 测试/诊断注入：为每个源构造 JS 沙箱。生产为 null 时用默认 fjs；
+  // 本机无 fjs.dll 时用 FlutterLegadoJsSandbox（flutter_js QuickJS）跑真实链路。
+  final LegadoJsSandbox Function(String sourceId)? _sandboxFactory;
 
   /// 单次响应体上限。书源返回的都是 JSON 元数据/章节文本，
   /// 超过该值基本可以判定为异常或恶意响应，中途截断防止 OOM。
@@ -48,7 +57,9 @@ class BookSourceClient {
     Dio? dio,
     BookSourceChapterCache? chapterCache,
     BookSourceNetworkPolicy networkPolicy = const BookSourceNetworkPolicy(),
-  }) : _chapterCache = chapterCache ?? const BookSourceChapterCache(),
+    LegadoJsSandbox Function(String sourceId)? sandboxFactory,
+  }) : _sandboxFactory = sandboxFactory,
+       _chapterCache = chapterCache ?? const BookSourceChapterCache(),
        _networkPolicy = networkPolicy,
        _dio =
            dio ??
@@ -68,7 +79,10 @@ class BookSourceClient {
              ));
 
   void close({bool force = true}) {
-    _legadoRuntime?.close(force: force);
+    for (final runtime in _legadoRuntimes.values) {
+      runtime.close(force: force);
+    }
+    _legadoRuntimes.clear();
     _dio.close(force: force);
   }
 
@@ -176,7 +190,10 @@ class BookSourceClient {
   }) async {
     if (source.sourceProtocol == BookSourceProtocolKind.legado) {
       await _ensureAdditionalProtocolsEnabled();
-      return _legado.getDiscovery(source, exploreUrlOverride: exploreUrlOverride);
+      return _legadoFor(source).getDiscovery(
+        source,
+        exploreUrlOverride: exploreUrlOverride,
+      );
     }
     // ORSP 源：回退到 browse 的第一页转换
     if (!source.capabilities.contains('browse')) {
@@ -212,7 +229,12 @@ class BookSourceClient {
   }) async {
     if (source.sourceProtocol == BookSourceProtocolKind.legado) {
       await _ensureAdditionalProtocolsEnabled();
-      return _legado.search(source, query, page: page, pageSize: pageSize);
+      return _legadoFor(source).search(
+        source,
+        query,
+        page: page,
+        pageSize: pageSize,
+      );
     }
     if (!source.capabilities.contains('search')) {
       throw const BookSourceProtocolException(
@@ -312,7 +334,7 @@ class BookSourceClient {
   ) async {
     if (source.sourceProtocol == BookSourceProtocolKind.legado) {
       await _ensureAdditionalProtocolsEnabled();
-      return _legado.getBook(source, bookId);
+      return _legadoFor(source).getBook(source, bookId);
     }
     final uri = _apiUri(
       source.apiBaseUrl,
@@ -342,7 +364,7 @@ class BookSourceClient {
   ) async {
     if (source.sourceProtocol == BookSourceProtocolKind.legado) {
       await _ensureAdditionalProtocolsEnabled();
-      return _legado.getChapters(source, bookId);
+      return _legadoFor(source).getChapters(source, bookId);
     }
     return _chapterCache.getChapterCatalogOrLoad(
       sourceId: source.id,
@@ -368,7 +390,7 @@ class BookSourceClient {
     if (source.sourceProtocol == BookSourceProtocolKind.legado) {
       cancellation?.throwIfCancelled();
       await _ensureAdditionalProtocolsEnabled();
-      final chapters = await _legado.getChapters(source, bookId);
+      final chapters = await _legadoFor(source).getChapters(source, bookId);
       cancellation?.throwIfCancelled();
       return chapters;
     }
@@ -477,7 +499,7 @@ class BookSourceClient {
   }) async {
     if (source.sourceProtocol == BookSourceProtocolKind.legado) {
       await _ensureAdditionalProtocolsEnabled();
-      return _legado.getChapterContent(
+      return _legadoFor(source).getChapterContent(
         source,
         bookId: bookId,
         chapterId: chapterId,
@@ -519,7 +541,7 @@ class BookSourceClient {
     if (source.sourceProtocol == BookSourceProtocolKind.legado) {
       cancellation?.throwIfCancelled();
       await _ensureAdditionalProtocolsEnabled();
-      final content = await _legado.getChapterContent(
+      final content = await _legadoFor(source).getChapterContent(
         source,
         bookId: bookId,
         chapterId: chapterId,
@@ -584,7 +606,21 @@ class BookSourceClient {
     }
   }
 
-  LegadoRuntime get _legado => _legadoRuntime ??= LegadoRuntime();
+  /// 按源获取独立 runtime（跨源隔离变量与 JS 引擎状态）。
+  LegadoRuntime _legadoFor(RegisteredBookSource source) {
+    return _legadoRuntimes.putIfAbsent(
+      source.id,
+      () {
+        final sandbox = _sandboxFactory?.call(source.id);
+        return sandbox == null ? LegadoRuntime() : LegadoRuntime(sandbox: sandbox);
+      },
+    );
+  }
+
+  /// 测试专用：暴露按源 runtime 解析，用于验证跨源隔离。
+  @visibleForTesting
+  LegadoRuntime legadoRuntimeForSource(RegisteredBookSource source) =>
+      _legadoFor(source);
 
   Future<void> _ensureAdditionalProtocolsEnabled() async {
     // 米读：Legado 为原生支持，无需额外协议开关

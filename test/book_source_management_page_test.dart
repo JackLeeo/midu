@@ -12,7 +12,12 @@ import 'package:midu/pages/book_sources/book_source_management_page.dart';
 import 'package:midu/services/core/app_settings_service.dart';
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    // flutter_test 各用例运行在独立 FakeAsync zone，重置跨用例的静态串行尾链，
+    // 否则后续用例在旧 zone 的 Future 上 .then 永不触发（挂起）。
+    BookSourceRegistry.resetMutationTailForTest();
+  });
   tearDown(() => SharedPreferences.setMockInitialValues({}));
 
   void unmountPage(WidgetTester tester) {
@@ -224,7 +229,7 @@ void main() {
     expect(urlField.autofocus, isFalse);
 
     expect(
-      find.textContaining('OpenReading includes no sources'),
+      find.textContaining('MiDu includes no sources'),
       findsOneWidget,
     );
     expect(find.textContaining('bypass sign-in, payment, DRM'), findsOneWidget);
@@ -242,6 +247,8 @@ void main() {
 
   testWidgets('selection mode exposes bulk source actions', (tester) async {
     unmountPage(tester);
+    // ignore: avoid_print
+    print('>>> selection: before upsert');
     await BookSourceRegistry().upsert(
       RegisteredBookSource(
         id: 'org.example.bulk',
@@ -256,6 +263,8 @@ void main() {
         addedAt: DateTime.utc(2026, 7, 31),
       ),
     );
+    // ignore: avoid_print
+    print('>>> selection: after upsert, before pumpWidget');
     await tester.pumpWidget(
       const MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -263,10 +272,18 @@ void main() {
         home: BookSourceManagementPage(),
       ),
     );
+    // ignore: avoid_print
+    print('>>> selection: after pumpWidget, before pumps');
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
+    // ignore: avoid_print
+    print('>>> selection: before tap');
     await tester.tap(find.byKey(const Key('bookSourcesSelectionModeButton')));
+    // ignore: avoid_print
+    print('>>> selection: after tap, before pump');
     await tester.pump();
+    // ignore: avoid_print
+    print('>>> selection: after pump, before expects');
 
     expect(find.text('Select all'), findsOneWidget);
     expect(find.text('Enable selected'), findsOneWidget);

@@ -187,20 +187,29 @@ class AggregatedSearchHitBuilder {
     required String normAuthorQuery,
     required String rawTitleQuery,
   }) {
-    // 选择一个展示用的 canonical 源：优先选有封面 + 简介的
+    // 选择展示用的 canonical 源：优先选更新时间最新，其次有封面 + 简介。
     _SourcedBook? best;
     for (final it in items) {
       if (best == null) {
         best = it;
         continue;
       }
-      var score = 0;
-      var bestScore = 0;
-      if (it.book.coverUrl != null) score++;
-      if (best.book.coverUrl != null) bestScore++;
-      if ((it.book.description ?? '').isNotEmpty) score++;
-      if ((best.book.description ?? '').isNotEmpty) bestScore++;
-      if (score > bestScore) best = it;
+      final itTime = it.book.lastUpdateTime;
+      final bestTime = best.book.lastUpdateTime;
+      if (itTime != null &&
+          (bestTime == null || itTime.isAfter(bestTime))) {
+        best = it;
+        continue;
+      }
+      if (itTime == bestTime) {
+        final scoreIt =
+            (it.book.coverUrl != null ? 1 : 0) +
+            ((it.book.description ?? '').isNotEmpty ? 1 : 0);
+        final scoreBest =
+            (best.book.coverUrl != null ? 1 : 0) +
+            ((best.book.description ?? '').isNotEmpty ? 1 : 0);
+        if (scoreIt > scoreBest) best = it;
+      }
     }
     final display = best ?? items.first;
 
@@ -247,6 +256,7 @@ class AggregatedSearchHitBuilder {
       coverUrl: display.book.coverUrl,
       description: display.book.description,
       latestChapter: display.book.latestChapter,
+      lastUpdateTime: display.book.lastUpdateTime,
       categories: display.book.categories,
     );
   }

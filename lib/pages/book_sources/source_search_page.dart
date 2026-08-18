@@ -242,19 +242,22 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
   }
 
   /// 将聚合 hit 还原为 SourcedBook 以复用既有详情/阅读/加入书架流程。
-  SourcedBook _resolveSourcedBook(AggregatedSearchHit hit) {
-    final pointer = hit.primary;
+  SourcedBook _resolveSourcedBook(
+    AggregatedSearchHit hit, {
+    SourcedBookPointer? pointer,
+  }) {
+    final selected = pointer ?? hit.primary;
     RegisteredBookSource? source;
     for (final s in widget.sources) {
-      if (s.id == pointer.sourceId) {
+      if (s.id == selected.sourceId) {
         source = s;
         break;
       }
     }
     source ??= widget.sources.first;
-    final book = pointer.book ??
+    final book = selected.book ??
         BookSourceBook(
-          id: pointer.bookId,
+          id: selected.bookId,
           title: hit.canonicalTitle,
           author: hit.canonicalAuthor,
           coverUrl: hit.coverUrl,
@@ -263,6 +266,30 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
           categories: hit.categories,
         );
     return SourcedBook(source: source, book: book);
+  }
+
+  /// 点击搜索结果：弹出源选择面板，让读者挑选具体书源后进入详情。
+  void _openSourcePicker(AggregatedSearchHit hit) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      builder: (sheetContext) => _SourcePickerSheet(
+        margin: MediaQuery.viewInsetsOf(context),
+        sources: widget.sources,
+        hit: hit,
+        onPick: (pointer) {
+          Navigator.of(sheetContext).pop();
+          if (!mounted) return;
+          _actions.showBookDetails(
+            _resolveSourcedBook(hit, pointer: pointer),
+            alternativeSources: hit.sources,
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -673,7 +700,7 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            onTap: () => _actions.showBookDetails(_resolveSourcedBook(hit)),
+            onTap: () => _openSourcePicker(hit),
             borderRadius: BorderRadius.circular(20),
             child: Padding(
               padding: const EdgeInsets.all(12),
@@ -730,8 +757,46 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
             ),
           ),
         ],
+        if (hit.latestChapter != null && hit.latestChapter!.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            '最新 : ${hit.latestChapter}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              color: _brandPurple,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+        if (hit.lastUpdateTime != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            '更新 : ${_formatUpdateTime(hit.lastUpdateTime!)}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 11,
+              color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+            ),
+          ),
+        ],
       ],
     );
+  }
+
+  /// 更新时间格式化为 "YYYY-MM-DD"；距今时间短时显示相对时间（今天/昨天）。
+  String _formatUpdateTime(DateTime time) {
+    final local = time.toLocal();
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(local.year, local.month, local.day);
+    final diff = today.difference(day).inDays;
+    if (diff == 0) return '今天';
+    if (diff == 1) return '昨天';
+    if (diff < 7) return '$diff 天前';
+    return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
   }
 
   Widget _buildCardMeta(AggregatedSearchHit hit) {
@@ -1142,5 +1207,190 @@ class _ShimmerCard extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+// ============================================================
+//  结果点击后的源选择面板
+// ============================================================
+
+class _SourcePickerSheet extends StatelessWidget {
+  const _SourcePickerSheet({
+    required this.margin,
+    required this.sources,
+    required this.hit,
+    required this.onPick,
+  });
+
+  final EdgeInsets margin;
+  final List<RegisteredBookSource> sources;
+  final AggregatedSearchHit hit;
+  final ValueChanged<SourcedBookPointer> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final sourceMap = <String, RegisteredBookSource>{
+      for (final s in sources) s.id: s,
+    };
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '选择书源（${hit.sources.length} 个）',
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    hit.canonicalTitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: DraggableScrollableSheet(
+                expand: false,
+                initialChildSize: 0.6,
+                minChildSize: 0.35,
+                maxChildSize: 0.9,
+                builder: (context, scrollController) => ListView.separated(
+                  controller: scrollController,
+                  itemCount: hit.sources.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final pointer = hit.sources[index];
+                    final source = sourceMap[pointer.sourceId];
+                    final book = pointer.book;
+                    return _SourcePickerTile(
+                      pointer: pointer,
+                      sourceName: source?.name ?? pointer.sourceName,
+                      enabled: source?.enabled ?? true,
+                      latestChapter: book?.latestChapter,
+                      lastUpdateTime: book?.lastUpdateTime,
+                      onTap: () => onPick(pointer),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SourcePickerTile extends StatelessWidget {
+  const _SourcePickerTile({
+    required this.pointer,
+    required this.sourceName,
+    required this.enabled,
+    required this.onTap,
+    this.latestChapter,
+    this.lastUpdateTime,
+  });
+
+  final SourcedBookPointer pointer;
+  final String sourceName;
+  final bool enabled;
+  final String? latestChapter;
+  final DateTime? lastUpdateTime;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.6),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: enabled ? onTap : null,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [
+                      Color(0xFF6C4CF6),
+                      Color(0xFF9B7CF7),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.menu_book_rounded,
+                  color: Colors.white,
+                  size: 16,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      sourceName,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (latestChapter != null && latestChapter!.isNotEmpty)
+                      Text(
+                        latestChapter!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    if (lastUpdateTime != null)
+                      Text(
+                        '更新 : ${_searchDateFormat(lastUpdateTime!)}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: scheme.onSurfaceVariant,
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _searchDateFormat(DateTime time) {
+    final local = time.toLocal();
+    return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
   }
 }

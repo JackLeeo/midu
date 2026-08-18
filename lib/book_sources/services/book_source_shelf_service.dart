@@ -49,14 +49,43 @@ class BookSourceShelfService {
   Future<Book> addOnline({
     required RegisteredBookSource source,
     required BookSourceBook book,
+    List<SourcedBookPointer>? alternatives,
   }) async {
     final existing = await findShelfBook(
       sourceId: source.id,
       sourceBookId: book.id,
     );
-    if (existing != null) return existing;
+    if (existing != null) {
+      // 若书架里已有该书但缺少多源信息，且本次带着备选源过来，补全并存档。
+      if (alternatives != null &&
+          alternatives.isNotEmpty &&
+          (existing.multiSourceJson == null || existing.multiSourceJson!.trim().isEmpty)) {
+        final primary = SourcedBookPointer(
+          sourceId: source.id,
+          sourceName: source.name,
+          bookId: book.id,
+          book: book,
+        );
+        final all = <SourcedBookPointer>[
+          primary,
+          ...alternatives.where((p) => p.sourceId != source.id),
+        ];
+        final updated = existing
+            .withMultiSourceList(all)
+            .copyWith(
+              currentSourceId: source.id,
+              sourceId: source.id,
+              sourceBookId: book.id,
+              sourceJson: jsonEncode(source.toJson()),
+              sourceBookJson: jsonEncode(book.toJson()),
+            );
+        await _bookDao.updateBook(updated);
+        return updated;
+      }
+      return existing;
+    }
     final generatedCoverPath = await _storedCoverPath(source, book);
-    final shelfBook = Book(
+    var shelfBook = Book(
       title: book.title,
       author: book.author,
       filePath: '',
@@ -68,6 +97,20 @@ class BookSourceShelfService {
       sourceBookJson: jsonEncode(book.toJson()),
       coverImagePath: generatedCoverPath,
     );
+    if (alternatives != null && alternatives.isNotEmpty) {
+      final primary = SourcedBookPointer(
+        sourceId: source.id,
+        sourceName: source.name,
+        bookId: book.id,
+        book: book,
+      );
+      shelfBook = shelfBook
+          .withMultiSourceList([
+            primary,
+            ...alternatives.where((p) => p.sourceId != source.id),
+          ])
+          .copyWith(currentSourceId: source.id);
+    }
     final id = await _bookDao.insertBook(shelfBook);
     LibraryEventBus().notifyLibraryChanged();
     return shelfBook.copyWith(id: id);

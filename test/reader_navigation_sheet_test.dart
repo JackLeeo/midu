@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midu/l10n/app_localizations.dart';
 import 'package:midu/models/bookmark.dart';
@@ -8,14 +7,21 @@ import 'package:midu/widgets/open_reading_icons.dart';
 import 'package:midu/widgets/reader_navigation_sheet.dart';
 
 void main() {
-  testWidgets('MiDu current-position icon assets are bundled', (
+  testWidgets('MiDu current-position icon renders from CustomPaint', (
     tester,
   ) async {
-    final svg = await rootBundle.load(OpenReadingIconAssets.currentReadingSvg);
-    final png = await rootBundle.load(OpenReadingIconAssets.currentReadingPng);
+    // 米读：图标已从 SVG/PNG 资产改为 CustomPaint 绘制，资产文件不再存在。
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: OpenReadingCurrentIcon(color: Color(0xFF6C4CF6)),
+        ),
+      ),
+    );
 
-    expect(svg.lengthInBytes, greaterThan(0));
-    expect(png.lengthInBytes, greaterThan(0));
+    expect(find.byType(OpenReadingCurrentIcon), findsOneWidget);
+    expect(find.byType(CustomPaint), findsWidgets);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('navigation sheet follows the supplied reader palette', (

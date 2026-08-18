@@ -33,7 +33,10 @@ class LegadoRequestTemplate {
     Map<String, String> variables = const {},
     Map<String, String> sourceHeaders = const {},
   }) {
-    final expanded = _expandVariables(template.trim(), variables);
+    // 米读：先探测请求字符集（options 里的 charset），{{key}}/{{page}} 等变量
+    // 按该字符集百分号编码——GBK 站点若用 UTF-8 编码关键词会搜索不到结果。
+    final charset = _peekCharset(template.trim());
+    final expanded = _expandVariables(template.trim(), variables, charset: charset);
     if (_unresolvedVariables.hasMatch(expanded)) {
       throw const BookSourceProtocolException(
         'Legado request contains an unsupported template expression.',
@@ -137,22 +140,22 @@ class LegadoRequestTemplate {
         headers[name] = value;
       }
     }
-    final charset = '${options['charset'] ?? 'utf-8'}'.trim().toLowerCase();
-    if (!_supportedCharsets.contains(charset)) {
+    final resolvedCharset = '${options['charset'] ?? 'utf-8'}'.trim().toLowerCase();
+    if (!_supportedCharsets.contains(resolvedCharset)) {
       throw BookSourceProtocolException(
-        'Unsupported Legado request charset: $charset.',
+        'Unsupported Legado request charset: $resolvedCharset.',
       );
     }
     if (method == LegadoRequestMethod.post &&
         !headers.keys.any((name) => name.toLowerCase() == 'content-type')) {
       headers['Content-Type'] =
-          'application/x-www-form-urlencoded; charset=$charset';
+          'application/x-www-form-urlencoded; charset=$resolvedCharset';
     }
     return LegadoRequestTemplate(
       url: uri,
       method: method,
       headers: Map.unmodifiable(headers),
-      charset: charset,
+      charset: resolvedCharset,
       body: body as String?,
     );
   }
@@ -334,13 +337,66 @@ const _forbiddenHeaders = {
   'transfer-encoding',
 };
 
-String _expandVariables(String input, Map<String, String> variables) {
-  return input.replaceAllMapped(RegExp(r'\{\{\s*([^{}]+?)\s*\}\}'), (match) {
-    final key = match.group(1)!;
-    final value = variables[key];
-    if (value == null) return match.group(0)!;
-    return Uri.encodeQueryComponent(value);
-  });
+String _expandVariables(
+  String input,
+  Map<String, String> variables, {
+  String charset = 'utf-8',
+}) {
+  var result = input.replaceAllMapped(
+    RegExp(r'\{\{\s*([^{}]+?)\s*\}\}'),
+    (match) {
+      final key = match.group(1)!;
+      final value = variables[key];
+      if (value == null) return match.group(0)!;
+      return _encodeQueryValue(value, charset);
+    },
+  );
+  // 米读：Legado 分页追加语法 <,xxx>（如 "page=<,{{page}}>"）——page=1 时整段
+  // 移除（站点默认第一页），page>1 时替换为内部内容。此前未处理会被 Uri 转义
+  // 成 %3C,1%3E 导致请求畸形。
+  final page = variables['page'];
+  if (page != null) {
+    result = result.replaceAllMapped(RegExp(r'<,([^>]*)>'), (match) {
+      return page == '1' ? '' : match.group(1)!;
+    });
+  }
+  return result;
+}
+
+/// 按请求字符集对查询值做百分号编码：GBK 站点关键词需先转 GBK 字节再编码。
+String _encodeQueryValue(String value, String charset) {
+  if (charset == 'gbk' || charset == 'gb2312' || charset == 'gb18030') {
+    try {
+      return gbk_bytes
+          .encode(value)
+          .map(
+            (byte) => '%${byte.toRadixString(16).toUpperCase().padLeft(2, '0')}',
+          )
+          .join();
+    } catch (_) {
+      // 个别字符 GBK 无法编码时回退 UTF-8
+    }
+  }
+  return Uri.encodeQueryComponent(value);
+}
+
+/// 从 URL 模板的 `,{...}` options 中探测 charset（用于变量编码）。
+String _peekCharset(String template) {
+  final optionsStart = template.lastIndexOf(',{');
+  if (optionsStart < 0) return 'utf-8';
+  final candidate = template.substring(optionsStart + 1).trim();
+  try {
+    final decoded = _decodeOptions(candidate);
+    if (decoded is Map) {
+      final c = decoded['charset'];
+      if (c is String && c.trim().isNotEmpty) {
+        return c.trim().toLowerCase();
+      }
+    }
+  } on FormatException {
+    // 交由 parse 正式解析时报错
+  }
+  return 'utf-8';
 }
 
 List<int> _encode(String value, String charset) {

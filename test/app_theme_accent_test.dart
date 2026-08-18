@@ -43,6 +43,7 @@ void main() {
         ColorScheme.fromSeed(
           seedColor: AppThemes.defaultAccentColor,
           brightness: Brightness.light,
+          primary: AppThemes.defaultAccentColor,
         ),
       );
       expect(
@@ -50,6 +51,10 @@ void main() {
         ColorScheme.fromSeed(
           seedColor: AppThemes.defaultAccentColor,
           brightness: Brightness.dark,
+          primary: Color.alphaBlend(
+            AppThemes.defaultAccentColor.withValues(alpha: 0.85),
+            const Color(0xFF1A0B3F),
+          ),
         ),
       );
     },

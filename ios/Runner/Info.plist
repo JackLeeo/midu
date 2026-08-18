@@ -146,5 +146,7 @@
 	<string>用于将应用内生成或导出的图片保存到你的相册。</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>用于兼容图片导入组件在处理照片时读取拍摄位置信息。米读不会在后台获取位置，也不会将位置信息用于其他用途。</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于访问书源服务器、加载书籍内容与封面，以及检测当前网络连通状态。未获得授权时米读将无法联网，请允许以便正常使用。</string>
 </dict>
 </plist>

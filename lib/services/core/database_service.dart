@@ -20,7 +20,7 @@ class DatabaseService {
 
   static Database? _database;
   static const String _dbName = 'midu_v2.db';
-  static const int _dbVersion = 21;
+  static const int _dbVersion = 22;
   static Future<Database>? _openingDatabase;
 
   Future<Database> get database async {
@@ -358,6 +358,20 @@ class DatabaseService {
     if (oldVersion < 21) {
       await db.execute('ALTER TABLE books ADD COLUMN reading_progress REAL');
     }
+    if (oldVersion < 22) {
+      // 多源切换持久化字段：Book.toMap() 已写入这两列，
+      // 但 v22 之前建表/迁移遗漏，导致任何入库操作 SQL 报错。
+      final tableInfo = await db.rawQuery('PRAGMA table_info(books)');
+      final columns = tableInfo
+          .map((column) => column['name'] as String)
+          .toSet();
+      if (!columns.contains('multi_source_json')) {
+        await db.execute('ALTER TABLE books ADD COLUMN multi_source_json TEXT');
+      }
+      if (!columns.contains('current_source_id')) {
+        await db.execute('ALTER TABLE books ADD COLUMN current_source_id TEXT');
+      }
+    }
   }
 
   Future<void> _createTables(Database db) async {
@@ -389,7 +403,9 @@ class DatabaseService {
         source_book_json TEXT,
         source_kind TEXT,
         source_locator TEXT,
-        source_modified_time INTEGER
+        source_modified_time INTEGER,
+        multi_source_json TEXT,
+        current_source_id TEXT
       )
     ''');
 

@@ -21,6 +21,7 @@ import 'package:midu/pages/library/library_page.dart';
 import 'package:midu/pages/library/download_tasks_page.dart';
 import 'package:midu/pages/settings/settings_page.dart';
 import 'package:midu/services/core/app_settings_service.dart';
+import 'package:midu/services/core/network_preflight.dart';
 import 'package:midu/services/library/download_task_controller.dart';
 import 'package:midu/utils/book_open_transition.dart';
 import 'package:midu/utils/glass_config.dart';
@@ -120,6 +121,11 @@ class _HomeShellPageState extends State<HomeShellPage> {
       viewportFraction: 1.0, // 保持全屏显示
       keepPage: true, // 保持页面状态
     );
+    // 进入主页后自动触发一次轻量联网，让 iOS 尽早弹出联网权限询问，
+    // 避免读者真正搜索时才弹窗打断操作。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      NetworkPreflight.fireOnHomeEntered();
+    });
   }
 
   void _handleLibrarySelectionChanged() {

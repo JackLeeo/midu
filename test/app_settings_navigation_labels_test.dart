@@ -35,7 +35,7 @@ void main() {
     addTearDown(notifier.dispose);
 
     expect(notifier.hideNavigationLabels, isTrue);
-    expect(notifier.homeNavigationOrder, HomeNavigationDestination.values);
+    expect(notifier.homeNavigationOrder, defaultHomeNavigationOrder);
   });
 
   test('navigation label visibility restores and persists', () async {
@@ -92,7 +92,6 @@ void main() {
       HomeNavigationDestination.home,
       HomeNavigationDestination.library,
       HomeNavigationDestination.discover,
-      HomeNavigationDestination.ai,
     ]);
 
     final repairedPrefs = await SharedPreferences.getInstance();
@@ -101,7 +100,6 @@ void main() {
       'home',
       'library',
       'discover',
-      'ai',
     ]);
 
     await notifier.setHomeNavigationOrder(const [
@@ -117,7 +115,6 @@ void main() {
       'settings',
       'home',
       'library',
-      'ai',
     ]);
   });
 
@@ -167,7 +164,6 @@ void main() {
     expect(notifier.visibleHomeNavigationOrder, [
       HomeNavigationDestination.library,
       HomeNavigationDestination.discover,
-      HomeNavigationDestination.ai,
       HomeNavigationDestination.settings,
     ]);
   });

@@ -156,7 +156,7 @@ class BookSourceHealthChecker {
       try {
         detail = await client.getBook(source, match.id).timeout(stageTimeout);
       } catch (e) {
-        return _fail(source, sw, HealthCheckStage.detail, '书籍详情：$_errMsg(e)');
+        return _fail(source, sw, HealthCheckStage.detail, '书籍详情：${_errMsg(e)}');
       }
 
       // Stage 3: chapters catalog
@@ -165,7 +165,7 @@ class BookSourceHealthChecker {
         chapters = await client.getChapters(source, detail.id).timeout(stageTimeout);
       } catch (e) {
         return _fail(source, sw, HealthCheckStage.catalog,
-            '章节目录：$_errMsg(e)');
+            '章节目录：${_errMsg(e)}');
       }
       if (chapters.isEmpty) {
         return _fail(source, sw, HealthCheckStage.catalog, '章节目录为空');
@@ -187,7 +187,7 @@ class BookSourceHealthChecker {
         }
       } catch (e) {
         return _fail(source, sw, HealthCheckStage.content,
-            '章节正文：$_errMsg(e)');
+            '章节正文：${_errMsg(e)}');
       }
 
       sw.stop();
@@ -198,7 +198,7 @@ class BookSourceHealthChecker {
         latencyMs: sw.elapsedMilliseconds,
       );
     } catch (e) {
-      return _fail(source, sw, HealthCheckStage.init, '未知异常：$_errMsg(e)');
+      return _fail(source, sw, HealthCheckStage.init, '未知异常：${_errMsg(e)}');
     }
   }
 

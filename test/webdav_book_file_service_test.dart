@@ -150,7 +150,7 @@ void main() {
       await source.writeAsBytes([9, 8, 7, 6]);
       final client = _MemoryWebDavClient(
         existingFiles: {
-          '/OpenReading/v1/books/同名书 - 作者/原书.epub': [1, 2, 3, 4],
+          '/MiDu/v1/books/同名书 - 作者/原书.epub': [1, 2, 3, 4],
         },
       );
       final service = WebDavBookFileService(
@@ -177,7 +177,7 @@ void main() {
     final source = File('${temporaryDirectory.path}/原书.epub');
     await source.writeAsBytes(bytes);
     final client = _MemoryWebDavClient(
-      existingFiles: {'/OpenReading/v1/books/同名书 - 作者/原书.epub': bytes},
+      existingFiles: {'/MiDu/v1/books/同名书 - 作者/原书.epub': bytes},
     );
     final service = WebDavBookFileService(
       configStore: _CredentialsStore(),

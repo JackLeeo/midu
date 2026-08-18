@@ -242,7 +242,10 @@ class SourcedBookActions {
     required this.shelfService,
   });
 
-  void showBookDetails(SourcedBook result) {
+  void showBookDetails(
+    SourcedBook result, {
+    List<SourcedBookPointer>? alternativeSources,
+  }) {
     final media = MediaQuery.of(context);
     unawaited(
       showModalBottomSheet<void>(
@@ -261,8 +264,11 @@ class SourcedBookActions {
           result: result,
           client: client,
           shelfService: shelfService,
-          onRead: (book) =>
-              _openReader(SourcedBook(source: result.source, book: book)),
+          alternativeSources: alternativeSources,
+          onRead: (book) => _openReader(
+            SourcedBook(source: result.source, book: book),
+            alternativeSources: alternativeSources,
+          ),
           onDownloadContinuesInBackground: () {
             if (!context.mounted) return;
             showSideToast(context, context.l10n.downloadRunningInBackground);
@@ -272,7 +278,10 @@ class SourcedBookActions {
     );
   }
 
-  Future<void> _openReader(SourcedBook result) async {
+  Future<void> _openReader(
+    SourcedBook result, {
+    List<SourcedBookPointer>? alternativeSources,
+  }) async {
     if (!context.mounted) return;
     final route = BookOpenTransition.createRoute<void>(
       BookSourceReaderPage(
@@ -280,6 +289,7 @@ class SourcedBookActions {
         book: result.book,
         client: client,
         shelfService: shelfService,
+        alternateSources: alternativeSources,
       ),
       origin: ReaderPageTransitionOrigin.discoverSheet,
       waitForReaderReady: true,
@@ -295,6 +305,7 @@ class _SourcedBookDetailsLoader extends StatefulWidget {
     required this.shelfService,
     required this.onRead,
     required this.onDownloadContinuesInBackground,
+    this.alternativeSources,
   });
 
   final SourcedBook result;
@@ -302,6 +313,7 @@ class _SourcedBookDetailsLoader extends StatefulWidget {
   final BookSourceShelfService shelfService;
   final Future<void> Function(BookSourceBook book) onRead;
   final VoidCallback onDownloadContinuesInBackground;
+  final List<SourcedBookPointer>? alternativeSources;
 
   @override
   State<_SourcedBookDetailsLoader> createState() =>
@@ -336,6 +348,7 @@ class _SourcedBookDetailsLoaderState extends State<_SourcedBookDetailsLoader> {
       key: ValueKey(_book.id),
       result: result,
       shelfService: widget.shelfService,
+      alternativeSources: widget.alternativeSources,
       onRead: () => widget.onRead(result.book),
       onDownloadContinuesInBackground: widget.onDownloadContinuesInBackground,
     );
@@ -360,12 +373,14 @@ class _SourcedBookDetailsSheet extends StatefulWidget {
     required this.shelfService,
     required this.onRead,
     required this.onDownloadContinuesInBackground,
+    this.alternativeSources,
   });
 
   final SourcedBook result;
   final BookSourceShelfService shelfService;
   final Future<void> Function() onRead;
   final VoidCallback onDownloadContinuesInBackground;
+  final List<SourcedBookPointer>? alternativeSources;
 
   @override
   State<_SourcedBookDetailsSheet> createState() =>
@@ -412,6 +427,7 @@ class _SourcedBookDetailsSheetState extends State<_SourcedBookDetailsSheet> {
         await widget.shelfService.addOnline(
           source: widget.result.source,
           book: _book,
+          alternatives: widget.alternativeSources,
         );
       }
       if (!mounted) return;

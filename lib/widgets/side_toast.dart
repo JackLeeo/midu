@@ -29,12 +29,14 @@ class SideToast {
     final bar = SnackBar(
       duration: duration,
       behavior: SnackBarBehavior.floating,
-      width: 340,
+      // 米读：SnackBar 不允许 width 与 margin 同时设置（断言），
+      // 固定宽度放到内部 Container，SnackBar 只保留 margin 完成侧边定位。
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       padding: EdgeInsets.zero,
       backgroundColor: Colors.transparent,
       elevation: 0,
       content: Container(
+        width: 340,
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         decoration: BoxDecoration(
           color: scheme.surface.withValues(alpha: 0.98),

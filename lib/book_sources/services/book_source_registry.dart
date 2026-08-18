@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/registered_book_source.dart';
@@ -12,7 +13,15 @@ class BookSourceRegistry {
   static const String _storageKey = 'open_reading_book_sources_v1';
   static final StreamController<void> _changesController =
       StreamController<void>.broadcast();
-  static Future<void> _mutationTail = Future<void>.value();
+  /// 串行化注册表变更的尾操作（Completer 队列）。
+  ///
+  /// 使用 Completer 而非 Future 链的原因：flutter_test 的 testWidgets 中
+  /// setUp 与 test body 运行在不同 zone，若尾链保存的是已完成的外部 Future，
+  /// 新用例对它 `.then` 会把回调调度到 Future 创建时的（可能已销毁的）
+  /// FakeAsync zone，导致永久挂起。Completer 可同步判断 `isCompleted`：
+  /// 上一操作已完成时直接在当前 zone 调度，未完成时（同 zone 并发写）
+  /// 才链式等待其 future。
+  static Completer<void>? _mutationTail;
 
   Stream<void> get changes => _changesController.stream;
 
@@ -286,8 +295,47 @@ class BookSourceRegistry {
       }
     }
 
-    _mutationTail = _mutationTail.then<void>(run, onError: run);
+    final previous = _mutationTail;
+    final gate = Completer<void>();
+    _mutationTail = gate;
+    // 上一操作已完成（或没有）时，直接在【当前】zone 调度，避免旧 zone
+    // 的 Future 让 .then 永久挂起；仅在上一操作确实未完成（同 zone 内
+    // 并发写，例如 load/upsert 竞态）时才链式等待其 future。
+    if (previous == null || previous.isCompleted) {
+      Zone.current.scheduleMicrotask(() async {
+        try {
+          await run(null);
+        } finally {
+          if (!gate.isCompleted) gate.complete();
+        }
+      });
+    } else {
+      previous.future.then<void>((_) async {
+        try {
+          await run(null);
+        } finally {
+          if (!gate.isCompleted) gate.complete();
+        }
+      }, onError: (_) async {
+        try {
+          await run(null);
+        } finally {
+          if (!gate.isCompleted) gate.complete();
+        }
+      });
+    }
     return completer.future;
+  }
+
+  /// 测试专用：重置静态串行尾链。
+  ///
+  /// flutter_test 的 testWidgets 各用例运行在独立的 FakeAsync zone 中，
+  /// 静态 `_mutationTail` 里的 Future 完成微任务绑定在旧 zone 上，旧 zone
+  /// 销毁后新用例在此 Future 上 `.then` 永远不会触发（永久挂起）。每个用例
+  /// 的 setUp 里调用本方法，让尾链在当前用例的 zone 中重新创建。
+  @visibleForTesting
+  static void resetMutationTailForTest() {
+    _mutationTail = null;
   }
 
   Future<void> _save(List<RegisteredBookSource> sources) async {
