@@ -493,6 +493,9 @@ class _SettingsPageState extends State<SettingsPage> {
             selectedIndex: selectedIndex,
             useRailNavigation: useRailNavigation,
             viewPadding: viewPadding,
+            topPadding: useRailNavigation
+                ? viewPadding.top + 8
+                : mobileChrome.pageTopPadding,
           ),
           // 右侧：选中分组的设置内容
           Expanded(
@@ -531,34 +534,36 @@ class _SettingsPageState extends State<SettingsPage> {
     required int selectedIndex,
     required bool useRailNavigation,
     required EdgeInsets viewPadding,
+    required double topPadding,
   }) {
     final scheme = Theme.of(context).colorScheme;
     return SizedBox(
       width: 104,
       child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          useRailNavigation ? viewPadding.top + 8 : 20,
-          6,
-          0,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (var i = 0; i < groups.length; i++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _buildGroupItem(
-                  group: groups[i],
-                  selected: i == selectedIndex,
-                  onTap: () {
-                    if (i == _selectedGroupIndex) return;
-                    setState(() => _selectedGroupIndex = i);
-                  },
-                  scheme: scheme,
-                ),
-              ),
-          ],
+        padding: EdgeInsets.fromLTRB(16, topPadding, 6, 0),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.only(bottom: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var i = 0; i < groups.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _buildGroupItem(
+                      group: groups[i],
+                      selected: i == selectedIndex,
+                      onTap: () {
+                        if (i == _selectedGroupIndex) return;
+                        setState(() => _selectedGroupIndex = i);
+                      },
+                      scheme: scheme,
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
     );

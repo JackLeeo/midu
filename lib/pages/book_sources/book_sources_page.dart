@@ -750,75 +750,50 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     final visibleCats = _hasMoreCategories
         ? cats.take(maxCategoryChips).toList(growable: false)
         : cats;
+    final selected = _selectedCategory;
     return [
       SliverToBoxAdapter(
         child: _centerSectionChild(
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildSectionHeader(
-                context.l10n.discoverCategories,
-                Icons.category_rounded,
-                trailing: _hasMoreCategories
-                    ? TextButton.icon(
-                        onPressed: () => _openCategoryPicker(cats),
-                        icon: Icon(
-                          Icons.chevron_right_rounded,
-                          size: 18,
+          Padding(
+            padding: const EdgeInsets.only(top: 22),
+            child: _buildSectionHeader(
+              context.l10n.discoverCategories,
+              Icons.category_rounded,
+              trailing: _hasMoreCategories
+                  ? TextButton.icon(
+                      onPressed: () => _openCategoryPicker(cats),
+                      icon: Icon(
+                        Icons.chevron_right_rounded,
+                        size: 18,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                      ),
+                      label: Text(
+                        '${cats.length} 个分类',
+                        style: TextStyle(
+                          fontSize: 12,
                           color: Theme.of(context).colorScheme.primary,
                         ),
-                        style: TextButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                        ),
-                        label: Text(
-                          '全部 ${cats.length} 个',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.primary,
-                          ),
-                        ),
-                      )
-                    : null,
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 44,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: visibleCats.length + 1,
-                  separatorBuilder: (_, _) => const SizedBox(width: 10),
-                  itemBuilder: (context, index) {
-                    if (index == 0) {
-                      return _CategoryChip(
-                        label: '全部分类',
-                        icon: Icons.grid_view_rounded,
-                        selected: _selectedCategory == null,
-                        onTap: () => _openCategoryPicker(visibleCats),
-                        scheme: Theme.of(context).colorScheme,
-                      );
-                    }
-                    final category = visibleCats[index - 1];
-                    final isSelected =
-                        category.source.id == _selectedCategory?.source.id &&
-                        category.id == _selectedCategory?.id;
-                    return _CategoryChip(
-                      label: category.name,
-                      secLabel: category.source.name,
-                      selected: isSelected,
-                      onTap: () => _selectCategoryForBrowse(category),
-                      scheme: Theme.of(context).colorScheme,
-                    );
-                  },
-                ),
-              ),
-            ],
+                      ),
+                    )
+                  : null,
+            ),
           ),
         ),
       ),
-      if (_selectedCategory != null && _loadingCategoryBooks)
+      // 聚合分类：像「最新」一样以整块网格聚合展示，而非薄薄的横向标签条。
+      _categoryGridSliver(
+        cats: visibleCats,
+        selected: selected,
+        hasMore: _hasMoreCategories,
+        onSelect: _selectCategoryForBrowse,
+        onMore: () => _openCategoryPicker(cats),
+        bottomPadding: bottomPadding,
+      ),
+      if (selected != null && _loadingCategoryBooks)
         _paddedSectionSliver(
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 30),
@@ -827,9 +802,29 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
           topPadding: 16,
           bottomPadding: bottomPadding,
         ),
-      if (_selectedCategory != null && _categoryBooks.isNotEmpty)
+      if (selected != null && _categoryBooks.isNotEmpty)
         _bookGridSliver(_categoryBooks, bottomPadding: bottomPadding),
     ];
+  }
+
+  /// 分类聚合网格：去重后的分类以「分类卡片」整块展示，超出收纳进末尾的「更多」卡。
+  _CategoryGridSliver _categoryGridSliver({
+    required List<_SourcedCategory> cats,
+    required _SourcedCategory? selected,
+    required bool hasMore,
+    required void Function(_SourcedCategory) onSelect,
+    required VoidCallback onMore,
+    required double bottomPadding,
+  }) {
+    return _CategoryGridSliver(
+      cats: cats,
+      selected: selected,
+      hasMore: hasMore,
+      onSelect: onSelect,
+      onMore: onMore,
+      bottomPadding: bottomPadding,
+      scheme: Theme.of(context).colorScheme,
+    );
   }
 
   List<Widget> _buildLatestSectionSlivers(
@@ -1490,69 +1485,166 @@ class _CategoryPickerEntry {
   const _CategoryPickerEntry.category(this.category) : header = null;
 }
 
-/// 发现页分类标签（横向滚动条里的圆角胶囊）
-class _CategoryChip extends StatelessWidget {
-  final String label;
-  final String? secLabel;
-  final bool selected;
-  final VoidCallback onTap;
-  final ColorScheme scheme;
-  final IconData? icon;
-
-  const _CategoryChip({
-    required this.label,
-    this.secLabel,
+/// 发现页「分类」聚合网格：把去重后的分类像「最新」一样整块聚合展示。
+///
+/// 内部用 Wrap 按屏宽自适应列数渲染分类卡片；有更多分类时，末尾追加一张
+/// 「更多分类」卡打开选择面板。点击卡片即加载该分类的书籍网格。
+class _CategoryGridSliver extends StatelessWidget {
+  const _CategoryGridSliver({
+    required this.cats,
     required this.selected,
-    required this.onTap,
+    required this.hasMore,
+    required this.onSelect,
+    required this.onMore,
+    required this.bottomPadding,
     required this.scheme,
-    this.icon,
   });
+
+  final List<_SourcedCategory> cats;
+  final _SourcedCategory? selected;
+  final bool hasMore;
+  final void Function(_SourcedCategory) onSelect;
+  final VoidCallback onMore;
+  final double bottomPadding;
+  final ColorScheme scheme;
 
   @override
   Widget build(BuildContext context) {
+    return SliverPadding(
+      padding: EdgeInsets.fromLTRB(16, 12, 16, bottomPadding),
+      sliver: SliverToBoxAdapter(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1048),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final width = constraints.maxWidth;
+                final columns = switch (width) {
+                  >= 1080 => 4,
+                  >= 720 => 3,
+                  _ => 2,
+                };
+                const spacing = 12.0;
+                final tileWidth =
+                    (width - spacing * (columns - 1)) / columns;
+                final tileHeight = tileWidth * 0.92;
+                return Wrap(
+                  spacing: spacing,
+                  runSpacing: spacing,
+                  children: [
+                    for (final c in cats)
+                      SizedBox(
+                        width: tileWidth,
+                        height: tileHeight,
+                        child: _CategoryGridTile(
+                          category: c,
+                          selected:
+                              selected?.source.id == c.source.id &&
+                              selected?.id == c.id,
+                          onTap: () => onSelect(c),
+                          scheme: scheme,
+                        ),
+                      ),
+                    if (hasMore)
+                      SizedBox(
+                        width: tileWidth,
+                        height: tileHeight,
+                        child: _CategoryGridTile(
+                          category: null,
+                          selected: false,
+                          onTap: onMore,
+                          scheme: scheme,
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 分类网格卡片；[category] 为 null 时渲染为「更多分类」入口卡。
+class _CategoryGridTile extends StatelessWidget {
+  const _CategoryGridTile({
+    required this.category,
+    required this.selected,
+    required this.onTap,
+    required this.scheme,
+  });
+
+  final _SourcedCategory? category;
+  final bool selected;
+  final VoidCallback onTap;
+  final ColorScheme scheme;
+
+  @override
+  Widget build(BuildContext context) {
+    final isMore = category == null;
+    final fg = selected ? scheme.onPrimary : scheme.onSurface;
+    final subFg = selected
+        ? scheme.onPrimary.withValues(alpha: 0.82)
+        : scheme.onSurfaceVariant;
     return Material(
-      color: selected ? scheme.primary : scheme.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(999),
+      color: selected
+          ? scheme.primary
+          : scheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(14),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (icon != null) ...[
-                Icon(
-                  icon,
-                  size: 16,
-                  color: selected ? scheme.onPrimary : scheme.primary,
-                ),
-                const SizedBox(width: 6),
-              ],
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? scheme.onPrimary.withValues(alpha: 0.16)
+                          : scheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      isMore
+                          ? Icons.grid_view_rounded
+                          : Icons.local_library_rounded,
+                      size: 19,
+                      color: selected ? fg : scheme.primary,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (selected)
+                    Icon(Icons.check_circle_rounded, size: 18, color: fg),
+                ],
+              ),
+              const Spacer(),
               Text(
-                label,
-                maxLines: 1,
+                isMore ? '更多分类' : category!.name,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13.5,
-                  color: selected ? scheme.onPrimary : scheme.onSurface,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                  color: fg,
+                  height: 1.2,
                 ),
               ),
-              if (secLabel != null && secLabel!.isNotEmpty) ...[
-                const SizedBox(width: 5),
-                Text(
-                  secLabel!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    color: selected
-                        ? Colors.white.withValues(alpha: 0.85)
-                        : scheme.onSurfaceVariant.withValues(alpha: 0.85),
-                  ),
-                ),
-              ],
+              const SizedBox(height: 3),
+              Text(
+                isMore ? '查看全部' : category!.source.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11, color: subFg),
+              ),
             ],
           ),
         ),

@@ -812,7 +812,8 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: _navigateToSearch,
+        // 空态卡片引导去书城发现好书，不再重复承担搜索入口职责。
+        onTap: _navigateToDiscover,
         borderRadius: BorderRadius.circular(16),
         child: Container(
           key: const ValueKey('home-continue-reading-empty-card'),
@@ -835,7 +836,7 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
-                  Icons.search_rounded,
+                  Icons.explore_rounded,
                   color: scheme.primary,
                   size: 26,
                 ),
@@ -864,6 +865,10 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                     ),
                   ],
                 ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: palette.secondaryTextColor,
               ),
             ],
           ),
