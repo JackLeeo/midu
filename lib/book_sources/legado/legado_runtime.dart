@@ -610,6 +610,22 @@ class LegadoRuntime {
     if (value.isEmpty) return value;
     final lower = value.toLowerCase();
     if (lower.contains('@js:') || lower.contains('<js>')) {
+      final trimmed = value.trim();
+      final isPureJs =
+          trimmed.toLowerCase().startsWith('@js:') ||
+          trimmed.toLowerCase().startsWith('<js>');
+      // 纯 JS 表达式（整段 @js:/<js>）：执行结果必须非空才可作为请求模板。
+      // 结果为空的场景（强 JS 依赖源里 java.ajax/java.connect + org.jsoup 无法
+      // 执行，evalJs 返回空）应判为「搜索无结果」，而非把带 @js: 的原文漏进 URL
+      // 解析抛误导性的 FormatException。内嵌片段（@js: 只是其中一段）保留原文。
+      if (isPureJs) {
+        try {
+          final r = await _sandbox.evalJs(value);
+          return r.isEmpty ? '' : r;
+        } catch (_) {
+          return '';
+        }
+      }
       try {
         final r = await _sandbox.evalJs(value);
         return r.isEmpty ? value : r;
@@ -927,9 +943,10 @@ class LegadoRuntime {
       try {
         decoded = jsonDecode(raw);
       } on FormatException {
-        throw const BookSourceProtocolException(
-          'Compatible source headers must be valid JSON.',
-        );
+        // 宽容降级：部分源（多为手改的漫画源）header 格式不规范——键未加引号、
+        // 用 \r/\n 而非逗号分隔、末尾残留换行等，严格 jsonDecode 会失败。
+        // 尝试按「裸键: "值"」模式逐行提取，能解析多少算多少；仍失败则视为空头。
+        decoded = _looseDecodeHeaders(raw);
       }
     }
     if (decoded is! Map) {
@@ -949,6 +966,44 @@ class LegadoRuntime {
       headers[name] = entry.value as String;
     }
     return headers;
+  }
+
+  /// 宽松解析格式不规范的 header 字符串（严格 JSON 失败后的降级路径）。
+  ///
+  /// 常见问题形态：
+  ///  - 键未加引号：`user-agent: "..."`（而非 `"user-agent": "..."`）
+  ///  - 用 `\r`/`\n` 分隔而非逗号：`{\ruser-agent: "..."\r}`
+  ///  - 值含冒号、末尾残留换行/`}` 等。
+  /// 这里按「分段 → 键: 值」逐条提取，能解析多少算多少；完全解析不出返回空 Map。
+  /// 注意：仅提取简单 `键: "字符串值"` 对，不做表达式/嵌套求值，避免引入安全风险。
+  Map<String, dynamic> _looseDecodeHeaders(String raw) {
+    final out = <String, dynamic>{};
+    var body = raw.trim();
+    if (body.startsWith('{')) body = body.substring(1);
+    if (body.endsWith('}')) body = body.substring(0, body.length - 1);
+    // 以逗号、\r、\n 为分隔点切开各条目（容忍多余分隔符与空段）。
+    final parts = body
+        .split(RegExp(r'[,;\r\n]+|\r\n'))
+        .map((p) => p.trim())
+        .where((p) => p.isNotEmpty);
+    for (final part in parts) {
+      final colon = part.indexOf(':');
+      if (colon <= 0) continue;
+      final key = part
+          .substring(0, colon)
+          .trim()
+          .replaceAll(RegExp('^["\']+|["\']+\$'), '');
+      var value = part.substring(colon + 1).trim();
+      if (value.startsWith('"') && value.endsWith('"')) {
+        value = value.substring(1, value.length - 1);
+      } else if (value.startsWith("'") && value.endsWith("'")) {
+        value = value.substring(1, value.length - 1);
+      }
+      if (key.isNotEmpty && value.isNotEmpty) {
+        out[key] = value;
+      }
+    }
+    return out;
   }
 
   LegadoBookSource _source(RegisteredBookSource registered) {
@@ -971,12 +1026,21 @@ class LegadoRuntime {
       );
     }
     final headers = _sourceHeaders(source);
-    LegadoRequestTemplate.parse(
-      source.searchUrl,
-      baseUri: source.baseUri,
-      variables: const {'key': 'preflight', 'page': '1'},
-      sourceHeaders: headers,
-    );
+    // 预检仅对静态模板有意义：含 @js:/<js> 的 searchUrl 需运行时 JS 求值才能
+    // 得到真实 URL，这里无法静态解析（强行 parse 会抛误导性的 FormatException）。
+    // 跳过此类，交由 _request 里真正的 JS 预处理执行。
+    final searchUrl = source.searchUrl;
+    final lcSearch = searchUrl.toLowerCase();
+    final isJsSearchUrl =
+        lcSearch.startsWith('@js:') || lcSearch.startsWith('<js>');
+    if (!isJsSearchUrl) {
+      LegadoRequestTemplate.parse(
+        searchUrl,
+        baseUri: source.baseUri,
+        variables: const {'key': 'preflight', 'page': '1'},
+        sourceHeaders: headers,
+      );
+    }
     for (final groupName in const [
       'ruleSearch',
       'ruleBookInfo',
