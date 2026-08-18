@@ -410,11 +410,11 @@ class ReaderControlBar extends StatelessWidget {
         color: palette.controlBar,
         border: Border(
           top: isTopBar
-              ? const BorderSide.none()
+              ? const BorderSide(width: 0)
               : BorderSide(color: divider, width: 1),
           bottom: isTopBar
               ? BorderSide(color: divider, width: 1)
-              : const BorderSide.none(),
+              : const BorderSide(width: 0),
         ),
       ),
       child: Material(color: Colors.transparent, child: child),

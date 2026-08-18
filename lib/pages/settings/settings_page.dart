@@ -473,7 +473,7 @@ class _SettingsPageState extends State<SettingsPage> {
         build: () => _buildAdvancedSection(),
       ),
       _SettingsGroup(
-        title: l10n.settingsAbout,
+        title: l10n.settingsAboutTitle,
         icon: Icons.info_outline_rounded,
         build: () => _buildAboutCard(),
       ),
