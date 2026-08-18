@@ -459,6 +459,8 @@ class _SettingsPageState extends State<SettingsPage> {
             _buildSettingsTopRow(l10n, useRailNavigation),
             const SizedBox(height: 24),
           ],
+          _buildHeader(l10n),
+          const SizedBox(height: 22),
           _buildSectionCard(
             title: l10n.settingsSectionAppearanceFonts,
             icon: Icons.palette_outlined,
@@ -495,7 +497,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 22),
           _buildSectionCard(
             title: l10n.readingSettings,
             icon: Icons.book_outlined,
@@ -524,7 +526,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 22),
           _buildSectionCard(
             title: l10n.settingsSectionDataServices,
             icon: Icons.hub_outlined,
@@ -561,7 +563,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 22),
           _buildSectionCard(
             title: l10n.settingsSectionGeneral,
             icon: Icons.tune_rounded,
@@ -583,7 +585,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 22),
           _buildSectionCard(
             title: '高级设置',
             icon: Icons.developer_mode_rounded,
@@ -612,7 +614,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ],
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 22),
           _buildAboutCard(),
           const SizedBox(height: 100),
         ],
@@ -703,6 +705,76 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  // 顶部品牌渐变横幅：展示应用名与版本号，视觉更整
+  Widget _buildHeader(AppLocalizations l10n) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            scheme.primary,
+            const Color(0xFFE8503A),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.primary.withValues(alpha: 0.18),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.auto_stories_rounded,
+              color: Colors.white,
+              size: 27,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l10n.settingsAppName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${l10n.settingsVersionLabel} $_appVersion',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSectionCard({
     required String title,
     required IconData icon,
@@ -710,6 +782,20 @@ class _SettingsPageState extends State<SettingsPage> {
   }) {
     final palette = PageStyleHelper.palette(context);
     final scheme = Theme.of(context).colorScheme;
+    final divider = Divider(
+      height: 1,
+      thickness: 1,
+      indent: 72,
+      endIndent: 0,
+      color: scheme.outline.withValues(alpha: 0.1),
+    );
+    final rows = <Widget>[];
+    for (var i = 0; i < children.length; i++) {
+      rows.add(children[i]);
+      if (i < children.length - 1) {
+        rows.add(divider);
+      }
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -717,13 +803,18 @@ class _SettingsPageState extends State<SettingsPage> {
           padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
           child: Row(
             children: [
-              Icon(icon, color: scheme.primary, size: 18),
-              const SizedBox(width: 9),
+              Icon(icon, color: scheme.primary, size: 17),
+              const SizedBox(width: 7),
               Text(
                 title,
                 style: Theme.of(
                   context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                ).textTheme.labelLarge?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  letterSpacing: 0.2,
+                ),
               ),
             ],
           ),
@@ -732,10 +823,10 @@ class _SettingsPageState extends State<SettingsPage> {
           decoration: BoxDecoration(
             color: palette.card,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: palette.border),
+            border: Border.all(color: scheme.outline.withValues(alpha: 0.12)),
           ),
           clipBehavior: Clip.antiAlias,
-          child: Column(children: children),
+          child: Column(children: rows),
         ),
       ],
     );
@@ -779,24 +870,25 @@ class _SettingsPageState extends State<SettingsPage> {
         child: InkWell(
           onTap: () => _showAccentColorModal(themeNotifier),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            padding: const EdgeInsets.fromLTRB(18, 13, 14, 13),
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(6),
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
                     color: Theme.of(
                       context,
-                    ).colorScheme.secondary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(6),
+                    ).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(22),
                   ),
                   child: Icon(
                     Icons.color_lens_rounded,
-                    size: 16,
-                    color: Theme.of(context).colorScheme.secondary,
+                    size: 21,
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -807,6 +899,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
+                      const SizedBox(height: 1),
                       Text(
                         subtitle,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -1777,24 +1870,25 @@ class _SettingsPageState extends State<SettingsPage> {
                 }
               : null,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            padding: const EdgeInsets.fromLTRB(18, 13, 14, 13),
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(6),
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
                     color: Theme.of(
                       context,
-                    ).colorScheme.secondary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(6),
+                    ).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(22),
                   ),
                   child: Icon(
                     icon,
-                    size: 16,
-                    color: Theme.of(context).colorScheme.secondary,
+                    size: 21,
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1805,6 +1899,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
+                      const SizedBox(height: 1),
                       Text(
                         subtitle,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -2268,24 +2363,25 @@ class _SettingsPageState extends State<SettingsPage> {
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            padding: const EdgeInsets.fromLTRB(18, 13, 14, 13),
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(6),
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
                     color: Theme.of(
                       context,
-                    ).colorScheme.tertiary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(6),
+                    ).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(22),
                   ),
                   child: Icon(
                     icon,
-                    size: 16,
-                    color: Theme.of(context).colorScheme.tertiary,
+                    size: 21,
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

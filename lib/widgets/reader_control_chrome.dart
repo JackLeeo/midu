@@ -46,6 +46,12 @@ class ReaderChromeOverlay extends StatelessWidget {
     this.viewportStatusAlignment = Alignment.centerRight,
     this.viewportStatusHorizontalPadding = 14,
     this.showSettingsAction = true,
+    this.chapterLabel,
+    this.chapterProgress = 0,
+    this.bookProgress = 0,
+    this.onPreviousChapter,
+    this.onNextChapter,
+    this.onSliderSeek,
   });
 
   final ReaderThemePalette palette;
@@ -81,6 +87,12 @@ class ReaderChromeOverlay extends StatelessWidget {
   final AlignmentGeometry viewportStatusAlignment;
   final double viewportStatusHorizontalPadding;
   final bool showSettingsAction;
+  final String? chapterLabel;
+  final double chapterProgress;
+  final double bookProgress;
+  final VoidCallback? onPreviousChapter;
+  final VoidCallback? onNextChapter;
+  final ValueChanged<double>? onSliderSeek;
 
   @override
   Widget build(BuildContext context) {
@@ -165,7 +177,7 @@ class ReaderChromeOverlay extends StatelessWidget {
                 height: 58,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
+                    horizontal: 12,
                     vertical: 7,
                   ),
                   child: Row(
@@ -176,7 +188,7 @@ class ReaderChromeOverlay extends StatelessWidget {
                         tooltip: backTooltip,
                         icon: Icons.arrow_back_rounded,
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 12),
                       Expanded(
                         child: Text(
                           title,
@@ -190,6 +202,7 @@ class ReaderChromeOverlay extends StatelessWidget {
                           ),
                         ),
                       ),
+                      const SizedBox(width: 12),
                       ReaderControlIconButton(
                         palette: palette,
                         onPressed: bookmarkBusy ? null : onBookmark,
@@ -197,6 +210,7 @@ class ReaderChromeOverlay extends StatelessWidget {
                         icon: bookmarked
                             ? Icons.bookmark_rounded
                             : Icons.bookmark_border_rounded,
+                        active: bookmarked,
                       ),
                     ],
                   ),
@@ -217,60 +231,161 @@ class ReaderChromeOverlay extends StatelessWidget {
             child: ReaderControlBar(
               palette: palette,
               isTopBar: false,
-              child: SizedBox(
-                height: 64,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 9,
-                    vertical: 9,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 章节信息 + 整本进度条
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 8, 14, 4),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            chapterLabel ?? '',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: textTheme.labelMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: palette.secondaryText,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${(bookProgress.clamp(0.0, 1.0) * 100).round()}%',
+                          style: textTheme.labelMedium?.copyWith(
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                            color: palette.secondaryText,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      ReaderControlIconButton(
-                        palette: palette,
-                        onPressed: onTableOfContents,
-                        tooltip: tableOfContentsTooltip,
-                        icon: Icons.format_list_bulleted_rounded,
+                  _ReaderProgressSlider(
+                    palette: palette,
+                    value: chapterProgress.clamp(0.0, 1.0),
+                    onChangeEnd: onSliderSeek,
+                  ),
+                  const SizedBox(height: 4),
+                  SizedBox(
+                    height: 60,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 9),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          if (onPreviousChapter != null)
+                            ReaderControlIconButton(
+                              palette: palette,
+                              onPressed: onPreviousChapter,
+                              tooltip: MaterialLocalizations.of(
+                                context,
+                              ).previousPageTooltip,
+                              icon: Icons.skip_previous_rounded,
+                            ),
+                          ReaderControlIconButton(
+                            palette: palette,
+                            onPressed: onTableOfContents,
+                            tooltip: tableOfContentsTooltip,
+                            icon: Icons.format_list_bulleted_rounded,
+                          ),
+                          if (onSwitchSource != null)
+                            ReaderControlIconButton(
+                              palette: palette,
+                              onPressed: onSwitchSource,
+                              tooltip: switchSourceTooltip ?? '',
+                              icon: Icons.swap_horiz_rounded,
+                            ),
+                          if (onReadAloud != null)
+                            ReaderControlIconButton(
+                              palette: palette,
+                              onPressed: onReadAloud,
+                              tooltip: readAloudTooltip ?? '',
+                              icon: readAloudActive
+                                  ? Icons.graphic_eq_rounded
+                                  : Icons.headphones_rounded,
+                              active: readAloudActive,
+                            ),
+                          if (onAskAi != null)
+                            ReaderControlIconButton(
+                              palette: palette,
+                              onPressed: onAskAi,
+                              tooltip: askAiTooltip ?? '',
+                              icon: Icons.auto_awesome_outlined,
+                            ),
+                          if (showSettingsAction)
+                            ReaderControlIconButton(
+                              palette: palette,
+                              onPressed: onSettings,
+                              tooltip: settingsTooltip,
+                              icon: Icons.tune_rounded,
+                            ),
+                          if (onNextChapter != null)
+                            ReaderControlIconButton(
+                              palette: palette,
+                              onPressed: onNextChapter,
+                              tooltip: MaterialLocalizations.of(
+                                context,
+                              ).nextPageTooltip,
+                              icon: Icons.skip_next_rounded,
+                            ),
+                        ],
                       ),
-                      if (onSwitchSource != null)
-                        ReaderControlIconButton(
-                          palette: palette,
-                          onPressed: onSwitchSource,
-                          tooltip: switchSourceTooltip ?? '',
-                          icon: Icons.swap_horiz_rounded,
-                        ),
-                      if (onReadAloud != null)
-                        ReaderControlIconButton(
-                          palette: palette,
-                          onPressed: onReadAloud,
-                          tooltip: readAloudTooltip ?? '',
-                          icon: readAloudActive
-                              ? Icons.graphic_eq_rounded
-                              : Icons.headphones_rounded,
-                        ),
-                      if (onAskAi != null)
-                        ReaderControlIconButton(
-                          palette: palette,
-                          onPressed: onAskAi,
-                          tooltip: askAiTooltip ?? '',
-                          icon: Icons.auto_awesome_outlined,
-                        ),
-                      if (showSettingsAction)
-                        ReaderControlIconButton(
-                          palette: palette,
-                          onPressed: onSettings,
-                          tooltip: settingsTooltip,
-                          icon: Icons.tune_rounded,
-                        ),
-                    ],
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 6),
+                ],
               ),
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 章节进度滑块：内部持有本地拖拽值，展示型拖拽不会触发跳转，
+/// 释放时通过 onChangeEnd 回传给调用方（用于整本进度定位）。
+class _ReaderProgressSlider extends StatefulWidget {
+  const _ReaderProgressSlider({
+    required this.palette,
+    required this.value,
+    this.onChangeEnd,
+  });
+
+  final ReaderThemePalette palette;
+  final double value;
+  final ValueChanged<double>? onChangeEnd;
+
+  @override
+  State<_ReaderProgressSlider> createState() => _ReaderProgressSliderState();
+}
+
+class _ReaderProgressSliderState extends State<_ReaderProgressSlider> {
+  double? _dragValue;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = _dragValue ?? widget.value;
+    return SliderTheme(
+      data: SliderThemeData(
+        trackHeight: 2.5,
+        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+        overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+        activeTrackColor: widget.palette.accent,
+        inactiveTrackColor: widget.palette.accent.withValues(alpha: 0.18),
+        thumbColor: widget.palette.accent,
+        overlayColor: widget.palette.accent.withValues(alpha: 0.12),
+      ),
+      child: Slider(
+        value: value.clamp(0.0, 1.0),
+        onChangeStart: (_) => setState(() => _dragValue = value),
+        onChanged: (v) => setState(() => _dragValue = v),
+        onChangeEnd: (v) {
+          setState(() => _dragValue = null);
+          widget.onChangeEnd?.call(v);
+        },
+      ),
     );
   }
 }
@@ -289,7 +404,9 @@ class ReaderControlBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final borderRadius = BorderRadius.circular(999);
+    // 主流入放观感：顶部栏与底部栏统一用轻量圆角胶囊（radius 24）。顶部栏
+    // 更贴边、底部栏略浮起，但都保持玻璃质感的半透明材质。
+    final borderRadius = BorderRadius.circular(24);
     final blurEnabled = !GlassEffectConfig.shouldDisableBlur;
     // 不叠加预设，直接使用与悬浮导航栏/首页顶栏一致的标准玻璃参数
     final config = GlassEffectHelper.getReadingControlConfig(
@@ -402,12 +519,14 @@ class ReaderControlIconButton extends StatelessWidget {
     required this.onPressed,
     required this.tooltip,
     required this.icon,
+    this.active = false,
   });
 
   final ReaderThemePalette palette;
   final VoidCallback? onPressed;
   final String tooltip;
   final IconData icon;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
@@ -419,28 +538,33 @@ class ReaderControlIconButton extends StatelessWidget {
             lightBlend: 0.22,
           )
         : palette.controlFill;
+    // 激活态（已书签 / 朗读中）用主题强调色点亮，未激活态保持中性玻璃填充。
+    final foreground = active ? palette.accent : palette.text;
+    final background = active
+        ? palette.accent.withValues(alpha: glassEnabled ? 0.16 : 0.14)
+        : cleanControlFill.withValues(
+            alpha: glassEnabled
+                ? (palette.brightness == Brightness.light ? 0.76 : 0.58)
+                : 1.0,
+          );
+    final border = active
+        ? palette.accent.withValues(alpha: glassEnabled ? 0.34 : 0.42)
+        : glassEnabled
+        ? Color.lerp(palette.border, Colors.white, 0.12)!.withValues(
+            alpha: palette.brightness == Brightness.light ? 0.28 : 0.48,
+          )
+        : palette.border;
     return IconButton.filledTonal(
       onPressed: onPressed,
       tooltip: tooltip,
       icon: Icon(icon, size: 22),
       style: IconButton.styleFrom(
-        foregroundColor: palette.text,
-        backgroundColor: cleanControlFill.withValues(
-          alpha: glassEnabled
-              ? (palette.brightness == Brightness.light ? 0.76 : 0.58)
-              : 1.0,
-        ),
+        foregroundColor: foreground,
+        backgroundColor: background,
         minimumSize: const Size.square(44),
         maximumSize: const Size.square(44),
         padding: EdgeInsets.zero,
-        side: BorderSide(
-          color: glassEnabled
-              ? Color.lerp(palette.border, Colors.white, 0.12)!.withValues(
-                  alpha: palette.brightness == Brightness.light ? 0.28 : 0.48,
-                )
-              : palette.border,
-          width: 0.8,
-        ),
+        side: BorderSide(color: border, width: 0.8),
         shape: const CircleBorder(),
       ),
     );

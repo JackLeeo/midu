@@ -40,7 +40,6 @@ import 'package:midu/widgets/source_cover_image.dart';
 
 import 'import_book/import_book_page.dart';
 import 'download_tasks_page.dart';
-import 'library_grid_book_details.dart';
 import 'library_selection_model.dart';
 
 enum _LibraryFilter { all, reading, finished }
@@ -902,36 +901,48 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Widget _buildEmptyLibrary() {
+    final scheme = Theme.of(context).colorScheme;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 56,
-            height: 56,
+            width: 88,
+            height: 88,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
+              shape: BoxShape.circle,
               gradient: const LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [Color(0xFFE8503A), Color(0xFFE8503A)],
+                colors: [Color(0xFFFF7A5C), Color(0xFFE8503A)],
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFFE8503A).withValues(alpha: 0.3),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
+                  color: scheme.primary.withValues(alpha: 0.28),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
                 ),
               ],
             ),
             child: const Icon(
               Icons.menu_book_rounded,
               color: Colors.white,
-              size: 30,
+              size: 40,
             ),
           ),
-          const SizedBox(height: 16),
-          TextButton.icon(
+          const SizedBox(height: 22),
+          Text(
+            context.l10n.libraryNoBooks,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: scheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 20),
+          FilledButton.icon(
+            key: const ValueKey('library-empty-import'),
             onPressed: () async {
               await Navigator.push(
                 context,
@@ -939,8 +950,16 @@ class _LibraryPageState extends State<LibraryPage> {
               );
               _loadBooks();
             },
-            icon: const Icon(Icons.add),
+            icon: const Icon(Icons.add_rounded, size: 20),
             label: Text(context.l10n.importBooks),
+            style: FilledButton.styleFrom(
+              backgroundColor: scheme.primary,
+              foregroundColor: scheme.onPrimary,
+              minimumSize: const Size(150, 46),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(23),
+              ),
+            ),
           ),
         ],
       ),
@@ -948,6 +967,7 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Widget _buildNoSearchResult() {
+    final scheme = Theme.of(context).colorScheme;
     final palette = PageStyleHelper.palette(context);
     final hasSearch = _searchQuery.trim().isNotEmpty;
     final message = hasSearch
@@ -957,11 +977,30 @@ class _LibraryPageState extends State<LibraryPage> {
             _LibraryFilter.finished => context.l10n.libraryNoFinishedBooks,
             _LibraryFilter.all => context.l10n.libraryNoBooks,
           };
+    final icon = hasSearch
+        ? Icons.search_off_rounded
+        : Icons.filter_alt_off_rounded;
 
     return Center(
-      child: Text(
-        message,
-        style: TextStyle(fontSize: 16, color: palette.textMuted),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 68,
+            height: 68,
+            decoration: BoxDecoration(
+              color: scheme.primaryContainer.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 32, color: scheme.primary),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 15, color: palette.textMuted),
+          ),
+        ],
       ),
     );
   }
@@ -1006,8 +1045,7 @@ class _LibraryPageState extends State<LibraryPage> {
                 spacing * (crossAxisCount - 1)) /
             crossAxisCount;
         final itemHeight =
-            itemWidth * 3 / 2 +
-            (showDetails ? LibraryGridBookDetails.height : 0);
+            itemWidth * 3 / 2 + _BookCoverItem.textHeight + _BookCoverItem.gap;
         return GridView.builder(
           key: const ValueKey('library-cover-grid'),
           scrollCacheExtent: const ScrollCacheExtent.pixels(720),
@@ -1031,107 +1069,32 @@ class _LibraryPageState extends State<LibraryPage> {
             final book = books[index];
             final coverKey = _coverKeyFor(book);
             return RepaintBoundary(
-              child: Semantics(
-                button: true,
-                label: showDetails
-                    ? '${book.title}，${context.l10n.libraryProgressContinue(_bookProgressPercent(book))}'
-                    : book.title,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(10),
-                    onTap: () async {
-                      await _handleBookTap(
-                        book,
-                        openBook: () => _openBookFromCover(
-                          book,
-                          coverKey: coverKey,
-                          radius: BorderRadius.circular(10),
-                          coverBuilder: (context) =>
-                              _gridCoverArt(context, book),
-                        ),
-                      );
-                    },
-                    onLongPress: _selection.isActive
-                        ? () => _toggleBookSelection(book)
-                        : () => _showBookOptions(book),
-                    child: Stack(
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: SizedBox.expand(
-                                key: coverKey,
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(10),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .shadow
-                                            .withValues(alpha: 0.14),
-                                        blurRadius: 7,
-                                        offset: const Offset(0, 3),
-                                      ),
-                                    ],
-                                  ),
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: _gridCoverArt(context, book),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            if (showDetails) LibraryGridBookDetails(book: book),
-                          ],
-                        ),
-                        if (_selection.isActive)
-                          Positioned(
-                            top: 6,
-                            left: 6,
-                            child: _BookSelectionIndicator(
-                              selected: _isBookSelected(book),
-                            ),
-                          ),
-                        if (!_selection.isActive &&
-                            book.progress > 0 &&
-                            book.progress < 1)
-                          Positioned(
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            child: ClipRRect(
-                              borderRadius: const BorderRadius.vertical(
-                                bottom: Radius.circular(10),
-                              ),
-                              child: SizedBox(
-                                height: 5,
-                                child: LinearProgressIndicator(
-                                  value: book.progress.clamp(0.0, 1.0),
-                                  backgroundColor: Colors.black26,
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.primary,
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
+              child: _BookCoverItem(
+                book: book,
+                coverKey: coverKey,
+                selectionActive: _selection.isActive,
+                selected: _isBookSelected(book),
+                showDetails: showDetails,
+                onTap: () async {
+                  await _handleBookTap(
+                    book,
+                    openBook: () => _openBookFromCover(
+                      book,
+                      coverKey: coverKey,
+                      radius: BorderRadius.circular(8),
+                      coverBuilder: (context) => _gridCoverArt(context, book),
                     ),
-                  ),
-                ),
+                  );
+                },
+                onLongPress: _selection.isActive
+                    ? () => _toggleBookSelection(book)
+                    : () => _showBookOptions(book),
               ),
             );
           },
         );
       },
     );
-  }
-
-  int _bookProgressPercent(Book book) {
-    return (book.progress * 100).round();
   }
 
   Widget _buildBooksGrid(List<Book> books, {required double topPadding}) {
@@ -1216,7 +1179,7 @@ class _LibraryPageState extends State<LibraryPage> {
                       openBook: () => _openBookFromCover(
                         book,
                         coverKey: coverKey,
-                        radius: BorderRadius.circular(12),
+                        radius: BorderRadius.circular(8),
                         coverBuilder: (context) => _gridCoverArt(context, book),
                       ),
                     );
@@ -1251,124 +1214,177 @@ class _LibraryPageState extends State<LibraryPage> {
       itemBuilder: (context, index) {
         final book = books[index];
         final coverKey = _coverKeyFor(book);
-        final progress = book.progress;
-        final progressText = context.l10n.libraryProgressContinue(
-          (progress * 100).round(),
-        );
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: Material(
+        final progress = book.progress.clamp(0.0, 1.0);
+        final percent = (progress * 100).round();
+        final isSelected = _selection.isActive && _isBookSelected(book);
+
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
             color: _isMaterial3Style
                 ? scheme.surfaceContainerLow
                 : scheme.surface.withValues(alpha: 0.86),
-            surfaceTintColor: Colors.transparent,
-            elevation: _isMaterial3Style ? 1 : 0,
-            shadowColor: scheme.shadow.withValues(
-              alpha: _isMaterial3Style ? 0.07 : 0.0,
-            ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(
-                color: scheme.outline.withValues(
-                  alpha: _isMaterial3Style ? 0.2 : 0.12,
-                ),
-                width: 0.8,
-              ),
-            ),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () async {
-                await _handleBookTap(
-                  book,
-                  openBook: () => _openBookFromCover(
-                    book,
-                    coverKey: coverKey,
-                    radius: BorderRadius.circular(11),
-                    coverBuilder: (context) => _buildListCover(context, book),
-                  ),
-                );
-              },
-              onLongPress: _selection.isActive
-                  ? () => _toggleBookSelection(book)
-                  : () => _showBookOptions(book),
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: Row(
-                  children: [
-                    SizedBox(
-                      key: coverKey,
-                      width: 64,
-                      height: 92,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(11),
-                        child: _buildListCover(context, book),
-                      ),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected
+                  ? scheme.primary
+                  : scheme.outline.withValues(
+                      alpha: _isMaterial3Style ? 0.18 : 0.1,
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  book.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              if (book.isOnline) ...[
-                                const SizedBox(width: 8),
-                                _onlineBadge(context),
-                              ],
-                            ],
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            progressText,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurface.withValues(alpha: 0.58),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
+              width: isSelected ? 1.6 : 0.8,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: scheme.shadow.withValues(
+                  alpha: _isMaterial3Style ? 0.07 : 0.12,
+                ),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () async {
+              await _handleBookTap(
+                book,
+                openBook: () => _openBookFromCover(
+                  book,
+                  coverKey: coverKey,
+                  radius: BorderRadius.circular(8),
+                  coverBuilder: (context) => _buildListCover(context, book),
+                ),
+              );
+            },
+            onLongPress: _selection.isActive
+                ? () => _toggleBookSelection(book)
+                : () => _showBookOptions(book),
+            child: Row(
+              children: [
+                // 竖版封面（2:3、圆角 8、多选时主色描边）
+                Container(
+                  key: coverKey,
+                  width: 60,
+                  height: 90,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: isSelected
+                        ? Border.all(color: scheme.primary, width: 1.6)
+                        : null,
+                    boxShadow: [
+                      BoxShadow(
+                        color: scheme.shadow.withValues(alpha: 0.16),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        _buildListCover(context, book),
+                        if (progress > 0)
+                          Align(
+                            alignment: Alignment.bottomCenter,
                             child: LinearProgressIndicator(
                               value: progress,
-                              minHeight: 5,
-                              backgroundColor: Theme.of(
-                                context,
-                              ).colorScheme.primary.withValues(alpha: 0.12),
+                              minHeight: 3,
+                              backgroundColor: Colors.black26,
                               valueColor: AlwaysStoppedAnimation(
-                                Theme.of(context).colorScheme.primary,
+                                scheme.primary,
                               ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              book.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          if (book.isOnline) ...[
+                            const SizedBox(width: 8),
+                            _onlineBadge(context),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        book.author,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant.withValues(
+                            alpha: 0.78,
+                          ),
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(2),
+                              child: LinearProgressIndicator(
+                                value: progress,
+                                minHeight: 4,
+                                backgroundColor: scheme.primary.withValues(
+                                  alpha: 0.12,
+                                ),
+                                valueColor: AlwaysStoppedAnimation(
+                                  scheme.primary,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '$percent%',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: scheme.primary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    if (_selection.isActive)
-                      _BookSelectionIndicator(selected: _isBookSelected(book))
-                    else
-                      Icon(
-                        Icons.chevron_right_rounded,
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withValues(alpha: 0.35),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
+                const SizedBox(width: 8),
+                if (_selection.isActive)
+                  _BookSelectionIndicator(selected: isSelected)
+                else
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: scheme.onSurface.withValues(alpha: 0.35),
+                  ),
+              ],
             ),
           ),
         );
@@ -2350,6 +2366,7 @@ class _BookCoverItem extends StatelessWidget {
   final VoidCallback onLongPress;
   final bool selectionActive;
   final bool selected;
+  final bool showDetails;
 
   const _BookCoverItem({
     required this.book,
@@ -2358,6 +2375,7 @@ class _BookCoverItem extends StatelessWidget {
     required this.onLongPress,
     required this.selectionActive,
     required this.selected,
+    this.showDetails = true,
   });
 
   /// 封面下方文本区域高度与间距，网格计算格子高度时复用。
@@ -2366,65 +2384,63 @@ class _BookCoverItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progress = book.progress;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isMaterial3Style =
+        theme.extension<UiStyleThemeExtension>()?.isMaterial3Style ?? false;
+    final progress = book.progress.clamp(0.0, 1.0);
+    final percent = (progress * 100).round();
+    final isReading = book.currentPage > 0;
+    final isSelected = selectionActive && selected;
 
-    return InkWell(
-      onTap: () => unawaited(onTap()),
-      onLongPress: onLongPress,
-      borderRadius: BorderRadius.circular(12),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final theme = Theme.of(context);
-          final scheme = theme.colorScheme;
-          final isMaterial3Style =
-              theme.extension<UiStyleThemeExtension>()?.isMaterial3Style ??
-              false;
-          final coverWidth = constraints.maxWidth;
-          final targetCoverHeight = coverWidth * 3 / 2;
-          final availableCoverHeight = math.max(
-            0.0,
-            constraints.maxHeight - textHeight - gap,
-          );
-          final coverHeight = math.min(availableCoverHeight, targetCoverHeight);
-
-          return Column(
+    return Semantics(
+      button: true,
+      label: showDetails
+          ? '${book.title}，${context.l10n.libraryProgressContinue(percent)}'
+          : book.title,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => unawaited(onTap()),
+          onLongPress: onLongPress,
+          borderRadius: BorderRadius.circular(8),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 书籍封面区域 - 2:3比例，但不超过可用高度
-              Align(
-                alignment: Alignment.topCenter,
-                child: SizedBox(
-                  key: coverKey,
-                  width: coverWidth,
-                  height: coverHeight,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: scheme.shadow.withValues(
-                            alpha: isMaterial3Style ? 0.08 : 0.15,
+              // 现代书架：大号竖版封面卡（2:3、圆角 8、弱阴影/浅描边）
+              Container(
+                key: coverKey,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isSelected
+                        ? scheme.primary
+                        : scheme.outline.withValues(
+                            alpha: isMaterial3Style ? 0.18 : 0.1,
                           ),
-                          blurRadius: isMaterial3Style ? 6 : 8,
-                          offset: const Offset(0, 3),
-                          spreadRadius: 0,
-                        ),
-                      ],
+                    width: isSelected ? 2 : 0.8,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: scheme.shadow.withValues(
+                        alpha: isMaterial3Style ? 0.1 : 0.18,
+                      ),
+                      blurRadius: isMaterial3Style ? 8 : 10,
+                      offset: const Offset(0, 3),
                     ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: AspectRatio(
+                    aspectRatio: 2 / 3,
                     child: Stack(
+                      fit: StackFit.expand,
                       children: [
-                        // 封面图片或默认图标
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: _gridCoverArt(context, book),
-                        ),
-                        if (selectionActive)
-                          Positioned(
-                            top: 6,
-                            left: 6,
-                            child: _BookSelectionIndicator(selected: selected),
-                          ),
-                        if (book.isOnline)
+                        _gridCoverArt(context, book),
+                        // 在线阅读角标
+                        if (!selectionActive && book.isOnline)
                           Positioned(
                             top: 6,
                             right: 6,
@@ -2447,72 +2463,65 @@ class _BookCoverItem extends StatelessWidget {
                               ),
                             ),
                           ),
-                        // 阅读进度指示器（仅在有进度时显示）
-                        if (progress > 0)
-                          Positioned(
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            child: Container(
-                              height: 4,
-                              decoration: BoxDecoration(
-                                color: scheme.scrim.withValues(
-                                  alpha: isMaterial3Style ? 0.2 : 0.3,
-                                ),
-                                borderRadius: const BorderRadius.only(
-                                  bottomLeft: Radius.circular(12),
-                                  bottomRight: Radius.circular(12),
-                                ),
-                              ),
-                              child: FractionallySizedBox(
-                                alignment: Alignment.centerLeft,
-                                widthFactor: progress.clamp(0.0, 1.0),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: scheme.primary,
-                                    borderRadius: const BorderRadius.only(
-                                      bottomLeft: Radius.circular(12),
-                                      bottomRight: Radius.circular(12),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
                         // "在读"标签
-                        if (book.currentPage > 0)
+                        if (!selectionActive && isReading)
                           Positioned(
                             top: 6,
-                            left: book.isOnline ? 6 : null,
-                            right: book.isOnline ? null : 6,
+                            left: 6,
                             child: Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 6,
                                 vertical: 3,
                               ),
                               decoration: BoxDecoration(
-                                color: scheme.primary,
+                                color: scheme.primary.withValues(alpha: 0.92),
                                 borderRadius: BorderRadius.circular(8),
-                                boxShadow: isMaterial3Style
-                                    ? null
-                                    : [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(
-                                            alpha: 0.2,
-                                          ),
-                                          blurRadius: 4,
-                                          offset: const Offset(0, 2),
-                                        ),
-                                      ],
                               ),
                               child: Text(
                                 context.l10n.libraryReadingBadge,
                                 style: TextStyle(
                                   color: scheme.onPrimary,
                                   fontSize: 9,
-                                  fontWeight: FontWeight.w500,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
+                            ),
+                          ),
+                        // 底部优雅阅读进度条
+                        if (progress > 0)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              padding: const EdgeInsets.fromLTRB(4, 10, 4, 4),
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [Colors.transparent, Colors.black26],
+                                ),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(2),
+                                child: LinearProgressIndicator(
+                                  value: progress,
+                                  minHeight: 3,
+                                  backgroundColor: Colors.black26,
+                                  valueColor: AlwaysStoppedAnimation(
+                                    scheme.primary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        // 多选角标（主色描边 + 对勾）
+                        if (selectionActive)
+                          Positioned(
+                            top: 6,
+                            left: 6,
+                            child: _BookSelectionIndicator(
+                              selected: isSelected,
                             ),
                           ),
                       ],
@@ -2521,53 +2530,78 @@ class _BookCoverItem extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: gap),
-              // 书籍信息区域 - 固定高度
-              Align(
-                alignment: Alignment.topCenter,
-                child: SizedBox(
-                  width: coverWidth,
-                  height: textHeight,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(2, 0, 2, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // 书名：超长时自动滚动
-                        Expanded(
-                          child: ScrollingText(
-                            text: book.title,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 13,
-                                  height: 1.15,
-                                ),
-                            duration: const Duration(seconds: 5),
-                            pauseDuration: const Duration(milliseconds: 1200),
-                          ),
+              // 封面下方信息：书名（加粗）+ 进度百分比 / 作者
+              SizedBox(
+                width: double.infinity,
+                height: textHeight,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: ScrollingText(
+                        text: book.title,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          height: 1.2,
                         ),
-                        const SizedBox(height: 2),
-                        // 作者信息
-                        Text(
-                          book.author,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: scheme.onSurfaceVariant.withValues(
-                                  alpha: 0.78,
-                                ),
-                                fontSize: 11,
-                              ),
-                        ),
-                      ],
+                        duration: const Duration(seconds: 5),
+                        pauseDuration: const Duration(milliseconds: 1200),
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 3),
+                    if (showDetails)
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(2),
+                              child: LinearProgressIndicator(
+                                value: progress,
+                                minHeight: 3,
+                                backgroundColor: scheme.primary.withValues(
+                                  alpha: 0.12,
+                                ),
+                                valueColor: AlwaysStoppedAnimation(
+                                  scheme.primary,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            '$percent%',
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(
+                                  color: scheme.primary,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1,
+                                  fontFeatures: const [
+                                    FontFeature.tabularFigures(),
+                                  ],
+                                ),
+                          ),
+                        ],
+                      )
+                    else
+                      Text(
+                        book.author,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant.withValues(
+                            alpha: 0.78,
+                          ),
+                          fontSize: 11,
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ],
-          );
-        },
+          ),
+        ),
       ),
     );
   }

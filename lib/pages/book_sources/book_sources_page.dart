@@ -476,7 +476,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
                         children: [
                           if (useRailNavigation) _buildRailHeader(),
                           _buildBookStoreHeader(),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 14),
                         ],
                       ),
                     ),
@@ -642,7 +642,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
             ),
           ),
         ),
-        const SliverToBoxAdapter(child: SizedBox(height: 8)),
+        const SliverToBoxAdapter(child: SizedBox(height: 20)),
       ],
     ];
 
@@ -657,29 +657,54 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     return slivers;
   }
 
-  Widget _buildSectionHeader(String title, IconData icon) {
+  /// 统一设计语言的 Section 标题：左侧 brand 色竖条 + 加粗大标题 + 可选副标题/更多。
+  Widget _buildSectionHeader(
+    String title,
+    IconData icon, {
+    String? subtitle,
+    Widget? trailing,
+  }) {
     final scheme = Theme.of(context).colorScheme;
     return Row(
       children: [
         Container(
-          width: 4,
-          height: 20,
+          width: 3,
+          height: 14,
           decoration: BoxDecoration(
             color: scheme.primary,
-            borderRadius: BorderRadius.circular(3),
+            borderRadius: BorderRadius.circular(2),
           ),
         ),
-        const SizedBox(width: 10),
-        Icon(icon, size: 22, color: scheme.primary),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
             title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: Theme.of(
               context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+            ).textTheme.titleLarge?.copyWith(
+              fontSize: 19,
+              fontWeight: FontWeight.w800,
+              color: scheme.onSurface,
+            ),
           ),
         ),
+        if (subtitle != null) ...[
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+            ),
+          ),
+        ],
+        if (trailing != null) ...[
+          const SizedBox(width: 8),
+          trailing,
+        ],
       ],
     );
   }
@@ -697,21 +722,19 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
               ),
               const SizedBox(height: 12),
               SizedBox(
-                height: 46,
+                height: 44,
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   itemCount: _categories.length + 1,
                   separatorBuilder: (_, _) => const SizedBox(width: 10),
                   itemBuilder: (context, index) {
                     if (index == 0) {
-                      return ActionChip(
-                        avatar: Icon(
-                          Icons.grid_view_rounded,
-                          size: 18,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                        label: const Text('全部分类'),
-                        onPressed: () => _openCategoryPicker(_categories),
+                      return _CategoryChip(
+                        label: '全部分类',
+                        icon: Icons.grid_view_rounded,
+                        selected: _selectedCategory == null,
+                        onTap: () => _openCategoryPicker(_categories),
+                        scheme: Theme.of(context).colorScheme,
                       );
                     }
                     final category = _categories[index - 1];
@@ -720,7 +743,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
                         category.id == _selectedCategory?.id;
                     return _CategoryChip(
                       label: category.name,
-                      sourceLabel: category.source.name,
+                      secLabel: category.source.name,
                       selected: isSelected,
                       onTap: () => _selectCategoryForBrowse(category),
                       scheme: Theme.of(context).colorScheme,
@@ -762,7 +785,22 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
           ),
         ),
       ),
-      _bookGridSliver(latest, bottomPadding: bottomPadding),
+      SliverPadding(
+        padding: EdgeInsets.fromLTRB(16, 6, 16, bottomPadding),
+        sliver: SliverList.builder(
+          itemCount: latest.length,
+          itemBuilder: (context, index) {
+            final result = latest[index];
+            return _centerSectionChild(
+              _LatestRankRow(
+                result: result,
+                rank: index + 1,
+                onTap: () => _actions.showBookDetails(result),
+              ),
+            );
+          },
+        ),
+      ),
     ];
   }
 
@@ -775,7 +813,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       SliverToBoxAdapter(
         child: _centerSectionChild(
           Padding(
-            padding: const EdgeInsets.only(top: 4),
+            padding: const EdgeInsets.only(top: 22),
             child: _buildSectionHeader(
               context.l10n.discoverRecommended,
               Icons.auto_awesome_rounded,
@@ -784,7 +822,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         ),
       ),
       SliverPadding(
-        padding: EdgeInsets.fromLTRB(16, 8, 16, bottomPadding),
+        padding: EdgeInsets.fromLTRB(16, 12, 16, bottomPadding),
         sliver: SliverList.builder(
           itemCount: shelves.length,
           itemBuilder: (context, index) =>
@@ -796,7 +834,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
 
   Widget _buildShelf(_DiscoveryShelf shelf) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.only(bottom: 26),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -807,7 +845,10 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
                   shelf.title,
                   style: Theme.of(
                     context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                  ).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
                 ),
               ),
               _buildSourceBadge(shelf.source.name),
@@ -815,7 +856,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
           ),
           const SizedBox(height: 12),
           SizedBox(
-            height: 242,
+            height: 226,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: shelf.items.length,
@@ -825,7 +866,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
                   source: shelf.source,
                   book: shelf.items[index],
                 );
-                return SourcedBookCard(
+                return _ShelfBookCard(
                   result: result,
                   onTap: () => _actions.showBookDetails(result),
                 );
@@ -930,7 +971,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
-      decoration: bookSourcePanelDecoration(context, radius: 22),
+      decoration: bookSourcePanelDecoration(context, radius: 16),
       child: Column(
         children: [
           Container(
@@ -972,7 +1013,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   Widget _buildSourceBadge(String label) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
         color: scheme.secondaryContainer,
         borderRadius: BorderRadius.circular(999),
@@ -1051,12 +1092,19 @@ class _BookstoreHeroState extends State<_BookstoreHero> {
       margin: const EdgeInsets.only(right: 12),
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(16),
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [scheme.primary, scheme.tertiary],
+          colors: [scheme.primary, scheme.secondary],
         ),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.shadow.withValues(alpha: 0.18),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
+          ),
+        ],
       ),
       child: Material(
         color: Colors.transparent,
@@ -1111,8 +1159,8 @@ class _BookstoreHeroState extends State<_BookstoreHero> {
                 ),
                 const SizedBox(width: 14),
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: SizedBox(width: 96, height: 132, child: cover),
+                  borderRadius: BorderRadius.circular(8),
+                  child: SizedBox(width: 96, height: 144, child: cover),
                 ),
               ],
             ),
@@ -1321,63 +1369,69 @@ class _CategoryPickerEntry {
   const _CategoryPickerEntry.category(this.category) : header = null;
 }
 
-/// 发现页分类标签（横向滚动条里的条目）
+/// 发现页分类标签（横向滚动条里的圆角胶囊）
 class _CategoryChip extends StatelessWidget {
   final String label;
-  final String sourceLabel;
+  final String? secLabel;
   final bool selected;
   final VoidCallback onTap;
   final ColorScheme scheme;
+  final IconData? icon;
 
   const _CategoryChip({
     required this.label,
-    required this.sourceLabel,
+    this.secLabel,
     required this.selected,
     required this.onTap,
     required this.scheme,
+    this.icon,
   });
 
   @override
   Widget build(BuildContext context) {
-    final bgColor =
-        selected ? scheme.primaryContainer : scheme.surfaceContainerHigh;
-    final accentTextColor =
-        selected ? scheme.onPrimaryContainer : scheme.primary;
     return Material(
-      color: bgColor,
+      color: selected ? scheme.primary : scheme.surfaceContainerHigh,
       borderRadius: BorderRadius.circular(999),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Column(
+          child: Row(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              if (icon != null) ...[
+                Icon(
+                  icon,
+                  size: 16,
+                  color: selected ? scheme.onPrimary : scheme.primary,
+                ),
+                const SizedBox(width: 6),
+              ],
               Text(
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  color: selected ? scheme.onPrimaryContainer : scheme.onSurface,
-                  height: 1.1,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13.5,
+                  color: selected ? scheme.onPrimary : scheme.onSurface,
                 ),
               ),
-              const SizedBox(height: 2),
-              Text(
-                sourceLabel,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w600,
-                  color: accentTextColor.withValues(alpha: 0.85),
-                  height: 1,
+              if (secLabel != null && secLabel!.isNotEmpty) ...[
+                const SizedBox(width: 5),
+                Text(
+                  secLabel!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    color: selected
+                        ? Colors.white.withValues(alpha: 0.85)
+                        : scheme.onSurfaceVariant.withValues(alpha: 0.85),
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
@@ -1403,7 +1457,7 @@ class _DiscoverGridBookCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(8),
         onTap: onTap,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1411,7 +1465,7 @@ class _DiscoverGridBookCard extends StatelessWidget {
             Expanded(
               flex: 7,
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(8),
                 child: result.book.coverUrl == null
                     ? GeneratedBookCover(
                         title: result.book.title,
@@ -1436,7 +1490,7 @@ class _DiscoverGridBookCard extends StatelessWidget {
               style: TextStyle(
                 fontWeight: FontWeight.w800,
                 color: scheme.onSurface,
-                fontSize: 13.5,
+                fontSize: 14,
               ),
             ),
             const SizedBox(height: 2),
@@ -1448,8 +1502,192 @@ class _DiscoverGridBookCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: scheme.onSurfaceVariant,
-                fontSize: 11.5,
+                fontSize: 12,
                 fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 书单/书架横排竖版卡片：2:3 封面（圆角 8）+ 加粗标题 + 灰色作者，对齐实体书书卡。
+class _ShelfBookCard extends StatelessWidget {
+  final SourcedBook result;
+  final VoidCallback onTap;
+
+  const _ShelfBookCard({required this.result, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final book = result.book;
+    return SizedBox(
+      width: 120,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: AspectRatio(
+                  aspectRatio: 2 / 3,
+                  child: book.coverUrl == null
+                      ? GeneratedBookCover(title: book.title, author: book.author)
+                      : SourceCoverImage(
+                          url: book.coverUrl!,
+                          fit: BoxFit.cover,
+                          cacheWidth: (140 * dpr).round(),
+                          fallback: GeneratedBookCover(
+                            title: book.title,
+                            author: book.author,
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                book.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: scheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                book.author.isEmpty ? result.source.name : book.author,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: scheme.onSurfaceVariant,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 榜单/热榜行：序号徽标（Top3 强调色渐变）+ 封面缩略 + 标题 + 作者/来源。
+class _LatestRankRow extends StatelessWidget {
+  final SourcedBook result;
+  final int rank;
+  final VoidCallback onTap;
+
+  const _LatestRankRow({
+    required this.result,
+    required this.rank,
+    required this.onTap,
+  });
+
+  static const _topGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFFE8503A), Color(0xFFC0392B)],
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final book = result.book;
+    final topThree = rank <= 3;
+    final badge = Container(
+      width: 30,
+      height: 30,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(9),
+        gradient: topThree ? _topGradient : null,
+        color: topThree ? null : scheme.surfaceContainerHighest,
+      ),
+      child: Text(
+        '$rank',
+        style: TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w900,
+          color: topThree ? Colors.white : scheme.onSurfaceVariant,
+        ),
+      ),
+    );
+    final fallback = SizedBox(
+      width: 50,
+      height: 75,
+      child: GeneratedBookCover(title: book.title, author: book.author),
+    );
+    final thumb = ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: book.coverUrl == null
+          ? fallback
+          : SourceCoverImage(
+              url: book.coverUrl!,
+              width: 50,
+              height: 75,
+              fit: BoxFit.cover,
+              cacheWidth: (60 * dpr).round(),
+              fallback: fallback,
+            ),
+    );
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: scheme.outlineVariant.withValues(alpha: 0.4),
+              width: 0.6,
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            badge,
+            const SizedBox(width: 12),
+            thumb,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    book.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14.5,
+                      color: scheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    [
+                      if (book.author.isNotEmpty) book.author,
+                      result.source.name,
+                    ].join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: scheme.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],

@@ -674,6 +674,23 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     return _progressSaveQueue;
   }
 
+  /// 当前章节内的阅读进度（0..1），供控制栏进度滑块展示。
+  double get _currentChapterProgress {
+    if (_pageMode == BookSourcePageMode.verticalScroll) {
+      return _verticalPageCount <= 1
+          ? 0
+          : (_verticalPageIndex / (_verticalPageCount - 1)).clamp(0.0, 1.0);
+    }
+    return _pagedReadingProgress(_pageIndex, _pageCount);
+  }
+
+  /// 整本阅读进度（0..1），chapterIndex + 章节内进度 / 总章节数。
+  double get _currentBookProgress {
+    final count = _chapters.length;
+    if (count == 0) return 0;
+    return ((_chapterIndex + _currentChapterProgress) / count).clamp(0.0, 1.0);
+  }
+
   Future<void> _resolveShelfBook() async {
     Book? shelfBook;
     try {
@@ -2609,6 +2626,39 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
                       settingsTooltip: context.l10n.readingSettings,
                       bookmarked: _currentPageIsBookmarked,
                       bookmarkBusy: _bookmarkBusy,
+                      chapterLabel: _chapters.isEmpty
+                          ? _activeBook.title
+                          : _chapters[
+                                _chapterIndex.clamp(0, _chapters.length - 1)
+                              ].title,
+                      chapterProgress: _currentChapterProgress,
+                      bookProgress: _currentBookProgress,
+                      onPreviousChapter:
+                          _chapters.isNotEmpty && _chapterIndex > 0
+                          ? () => unawaited(
+                              _loadChapter(_chapterIndex - 1, restoreProgress: 1),
+                            )
+                          : null,
+                      onNextChapter:
+                          _chapters.isNotEmpty &&
+                              _chapterIndex < _chapters.length - 1
+                          ? () => unawaited(
+                              _loadChapter(_chapterIndex + 1, restoreProgress: 0),
+                            )
+                          : null,
+                      onSliderSeek: _chapters.isEmpty
+                          ? null
+                          : (fraction) {
+                              final f = fraction.clamp(0.0, 0.999);
+                              final idx = (f * _chapters.length)
+                                  .floor()
+                                  .clamp(0, _chapters.length - 1);
+                              unawaited(_loadChapter(
+                                idx,
+                                restoreProgress:
+                                    (f * _chapters.length - idx).clamp(0.0, 1.0),
+                              ));
+                            },
                       topKey: const ValueKey('book-source-top-controls'),
                       bottomKey: const ValueKey('book-source-bottom-controls'),
                       statusKey: const ValueKey('book-source-reader-status'),

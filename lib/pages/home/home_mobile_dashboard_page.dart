@@ -23,6 +23,7 @@ import 'package:midu/services/reading/reading_stats_dao.dart';
 import 'package:midu/utils/book_open_transition.dart';
 import 'package:midu/utils/layout_helper.dart';
 import 'package:midu/utils/localization_extension.dart';
+import 'package:midu/utils/page_style_helper.dart';
 import 'package:midu/utils/page_transitions.dart';
 import 'package:midu/widgets/generated_book_cover.dart';
 import 'package:midu/widgets/side_toast.dart';
@@ -333,24 +334,19 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [palette.backgroundStart, palette.backgroundEnd],
-          stops: const [0, 0.58],
-        ),
+        gradient: PageStyleHelper.backgroundGradient(context),
       ),
       child: _isInitialLoading
           ? Center(
               child: CircularProgressIndicator(
-                color: const Color(0xFFE8503A),
+                color: Theme.of(context).colorScheme.primary,
                 strokeWidth: 2.4,
               ),
             )
           : RefreshIndicator(
               onRefresh: _loadAllStats,
               edgeOffset: metrics.refreshEdgeOffset,
-              color: const Color(0xFFE8503A),
+              color: Theme.of(context).colorScheme.primary,
               backgroundColor: palette.cardColor,
               child: CustomScrollView(
                 physics: const BouncingScrollPhysics(
@@ -368,7 +364,27 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                   ),
                   SliverList(
                     delegate: SliverChildListDelegate([
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
+                      _buildMaxWidthBox(
+                        maxWidth: maxWidth,
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: metrics.horizontalPadding,
+                          ),
+                          child: _buildWarmIntro(),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      _buildMaxWidthBox(
+                        maxWidth: maxWidth,
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: metrics.horizontalPadding,
+                          ),
+                          child: _buildSearchEntry(),
+                        ),
+                      ),
+                      const SizedBox(height: 26),
                       _buildMaxWidthBox(
                         maxWidth: maxWidth,
                         child: Padding(
@@ -381,7 +397,7 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                           ),
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 26),
                       _buildMaxWidthBox(
                         maxWidth: maxWidth,
                         child: Padding(
@@ -391,7 +407,17 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                           child: _buildQuickActions(),
                         ),
                       ),
-                      const SizedBox(height: 28),
+                      const SizedBox(height: 26),
+                      _buildMaxWidthBox(
+                        maxWidth: maxWidth,
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: metrics.horizontalPadding,
+                          ),
+                          child: _buildReadingFootprint(),
+                        ),
+                      ),
+                      const SizedBox(height: 26),
                       _buildMaxWidthBox(
                         maxWidth: maxWidth,
                         child: Padding(
@@ -400,6 +426,7 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                           ),
                           child: _buildSectionLabel(
                             context.l10n.homeRecentReading,
+                            onMore: _openStats,
                           ),
                         ),
                       ),
@@ -408,7 +435,7 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                         maxWidth: maxWidth,
                         child: _buildRecentBooksCarousel(carouselBooks),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 26),
                       _buildMaxWidthBox(
                         maxWidth: maxWidth,
                         child: Padding(
@@ -424,6 +451,186 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                 ],
               ),
             ),
+    );
+  }
+
+  /// 顶部暖色引言：头像位 + 问候，营造温馨阅读主页的开场。
+  Widget _buildWarmIntro() {
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        padding: EdgeInsets.fromLTRB(
+          18,
+          18,
+          18,
+          Theme.of(context).brightness == Brightness.dark ? 6 : 10,
+        ),
+        decoration: BoxDecoration(
+          color: Color.alphaBlend(
+            scheme.primary.withValues(alpha: isDark ? 0.16 : 0.10),
+            scheme.surfaceContainerLow.withValues(alpha: 0.9),
+          ),
+          borderRadius: const BorderRadius.only(
+            bottomLeft: Radius.circular(16),
+            bottomRight: Radius.circular(16),
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            CircleAvatar(
+              radius: 22,
+              backgroundColor: scheme.primary.withValues(alpha: 0.16),
+              child: Icon(
+                Icons.menu_book_rounded,
+                color: scheme.primary,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                _greetingForTime(DateTime.now()),
+                style: TextStyle(
+                  color: scheme.onSurface,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Icon(
+              Icons.auto_stories_rounded,
+              color: scheme.primary.withValues(alpha: 0.85),
+              size: 20,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 醒目搜索入口：圆角胶囊，点击进入既有搜索流程。
+  Widget _buildSearchEntry() {
+    final palette = _palette;
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _navigateToSearch,
+        borderRadius: BorderRadius.circular(99),
+        child: Container(
+          height: 52,
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerLow.withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(99),
+            border: Border.all(
+              color: scheme.outline.withValues(alpha: isDark ? 0.3 : 0.12),
+              width: 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: scheme.shadow.withValues(alpha: isDark ? 0.10 : 0.04),
+                blurRadius: 14,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.search_rounded, color: scheme.primary, size: 22),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  context.l10n.search,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette.secondaryTextColor,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: scheme.primary,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: Icon(
+                  Icons.arrow_forward_rounded,
+                  color: scheme.onPrimary,
+                  size: 16,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 阅读足迹轻量小卡片（今日 / 本周 / 累计时长）。
+  Widget _buildReadingFootprint() {
+    return Row(
+      children: [
+        _buildStatCard(
+          value: _formatNumber(_todayMinutes),
+          unit: context.l10n.unitMinute,
+          label: context.l10n.statsToday,
+          onTap: _openStats,
+        ),
+        const SizedBox(width: 12),
+        _buildStatCard(
+          value: _formatNumber(_weekMinutes),
+          unit: context.l10n.unitMinute,
+          label: context.l10n.homeWeeklyTotal,
+          onTap: _openStats,
+        ),
+        const SizedBox(width: 12),
+        _buildStatCard(
+          value: _formatNumber(_totalMinutes),
+          unit: context.l10n.unitMinute,
+          label: context.l10n.homeTotalReading,
+          onTap: _openStats,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatCard({
+    required String value,
+    required String unit,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Expanded(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerLow.withValues(alpha: 0.9),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: scheme.outline.withValues(alpha: 0.12),
+                width: 1,
+              ),
+            ),
+            child: _buildMiniStat(value: value, unit: unit, label: label),
+          ),
+        ),
+      ),
     );
   }
 
@@ -465,135 +672,133 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
     }
 
     final palette = _palette;
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final progress = book.progress;
     final percent = (progress * 100).round();
-    final coverWidth = spacious ? 110.0 : 100.0;
-    final coverHeight = spacious ? 154.0 : 140.0;
+    final coverWidth = spacious ? 112.0 : 100.0;
+    final coverHeight = spacious ? 168.0 : 150.0;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: () => _openBook(book),
-        borderRadius: BorderRadius.circular(24),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-            child: Container(
-              key: const ValueKey('home-continue-reading-card'),
-              padding: EdgeInsets.all(spacious ? 22 : 18),
-              decoration: BoxDecoration(
-                color: _glassBackgroundColor(),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: _glassBorderColor(), width: 1),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFFE8503A).withValues(alpha: 0.18),
-                    blurRadius: 26,
-                    offset: const Offset(0, 12),
-                  ),
-                ],
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          key: const ValueKey('home-continue-reading-card'),
+          padding: EdgeInsets.all(spacious ? 22 : 18),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerLow.withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: scheme.outline.withValues(alpha: isDark ? 0.3 : 0.12),
+              width: 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: scheme.shadow.withValues(alpha: isDark ? 0.12 : 0.05),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
               ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  _buildBookCover(
-                    book,
-                    width: coverWidth,
-                    height: coverHeight,
-                    radius: 12,
-                    elevated: true,
-                  ),
-                  SizedBox(width: spacious ? 24 : 20),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+            ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _buildBookCover(
+                book,
+                width: coverWidth,
+                height: coverHeight,
+                radius: 8,
+                elevated: true,
+              ),
+              SizedBox(width: spacious ? 24 : 18),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: scheme.primary.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                      child: Text(
+                        '继续阅读',
+                        style: TextStyle(
+                          color: scheme.primary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: spacious ? 14 : 12),
+                    Text(
+                      book.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: palette.primaryTextColor,
+                        fontSize: spacious ? 24 : 22,
+                        height: 1.16,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      book.author,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: palette.secondaryTextColor,
+                        fontSize: 14,
+                      ),
+                    ),
+                    SizedBox(height: spacious ? 16 : 14),
+                    Row(
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color:
-                                const Color(0xFFE8503A).withValues(alpha: 0.16),
+                        Expanded(
+                          child: ClipRRect(
                             borderRadius: BorderRadius.circular(99),
-                          ),
-                          child: const Text(
-                            '继续阅读',
-                            style: TextStyle(
-                              color: Color(0xFFE8503A),
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.3,
+                            child: LinearProgressIndicator(
+                              value: progress,
+                              minHeight: 6,
+                              backgroundColor: palette.mutedColor,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                scheme.primary,
+                              ),
                             ),
                           ),
                         ),
-                        SizedBox(height: spacious ? 14 : 12),
+                        const SizedBox(width: 10),
                         Text(
-                          book.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: palette.primaryTextColor,
-                            fontSize: spacious ? 24 : 22,
-                            height: 1.16,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: -0.5,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          book.author,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                          '$percent%',
                           style: TextStyle(
                             color: palette.secondaryTextColor,
-                            fontSize: 14,
-                          ),
-                        ),
-                        SizedBox(height: spacious ? 16 : 14),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(99),
-                                child: LinearProgressIndicator(
-                                  value: progress,
-                                  minHeight: 6,
-                                  backgroundColor: palette.mutedColor,
-                                  valueColor: const AlwaysStoppedAnimation<Color>(
-                                    Color(0xFFE8503A),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Text(
-                              '$percent%',
-                              style: TextStyle(
-                                color: palette.secondaryTextColor,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: spacious ? 14 : 12),
-                        Text(
-                          '→ ${context.l10n.continueReading}',
-                          style: const TextStyle(
-                            color: Color(0xFFE8503A),
-                            fontSize: 14,
+                            fontSize: 12,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
                       ],
                     ),
-                  ),
-                ],
+                    SizedBox(height: spacious ? 14 : 12),
+                    Text(
+                      '→ ${context.l10n.continueReading}',
+                      style: TextStyle(
+                        color: scheme.primary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
+            ],
           ),
         ),
       ),
@@ -602,74 +807,65 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
 
   Widget _buildContinueReadingEmptyCard() {
     final palette = _palette;
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: _navigateToSearch,
-        borderRadius: BorderRadius.circular(24),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-            child: Container(
-              key: const ValueKey('home-continue-reading-empty-card'),
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: _glassBackgroundColor(),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: _glassBorderColor(), width: 1),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFFE8503A).withValues(alpha: 0.12),
-                    blurRadius: 22,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      color:
-                          const Color(0xFFE8503A).withValues(alpha: 0.14),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.search_rounded,
-                      color: Color(0xFFE8503A),
-                      size: 26,
-                    ),
-                  ),
-                  const SizedBox(width: 18),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          context.l10n.homeTodayReadingJourneyStart,
-                          style: TextStyle(
-                            color: palette.primaryTextColor,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          context.l10n.homeNoRecentReading,
-                          style: TextStyle(
-                            color: palette.secondaryTextColor,
-                            fontSize: 13,
-                            height: 1.45,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          key: const ValueKey('home-continue-reading-empty-card'),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerLow.withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: scheme.outline.withValues(alpha: isDark ? 0.3 : 0.12),
+              width: 1,
             ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: scheme.primary.withValues(alpha: 0.14),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.search_rounded,
+                  color: scheme.primary,
+                  size: 26,
+                ),
+              ),
+              const SizedBox(width: 18),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      context.l10n.homeTodayReadingJourneyStart,
+                      style: TextStyle(
+                        color: palette.primaryTextColor,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      context.l10n.homeNoRecentReading,
+                      style: TextStyle(
+                        color: palette.secondaryTextColor,
+                        fontSize: 13,
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -712,38 +908,41 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
     required VoidCallback onTap,
   }) {
     final palette = _palette;
+    final scheme = Theme.of(context).colorScheme;
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-            child: Container(
-              height: 64,
-              decoration: BoxDecoration(
-                color: _glassBackgroundColor(),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: _glassBorderColor(), width: 1),
+        child: Container(
+          height: 64,
+          decoration: BoxDecoration(
+            color: _glassBackgroundColor(),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: _glassBorderColor(), width: 1),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: scheme.primary.withValues(alpha: 0.14),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: scheme.primary, size: 18),
               ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(icon, color: const Color(0xFFE8503A), size: 22),
-                  const SizedBox(height: 5),
-                  Text(
-                    label,
-                    style: TextStyle(
-                      color: palette.primaryTextColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 5),
+              Text(
+                label,
+                style: TextStyle(
+                  color: palette.primaryTextColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
+            ],
           ),
         ),
       ),
@@ -768,7 +967,7 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
     }
 
     return SizedBox(
-      height: 200,
+      height: 210,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
@@ -789,17 +988,17 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
           '${book.title}，${context.l10n.homeReadingProgressPercent('$progress')}',
       child: InkWell(
         onTap: () => _openBook(book),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         child: SizedBox(
-          width: 130,
+          width: 108,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildBookCover(
                 book,
-                width: 120,
-                height: 168,
-                radius: 10,
+                width: 104,
+                height: 156,
+                radius: 8,
                 elevated: true,
               ),
               const SizedBox(height: 8),
@@ -809,8 +1008,18 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: palette.primaryTextColor,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                book.author,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: palette.secondaryTextColor,
                   fontSize: 12,
-                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
@@ -821,52 +1030,48 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
   }
 
   Widget _buildWeeklyMiniStats() {
+    final scheme = Theme.of(context).colorScheme;
+    final palette = _palette;
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: _openStats,
-        borderRadius: BorderRadius.circular(20),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-            child: Container(
-              key: const ValueKey('home-weekly-mini-stats-card'),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
-              decoration: BoxDecoration(
-                color: _glassBackgroundColor(),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: _glassBorderColor(), width: 1),
-              ),
-              child: Column(
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          key: const ValueKey('home-weekly-mini-stats-card'),
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerLow.withValues(alpha: 0.9),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: _glassBorderColor(), width: 1),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Row(
-                    children: [
-                      _buildMiniStat(
-                        value: _formatNumber(_todayMinutes),
-                        unit: context.l10n.unitMinute,
-                        label: context.l10n.statsToday,
-                      ),
-                      _buildMiniStatDivider(),
-                      _buildMiniStat(
-                        value: _formatNumber((_weekMinutes / 60).round()),
-                        unit: 'h',
-                        label: context.l10n.homeWeeklyTotal,
-                      ),
-                      _buildMiniStatDivider(),
-                      _buildMiniStat(
-                        value: _formatNumber((_totalMinutes / 60).round()),
-                        unit: 'h',
-                        label: context.l10n.homeTotalReading,
-                      ),
-                    ],
+                  Container(
+                    width: 3,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: scheme.primary,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
                   ),
-                  const SizedBox(height: 18),
-                  _buildWeeklyRhythm(),
+                  const SizedBox(width: 8),
+                  Text(
+                    '近7天阅读节奏',
+                    style: TextStyle(
+                      color: palette.primaryTextColor,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ],
               ),
-            ),
+              const SizedBox(height: 14),
+              _buildWeeklyRhythm(),
+            ],
           ),
         ),
       ),
@@ -959,8 +1164,7 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
     required String label,
   }) {
     final palette = _palette;
-    return Expanded(
-      child: Column(
+    return Column(
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -1004,34 +1208,59 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
             ),
           ),
         ],
-      ),
-    );
+      );
   }
 
-  Widget _buildMiniStatDivider() {
-    return Container(
-      width: 1,
-      height: 30,
-      margin: const EdgeInsets.symmetric(horizontal: 10),
-      color: _palette.outlineColor,
-    );
-  }
-
-  Widget _buildSectionLabel(String title) {
+  Widget _buildSectionLabel(String title, {VoidCallback? onMore}) {
     final palette = _palette;
+    final scheme = Theme.of(context).colorScheme;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Text(
-          title,
-          style: TextStyle(
-            color: palette.primaryTextColor,
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.2,
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 3,
+                height: 18,
+                decoration: BoxDecoration(
+                  color: scheme.primary,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    color: palette.primaryTextColor,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
+        if (onMore != null)
+          InkWell(
+            onTap: onMore,
+            borderRadius: BorderRadius.circular(99),
+            child: Padding(
+              padding: const EdgeInsets.all(4),
+              child: Text(
+                '更多 ›',
+                style: TextStyle(
+                  color: scheme.primary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -1146,25 +1375,35 @@ class _HeroHeaderDelegate extends SliverPersistentHeaderDelegate {
     double shrinkOffset,
     bool overlapsContent,
   ) {
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final warmStart = Color.alphaBlend(
+      scheme.primary.withValues(alpha: isDark ? 0.26 : 0.13),
+      scheme.surface,
+    );
+    final warmEnd = Color.alphaBlend(
+      scheme.primary.withValues(alpha: isDark ? 0.10 : 0.05),
+      scheme.surface,
+    );
     return ClipRRect(
       borderRadius: const BorderRadius.only(
-        bottomLeft: Radius.circular(28),
-        bottomRight: Radius.circular(28),
+        bottomLeft: Radius.circular(24),
+        bottomRight: Radius.circular(24),
       ),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
+          gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFFE8503A), Color(0xFFE8503A)],
+            colors: [warmStart, warmEnd],
           ),
         ),
         child: Padding(
           padding: EdgeInsets.only(
-            top: topInset + 18,
+            top: topInset + 20,
             left: 20,
             right: 20,
-            bottom: 26,
+            bottom: 24,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1172,33 +1411,71 @@ class _HeroHeaderDelegate extends SliverPersistentHeaderDelegate {
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  const Text(
+                  Text(
                     '米读',
                     style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.w700,
+                      color: scheme.onSurface,
+                      fontSize: 26,
+                      fontWeight: FontWeight.w800,
                       letterSpacing: 0.5,
                     ),
                   ),
-                  Row(
-                    children: [
-                      _buildHeroBadge('📖 $bookCount本'),
-                      const SizedBox(width: 12),
-                      _buildHeroBadge('⏱ $todayMinutes分'),
-                    ],
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(6, 4, 12, 4),
+                    decoration: BoxDecoration(
+                      color: scheme.surface.withValues(
+                        alpha: isDark ? 0.5 : 0.85,
+                      ),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircleAvatar(
+                          radius: 15,
+                          backgroundColor: scheme.primary.withValues(
+                            alpha: 0.16,
+                          ),
+                          child: Icon(
+                            Icons.person_rounded,
+                            size: 18,
+                            color: scheme.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 7),
+                        Text(
+                          '书友',
+                          style: TextStyle(
+                            color: scheme.onSurface,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
-              Text(
-                greeting,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w600,
-                ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Text(
+                      greeting,
+                      style: TextStyle(
+                        color: scheme.onSurface,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _buildHeroBadge(context, '📖 $bookCount本'),
+                  const SizedBox(width: 12),
+                  _buildHeroBadge(context, '⏱ $todayMinutes分'),
+                ],
               ),
             ],
           ),
@@ -1207,11 +1484,12 @@ class _HeroHeaderDelegate extends SliverPersistentHeaderDelegate {
     );
   }
 
-  Widget _buildHeroBadge(String text) {
+  Widget _buildHeroBadge(BuildContext context, String text) {
+    final scheme = Theme.of(context).colorScheme;
     return Text(
       text,
       style: TextStyle(
-        color: Colors.white.withValues(alpha: 0.6),
+        color: scheme.onSurface.withValues(alpha: 0.6),
         fontSize: 13,
         fontWeight: FontWeight.w600,
       ),
