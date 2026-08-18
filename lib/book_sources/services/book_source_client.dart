@@ -54,6 +54,14 @@ class BookSourceClient {
   static const int _maxRetryAttempts = 3;
   static const Duration _maxRetryAfter = Duration(seconds: 60);
 
+  static BookSourceClient? _sharedInstance;
+
+  /// 全局共享客户端：复用按源缓存的 [LegadoRuntime]（JS 引擎/变量空间），
+  /// 避免每次进入阅读页都重建 `BookSourceClient` 导致 QuickJS/fjs 重复初始化
+  /// 而造成的首屏卡顿。生产环境应优先使用它；测试/诊断走自定义注入构造。
+  static BookSourceClient shared() =>
+      _sharedInstance ??= BookSourceClient();
+
   BookSourceClient({
     Dio? dio,
     BookSourceChapterCache? chapterCache,

@@ -1868,7 +1868,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   gradient: const LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: [Color(0xFF8B7CF8), Color(0xFF6C4CF6)],
+                    colors: [Color(0xFFE8503A), Color(0xFFE8503A)],
                   ),
                 ),
                 child: const Icon(

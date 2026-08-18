@@ -51,7 +51,7 @@ void main(List<String> arguments) async {
     SystemChrome.setApplicationSwitcherDescription(
       const ApplicationSwitcherDescription(
         label: '米读',
-        primaryColor: 0xFF6C4CF6,
+        primaryColor: 0xFFE8503A,
       ),
     );
     if (Platform.isAndroid) {
@@ -838,14 +838,14 @@ class _MiduAppState extends State<MiduApp> with WidgetsBindingObserver {
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
                     colors: [
-                      Color(0xFF6C4CF6),
-                      Color(0xFF8E5DFB),
+                      Color(0xFFE8503A),
+                      Color(0xFFFF7A5C),
                     ],
                   ),
                   borderRadius: BorderRadius.circular(18),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF6C4CF6).withValues(alpha: 0.4),
+                      color: const Color(0xFFE8503A).withValues(alpha: 0.4),
                       blurRadius: 16,
                       offset: const Offset(0, 6),
                     ),

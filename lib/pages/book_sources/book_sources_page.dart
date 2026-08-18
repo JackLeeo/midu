@@ -96,11 +96,16 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
 
   List<RegisteredBookSource> _sources = const [];
   bool _loadingSources = true;
-  _DiscoverSection _section = _DiscoverSection.recommended;
   String? _selectedSourceId;
 
-  // 每个 Tab 的内容独立缓存，切换回来不再重新请求。
-  final Map<_DiscoverSection, _SectionCache> _cache = {};
+  // 书城聚合数据：一次性拉取 推荐(书源书架) / 分类频道 / 最新榜单，
+  // 渲染成单一滚动 feed（横幅轮播 + 分类条 + 排行榜 + 书源书架 + 最新更新）。
+  List<_DiscoveryShelf> _shelves = const [];
+  List<_SourcedCategory> _categories = const [];
+  List<SourcedBook> _latest = const [];
+  bool _loadingBookStore = true;
+  Object? _bookStoreError;
+
   _SourcedCategory? _selectedCategory;
   List<SourcedBook> _categoryBooks = const [];
   bool _loadingCategoryBooks = false;
@@ -108,7 +113,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   @override
   void initState() {
     super.initState();
-    _client = widget.client ?? BookSourceClient();
+    _client = widget.client ?? BookSourceClient.shared();
     _registrySubscription = _registry.changes.listen((_) => _reloadAll());
     unawaited(_loadSources());
   }
@@ -126,12 +131,14 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       _sources = sources;
       _loadingSources = false;
     });
-    await _loadSection(_section);
+    await _loadBookStore();
   }
 
   Future<void> _reloadAll() async {
-    _cache.clear();
-    _selectedSourceId = null;
+    _shelves = const [];
+    _categories = const [];
+    _latest = const [];
+    _bookStoreError = null;
     _selectedCategory = null;
     _categoryBooks = const [];
     _loadingCategoryBooks = false;
@@ -143,42 +150,64 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       .where((source) => source.capabilities.contains(capability))
       .toList(growable: false);
 
-  String _capabilityFor(_DiscoverSection section) => switch (section) {
-    _DiscoverSection.recommended => 'discover',
-    _DiscoverSection.categories => 'discover',
-    _DiscoverSection.latest => 'discover',
-  };
-
-  List<RegisteredBookSource> _sourcesFor(_DiscoverSection section) =>
-      _targets(_capabilityFor(section));
-
   bool _matchesSelectedSource(RegisteredBookSource source) =>
       _selectedSourceId == null || source.id == _selectedSourceId;
 
-  Future<void> _loadSection(
-    _DiscoverSection section, {
-    bool force = false,
-  }) async {
-    if (!force && _cache[section] != null) return;
-    setState(() => _cache[section] = const _SectionCache.loading());
-    _SectionCache next;
+  Future<void> _loadBookStore({bool force = false}) async {
+    if (!force && !_loadingBookStore && _hasAnyBookStore()) return;
+    setState(() {
+      _loadingBookStore = true;
+      _bookStoreError = null;
+    });
     try {
-      next = switch (section) {
-        _DiscoverSection.recommended => _SectionCache.shelves(
-          await _fetchShelves(),
-        ),
-        _DiscoverSection.categories => _SectionCache.categories(
-          await _fetchCategories(),
-        ),
-        _DiscoverSection.latest => _SectionCache.books(await _fetchLatest()),
-      };
+      final results = await Future.wait<Object>([
+        _safelyFetchShelves(),
+        _safelyFetchCategories(),
+        _safelyFetchLatest(),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _shelves = results[0] as List<_DiscoveryShelf>;
+        _categories = results[1] as List<_SourcedCategory>;
+        _latest = results[2] as List<SourcedBook>;
+        _loadingBookStore = false;
+      });
     } catch (error) {
-      next = _SectionCache.error(error.toString());
+      if (!mounted) return;
+      setState(() {
+        _loadingBookStore = false;
+        _bookStoreError = error;
+      });
     }
-    if (!mounted) return;
-    setState(() => _cache[section] = next);
-    if (section == _DiscoverSection.categories) {
-      _autoSelectFirstCategory();
+  }
+
+  bool _hasAnyBookStore() =>
+      _shelves.any((shelf) => shelf.items.isNotEmpty) ||
+      _categories.isNotEmpty ||
+      _latest.isNotEmpty ||
+      _bookStoreError != null;
+
+  Future<List<_DiscoveryShelf>> _safelyFetchShelves() async {
+    try {
+      return await _fetchShelves();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<List<_SourcedCategory>> _safelyFetchCategories() async {
+    try {
+      return await _fetchCategories();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<List<SourcedBook>> _safelyFetchLatest() async {
+    try {
+      return await _fetchLatest();
+    } catch (_) {
+      return const [];
     }
   }
 
@@ -309,44 +338,10 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     return batches;
   }
 
-  void _autoSelectFirstCategory() {
-    final cache = _cache[_DiscoverSection.categories];
-    final categories = (cache?.categories ?? const <_SourcedCategory>[])
-        .where((category) => _matchesSelectedSource(category.source))
-        .toList(growable: false);
-    if (_selectedCategory != null || categories.isEmpty) return;
-    unawaited(_selectCategory(categories.first));
-  }
-
-  void _changeSourceScope(String? sourceId) {
-    if (_selectedSourceId == sourceId) return;
-    setState(() {
-      _selectedSourceId = sourceId;
-      _selectedCategory = null;
-      _categoryBooks = const [];
-      _loadingCategoryBooks = false;
-    });
-    if (_section == _DiscoverSection.categories) {
-      _autoSelectFirstCategory();
-    }
-  }
-
-  Future<void> _changeSection(_DiscoverSection section) async {
-    final selectedSourceStillAvailable =
-        _selectedSourceId == null ||
-        _sourcesFor(section).any((source) => source.id == _selectedSourceId);
-    setState(() {
-      _section = section;
-      if (!selectedSourceStillAvailable) {
-        _selectedSourceId = null;
-        _selectedCategory = null;
-        _categoryBooks = const [];
-        _loadingCategoryBooks = false;
-      }
-    });
-    await _loadSection(section);
-    if (mounted && section == _DiscoverSection.categories) {
-      _autoSelectFirstCategory();
+  void _selectCategoryForBrowse(_SourcedCategory category) {
+    if (category.source.id != _selectedCategory?.source.id ||
+        category.id != _selectedCategory?.id) {
+      unawaited(_selectCategory(category));
     }
   }
 
@@ -461,7 +456,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         bottom: false,
         child: RefreshIndicator(
           edgeOffset: useRailNavigation ? 90 : mobileChrome.topBarHeight,
-          onRefresh: () => _loadSection(_section, force: true),
+          onRefresh: () => _loadBookStore(force: true),
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
@@ -480,19 +475,15 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           if (useRailNavigation) _buildRailHeader(),
-                          _buildSectionTabs(),
-                          if (_sourcesFor(_section).length > 1) ...[
-                            const SizedBox(height: 8),
-                            _buildSourceScope(_sourcesFor(_section)),
-                          ],
-                          const SizedBox(height: 4),
+                          _buildBookStoreHeader(),
+                          const SizedBox(height: 12),
                         ],
                       ),
                     ),
                   ),
                 ),
               ),
-              ..._buildSectionSlivers(bottomPadding),
+              ..._buildBookStoreSlivers(bottomPadding),
             ],
           ),
         ),
@@ -533,69 +524,68 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     );
   }
 
-  Widget _buildSectionTabs() {
+  /// 书城顶栏：醒目搜索条入口 + 管理按钮（对齐主流阅读 App 的首页）。
+  Widget _buildBookStoreHeader() {
     final scheme = Theme.of(context).colorScheme;
-    return SegmentedButton<_DiscoverSection>(
-      showSelectedIcon: false,
-      segments: [
-        ButtonSegment(
-          value: _DiscoverSection.recommended,
-          icon: const Icon(Icons.auto_awesome_outlined),
-          label: Text(context.l10n.discoverRecommended),
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Row(
+      children: [
+        Expanded(
+          child: Material(
+            color: scheme.surfaceContainerHighest.withValues(alpha: dark ? 0.4 : 0.6),
+            borderRadius: BorderRadius.circular(24),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              key: const Key('bookSourceSearchEntry'),
+              onTap: _openSearch,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 13,
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.search_rounded, color: scheme.onSurfaceVariant),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        context.l10n.bookSourcesSearch,
+                        style: TextStyle(color: scheme.onSurfaceVariant),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
-        ButtonSegment(
-          value: _DiscoverSection.categories,
-          icon: const Icon(Icons.category_outlined),
-          label: Text(context.l10n.discoverCategories),
-        ),
-        ButtonSegment(
-          value: _DiscoverSection.latest,
-          icon: const Icon(Icons.update_rounded),
-          label: Text(context.l10n.discoverLatest),
+        const SizedBox(width: 10),
+        IconButton.filledTonal(
+          tooltip: context.l10n.bookSourceManagementTitle,
+          onPressed: _openSourceManagement,
+          icon: const Icon(Icons.tune_rounded),
         ),
       ],
-      selected: {_section},
-      onSelectionChanged: (selection) {
-        if (selection.isEmpty) return;
-        unawaited(_changeSection(selection.first));
-      },
-      style: ButtonStyle(
-        minimumSize: const WidgetStatePropertyAll(Size(44, 48)),
-        side: WidgetStatePropertyAll(BorderSide(color: scheme.outlineVariant)),
-      ),
     );
   }
 
-  Widget _buildSourceScope(List<RegisteredBookSource> sources) {
-    return SizedBox(
-      key: const Key('bookSourceDiscoverScopeControl'),
-      height: 42,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        children: [
-          ChoiceChip(
-            key: const Key('bookSourceDiscoverScopeAll'),
-            selected: _selectedSourceId == null,
-            label: Text(context.l10n.statsRangeAll),
-            onSelected: (_) => _changeSourceScope(null),
-          ),
-          const SizedBox(width: 8),
-          for (final source in sources) ...[
-            ChoiceChip(
-              key: Key('bookSourceDiscoverScope-${source.id}'),
-              selected: _selectedSourceId == source.id,
-              label: Text(source.name),
-              onSelected: (_) => _changeSourceScope(source.id),
-            ),
-            const SizedBox(width: 8),
-          ],
-        ],
-      ),
-    );
+  /// 选中书城的头部书籍，作为横幅轮播素材（跨源去重取前 8 本）。
+  List<SourcedBook> get _brandBooks {
+    final seen = <String>{};
+    final list = <SourcedBook>[];
+    for (final shelf in _shelves) {
+      for (final book in shelf.items) {
+        final key = '${shelf.source.id}/${book.id}';
+        if (!seen.add(key)) continue;
+        list.add(SourcedBook(source: shelf.source, book: book));
+        if (list.length >= 8) return list;
+      }
+    }
+    return list;
   }
 
-  List<Widget> _buildSectionSlivers(double bottomPadding) {
-    if (_loadingSources) {
+  List<Widget> _buildBookStoreSlivers(double bottomPadding) {
+    if (_loadingSources || (_loadingBookStore && !_hasAnyBookStore())) {
       return [
         _paddedSectionSliver(
           const Padding(
@@ -606,60 +596,193 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         ),
       ];
     }
-    final cache = _cache[_section];
-    if (cache == null || cache.loading) {
-      return [
-        _paddedSectionSliver(
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 44),
-            child: Center(child: CircularProgressIndicator()),
-          ),
-          bottomPadding: bottomPadding,
-        ),
-      ];
-    }
-    if (cache.error != null) {
+    if (_bookStoreError != null && !_hasAnyBookStore()) {
       return [
         _paddedSectionSliver(
           _buildMessageCard(
             icon: Icons.cloud_off_outlined,
             title: context.l10n.discoverLoadFailed,
-            message: cache.error!,
+            message: _bookStoreError.toString(),
             actionLabel: context.l10n.discoverRetry,
-            onAction: () => _loadSection(_section, force: true),
+            onAction: () => _loadBookStore(force: true),
           ),
           bottomPadding: bottomPadding,
         ),
       ];
     }
-    return switch (_section) {
-      _DiscoverSection.recommended => _buildShelvesSlivers(
-        cache,
-        bottomPadding,
-      ),
-      _DiscoverSection.categories => _buildCategoriesSlivers(
-        cache,
-        bottomPadding,
-      ),
-      _DiscoverSection.latest => _buildLatestSlivers(cache, bottomPadding),
-    };
-  }
-
-  List<Widget> _buildShelvesSlivers(_SectionCache cache, double bottomPadding) {
-    final shelves = (cache.shelves ?? const <_DiscoveryShelf>[])
+    final shelves = _shelves
+        .where((shelf) => shelf.items.isNotEmpty)
         .where((shelf) => _matchesSelectedSource(shelf.source))
         .toList(growable: false);
-    if (shelves.isEmpty) {
+    final latest = _latest
+        .where((result) => _matchesSelectedSource(result.source))
+        .toList(growable: false);
+    if (shelves.isEmpty && latest.isEmpty && _categories.isEmpty) {
       return [
         _paddedSectionSliver(
-          _sourcesFor(_DiscoverSection.recommended).isEmpty
+          _targets('discover').isEmpty
               ? _buildUnsupportedMessage('discover')
               : _buildEmptyMessage(),
           bottomPadding: bottomPadding,
         ),
       ];
     }
+
+    final hero = _brandBooks;
+    final slivers = <Widget>[
+      if (hero.isNotEmpty) ...[
+        SliverToBoxAdapter(
+          child: _centerSectionChild(
+            SizedBox(
+              height: 184,
+              child: _BookstoreHero(
+                books: hero,
+                onTap: (result) => _actions.showBookDetails(result),
+              ),
+            ),
+          ),
+        ),
+        const SliverToBoxAdapter(child: SizedBox(height: 8)),
+      ],
+    ];
+
+    // 分类频道 → 最新/热榜 → 书源书架
+    if (_categories.isNotEmpty) {
+      slivers.addAll(_buildCategorySlivers(bottomPadding));
+    }
+    if (latest.isNotEmpty) {
+      slivers.addAll(_buildLatestSectionSlivers(latest, bottomPadding));
+    }
+    slivers.addAll(_buildShelfSlivers(shelves, bottomPadding));
+    return slivers;
+  }
+
+  Widget _buildSectionHeader(String title, IconData icon) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Container(
+          width: 4,
+          height: 20,
+          decoration: BoxDecoration(
+            color: scheme.primary,
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Icon(icon, size: 22, color: scheme.primary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            title,
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _buildCategorySlivers(double bottomPadding) {
     return [
+      SliverToBoxAdapter(
+        child: _centerSectionChild(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildSectionHeader(
+                context.l10n.discoverCategories,
+                Icons.category_rounded,
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 46,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _categories.length + 1,
+                  separatorBuilder: (_, _) => const SizedBox(width: 10),
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return ActionChip(
+                        avatar: Icon(
+                          Icons.grid_view_rounded,
+                          size: 18,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        label: const Text('全部分类'),
+                        onPressed: () => _openCategoryPicker(_categories),
+                      );
+                    }
+                    final category = _categories[index - 1];
+                    final isSelected =
+                        category.source.id == _selectedCategory?.source.id &&
+                        category.id == _selectedCategory?.id;
+                    return _CategoryChip(
+                      label: category.name,
+                      sourceLabel: category.source.name,
+                      selected: isSelected,
+                      onTap: () => _selectCategoryForBrowse(category),
+                      scheme: Theme.of(context).colorScheme,
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      if (_selectedCategory != null && _loadingCategoryBooks)
+        _paddedSectionSliver(
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 30),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+          topPadding: 16,
+          bottomPadding: bottomPadding,
+        ),
+      if (_selectedCategory != null && _categoryBooks.isNotEmpty)
+        _bookGridSliver(_categoryBooks, bottomPadding: bottomPadding),
+    ];
+  }
+
+  List<Widget> _buildLatestSectionSlivers(
+    List<SourcedBook> latest,
+    double bottomPadding,
+  ) {
+    return [
+      SliverToBoxAdapter(
+        child: _centerSectionChild(
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: _buildSectionHeader(
+              context.l10n.discoverLatest,
+              Icons.local_fire_department_rounded,
+            ),
+          ),
+        ),
+      ),
+      _bookGridSliver(latest, bottomPadding: bottomPadding),
+    ];
+  }
+
+  List<Widget> _buildShelfSlivers(
+    List<_DiscoveryShelf> shelves,
+    double bottomPadding,
+  ) {
+    if (shelves.isEmpty) return const [];
+    return [
+      SliverToBoxAdapter(
+        child: _centerSectionChild(
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: _buildSectionHeader(
+              context.l10n.discoverRecommended,
+              Icons.auto_awesome_rounded,
+            ),
+          ),
+        ),
+      ),
       SliverPadding(
         padding: EdgeInsets.fromLTRB(16, 8, 16, bottomPadding),
         sliver: SliverList.builder(
@@ -710,140 +833,6 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  List<Widget> _buildCategoriesSlivers(
-    _SectionCache cache,
-    double bottomPadding,
-  ) {
-    final categories = (cache.categories ?? const <_SourcedCategory>[])
-        .where((category) => _matchesSelectedSource(category.source))
-        .toList(growable: false);
-    if (categories.isEmpty) {
-      return [
-        _paddedSectionSliver(
-          _sourcesFor(_DiscoverSection.categories).isEmpty
-              ? _buildUnsupportedMessage('categories')
-              : _buildEmptyMessage(),
-          bottomPadding: bottomPadding,
-        ),
-      ];
-    }
-    // 保证选中态有效；未选时选第一个
-    final selectedCategory = (_selectedCategory != null &&
-            categories.any((c) =>
-                c.id == _selectedCategory!.id &&
-                c.source.id == _selectedCategory!.source.id))
-        ? _selectedCategory!
-        : categories.first;
-    if (!identical(selectedCategory, _selectedCategory)) {
-      // 初次渲染或过滤导致原选中不可见时，自动触发加载对应分类内容
-      Future<void>.delayed(Duration.zero, () {
-        if (mounted) _selectCategory(selectedCategory);
-      });
-    }
-    final slivers = <Widget>[
-      // 横向分类标签条（替代原来的 picker 按钮）
-      SliverToBoxAdapter(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SizedBox(
-              height: 56,
-              child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                scrollDirection: Axis.horizontal,
-                itemCount: categories.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 10),
-                itemBuilder: (context, index) {
-                  final category = categories[index];
-                  final isSelected =
-                      category.id == selectedCategory.id &&
-                          category.source.id == selectedCategory.source.id;
-                  final scheme = Theme.of(context).colorScheme;
-                  return _CategoryChip(
-                    label: category.name,
-                    sourceLabel: category.source.name,
-                    selected: isSelected,
-                    onTap: () => _selectCategory(category),
-                    scheme: scheme,
-                  );
-                },
-              ),
-            ),
-            const Divider(height: 1, indent: 16, endIndent: 16),
-          ],
-        ),
-      ),
-    ];
-    if (_loadingCategoryBooks) {
-      slivers.add(
-        _paddedSectionSliver(
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 36),
-            child: Center(child: CircularProgressIndicator()),
-          ),
-          topPadding: 24,
-          bottomPadding: bottomPadding,
-        ),
-      );
-    } else if (_categoryBooks.isEmpty) {
-      slivers.add(
-        _paddedSectionSliver(
-          _buildMessageCard(
-            icon: Icons.menu_book_outlined,
-            title: context.l10n.bookSourcesNoResults,
-            message: context.l10n.discoverCategoryEmpty,
-          ),
-          topPadding: 24,
-          bottomPadding: bottomPadding,
-        ),
-      );
-    } else {
-      slivers.add(
-        _bookGridSliver(_categoryBooks, bottomPadding: bottomPadding),
-      );
-    }
-    return slivers;
-  }
-
-  List<Widget> _buildLatestSlivers(_SectionCache cache, double bottomPadding) {
-    final books = (cache.books ?? const <SourcedBook>[])
-        .where((result) => _matchesSelectedSource(result.source))
-        .toList(growable: false);
-    if (books.isEmpty) {
-      return [
-        _paddedSectionSliver(
-          _sourcesFor(_DiscoverSection.latest).isEmpty
-              ? _buildUnsupportedMessage('browse')
-              : _buildEmptyMessage(),
-          bottomPadding: bottomPadding,
-        ),
-      ];
-    }
-    return [_bookGridSliver(books, bottomPadding: bottomPadding)];
-  }
-
-  Widget _bookListSliver(
-    List<SourcedBook> books, {
-    required double bottomPadding,
-  }) {
-    return SliverPadding(
-      padding: EdgeInsets.fromLTRB(16, 0, 16, bottomPadding),
-      sliver: SliverList.separated(
-        itemCount: books.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 10),
-        itemBuilder: (context, index) {
-          final result = books[index];
-          return _centerSectionChild(
-            SourcedBookListTile(
-              result: result,
-              onTap: () => _actions.showBookDetails(result),
-            ),
-          );
-        },
       ),
     );
   }
@@ -1000,46 +989,138 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   }
 }
 
-enum _DiscoverSection { recommended, categories, latest }
+/// 书城横幅轮播：渐变卡片 + 封面缩略 + 圆点指示器，手动滑动切换。
+class _BookstoreHero extends StatefulWidget {
+  const _BookstoreHero({required this.books, required this.onTap});
 
-/// 一个 Tab 的缓存态：loading / error / 三种内容之一。
-class _SectionCache {
-  final bool loading;
-  final String? error;
-  final List<_DiscoveryShelf>? shelves;
-  final List<_SourcedCategory>? categories;
-  final List<SourcedBook>? books;
+  final List<SourcedBook> books;
+  final void Function(SourcedBook) onTap;
 
-  const _SectionCache.loading()
-    : loading = true,
-      error = null,
-      shelves = null,
-      categories = null,
-      books = null;
+  @override
+  State<_BookstoreHero> createState() => _BookstoreHeroState();
+}
 
-  const _SectionCache.error(String this.error)
-    : loading = false,
-      shelves = null,
-      categories = null,
-      books = null;
+class _BookstoreHeroState extends State<_BookstoreHero> {
+  int _page = 0;
 
-  const _SectionCache.shelves(List<_DiscoveryShelf> this.shelves)
-    : loading = false,
-      error = null,
-      categories = null,
-      books = null;
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        PageView.builder(
+          itemCount: widget.books.length,
+          onPageChanged: (index) => setState(() => _page = index),
+          itemBuilder: (context, index) =>
+              _buildBanner(context, widget.books[index]),
+        ),
+        if (widget.books.length > 1)
+          Positioned(
+            bottom: 12,
+            right: 16,
+            child: Row(
+              children: [
+                for (var i = 0; i < widget.books.length; i++)
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    margin: const EdgeInsets.only(left: 5),
+                    width: i == _page ? 14 : 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: i == _page ? Colors.white : Colors.white54,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
 
-  const _SectionCache.categories(List<_SourcedCategory> this.categories)
-    : loading = false,
-      error = null,
-      shelves = null,
-      books = null;
-
-  const _SectionCache.books(List<SourcedBook> this.books)
-    : loading = false,
-      error = null,
-      shelves = null,
-      categories = null;
+  Widget _buildBanner(BuildContext context, SourcedBook result) {
+    final scheme = Theme.of(context).colorScheme;
+    final book = result.book;
+    final cover = book.coverUrl == null
+        ? GeneratedBookCover(title: book.title, author: book.author)
+        : SourceCoverImage(
+            url: book.coverUrl!,
+            fit: BoxFit.cover,
+            fallback: GeneratedBookCover(title: book.title, author: book.author),
+          );
+    return Container(
+      margin: const EdgeInsets.only(right: 12),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [scheme.primary, scheme.tertiary],
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => widget.onTap(result),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        book.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 22,
+                          height: 1.15,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                      if (book.author.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          book.author,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.85)),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          result.source.name,
+                          style: const TextStyle(color: Colors.white, fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 14),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: SizedBox(width: 96, height: 132, child: cover),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _SourceFetchResult<T> {
@@ -1074,65 +1155,6 @@ class _SourcedCategory {
     required this.id,
     required this.name,
   });
-}
-
-class _CategoryPickerButton extends StatelessWidget {
-  final _SourcedCategory category;
-  final VoidCallback onTap;
-
-  const _CategoryPickerButton({required this.category, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(16),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        key: const Key('bookSourceCategoryPickerButton'),
-        onTap: onTap,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 64),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: Row(
-              children: [
-                Icon(Icons.category_outlined, color: scheme.primary),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        category.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        category.source.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Icon(Icons.unfold_more_rounded, color: scheme.onSurfaceVariant),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _CategoryPickerPanel extends StatefulWidget {

@@ -46,7 +46,7 @@ class UIStyle {
         ),
       );
 
-  static List<BoxShadow> softShadow({Color color = const Color(0x2A4A2FD1)}) =>
+  static List<BoxShadow> softShadow({Color color = const Color(0x2AB2331F)}) =>
       [
         BoxShadow(
           color: color,

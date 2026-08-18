@@ -192,11 +192,11 @@ class _UserAgreementPageState extends State<UserAgreementPage>
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [Color(0xFF8B7CF8), Color(0xFF6C4CF6)],
+              colors: [Color(0xFFE8503A), Color(0xFFE8503A)],
             ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF6C4CF6).withValues(alpha: 0.25),
+                color: const Color(0xFFE8503A).withValues(alpha: 0.25),
                 blurRadius: compact ? 8 : 12,
                 offset: const Offset(0, 3),
               ),

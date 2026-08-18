@@ -623,6 +623,7 @@ class _FakeShelfService extends BookSourceShelfService {
   Future<Book> addOnline({
     required RegisteredBookSource source,
     required BookSourceBook book,
+    List<SourcedBookPointer>? alternatives,
   }) async => Book(
     id: 1,
     title: book.title,

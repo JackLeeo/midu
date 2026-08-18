@@ -23,7 +23,7 @@ class FontCatalogHelper {
     final base = const TextStyle(
       fontSize: 16,
       height: 1.6,
-      color: Color(0xFF150A33),
+      color: Color(0xFF26110B),
     );
     return {
       for (final f in iosBuiltinCJKFonts) f: base.copyWith(fontFamily: f),

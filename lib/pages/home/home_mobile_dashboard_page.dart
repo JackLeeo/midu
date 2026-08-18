@@ -7,7 +7,6 @@ import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:midu/book_sources/services/book_source_client.dart';
 import 'package:midu/book_sources/services/book_source_registry.dart';
 import 'package:midu/book_sources/services/book_source_shelf_service.dart';
@@ -148,7 +147,7 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _sourceClient = BookSourceClient();
+    _sourceClient = BookSourceClient.shared();
     _sourceShelfService = BookSourceShelfService(client: _sourceClient);
     widget.controller?.addListener(_handleRefreshRequest);
     _loadAllStats();
@@ -269,48 +268,6 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
     return raw.replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
   }
 
-  List<double> _normalizedWeekBars() {
-    final values = _weeklyData.take(7).map((item) {
-      final raw =
-          item['readingTime'] ??
-          item['duration'] ??
-          item['minutes'] ??
-          item['value'] ??
-          0;
-      return raw is num ? raw.toDouble() : double.tryParse('$raw') ?? 0;
-    }).toList();
-
-    while (values.length < 7) {
-      values.add(0);
-    }
-    if (values.isEmpty) return List<double>.filled(7, 0);
-    final maxValue = values.reduce((a, b) => a > b ? a : b);
-    if (maxValue <= 0) return List<double>.filled(7, 0);
-    return values.map((value) => value / maxValue).toList(growable: false);
-  }
-
-  List<String> _weekDayLabels() {
-    String labelFor(int weekday) => switch (weekday) {
-      DateTime.monday => context.l10n.weekdayMonShort,
-      DateTime.tuesday => context.l10n.weekdayTueShort,
-      DateTime.wednesday => context.l10n.weekdayWedShort,
-      DateTime.thursday => context.l10n.weekdayThuShort,
-      DateTime.friday => context.l10n.weekdayFriShort,
-      DateTime.saturday => context.l10n.weekdaySatShort,
-      _ => context.l10n.weekdaySunShort,
-    };
-
-    return List.generate(7, (index) {
-      final dataDay = index < _weeklyData.length
-          ? _weeklyData[index]['day']
-          : null;
-      final weekday = dataDay is int
-          ? dataDay
-          : DateTime.now().subtract(Duration(days: 6 - index)).weekday;
-      return labelFor(weekday);
-    }, growable: false);
-  }
-
   void _openStats() {
     Navigator.of(context).pushWithSlideScale(const DetailedStatsPage());
   }
@@ -386,14 +343,14 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
       child: _isInitialLoading
           ? Center(
               child: CircularProgressIndicator(
-                color: const Color(0xFF6C4CF6),
+                color: const Color(0xFFE8503A),
                 strokeWidth: 2.4,
               ),
             )
           : RefreshIndicator(
               onRefresh: _loadAllStats,
               edgeOffset: metrics.refreshEdgeOffset,
-              color: const Color(0xFF6C4CF6),
+              color: const Color(0xFFE8503A),
               backgroundColor: palette.cardColor,
               child: CustomScrollView(
                 physics: const BouncingScrollPhysics(
@@ -531,7 +488,7 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                 border: Border.all(color: _glassBorderColor(), width: 1),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF6C4CF6).withValues(alpha: 0.18),
+                    color: const Color(0xFFE8503A).withValues(alpha: 0.18),
                     blurRadius: 26,
                     offset: const Offset(0, 12),
                   ),
@@ -559,13 +516,13 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                           ),
                           decoration: BoxDecoration(
                             color:
-                                const Color(0xFF6C4CF6).withValues(alpha: 0.16),
+                                const Color(0xFFE8503A).withValues(alpha: 0.16),
                             borderRadius: BorderRadius.circular(99),
                           ),
                           child: const Text(
                             '继续阅读',
                             style: TextStyle(
-                              color: Color(0xFF6C4CF6),
+                              color: Color(0xFFE8503A),
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
                               letterSpacing: 0.3,
@@ -606,7 +563,7 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                                   minHeight: 6,
                                   backgroundColor: palette.mutedColor,
                                   valueColor: const AlwaysStoppedAnimation<Color>(
-                                    Color(0xFF6C4CF6),
+                                    Color(0xFFE8503A),
                                   ),
                                 ),
                               ),
@@ -626,7 +583,7 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                         Text(
                           '→ ${context.l10n.continueReading}',
                           style: const TextStyle(
-                            color: Color(0xFF6C4CF6),
+                            color: Color(0xFFE8503A),
                             fontSize: 14,
                             fontWeight: FontWeight.w700,
                           ),
@@ -663,7 +620,7 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                 border: Border.all(color: _glassBorderColor(), width: 1),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF6C4CF6).withValues(alpha: 0.12),
+                    color: const Color(0xFFE8503A).withValues(alpha: 0.12),
                     blurRadius: 22,
                     offset: const Offset(0, 10),
                   ),
@@ -676,12 +633,12 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                     height: 56,
                     decoration: BoxDecoration(
                       color:
-                          const Color(0xFF6C4CF6).withValues(alpha: 0.14),
+                          const Color(0xFFE8503A).withValues(alpha: 0.14),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
                       Icons.search_rounded,
-                      color: Color(0xFF6C4CF6),
+                      color: Color(0xFFE8503A),
                       size: 26,
                     ),
                   ),
@@ -774,7 +731,7 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(icon, color: const Color(0xFF6C4CF6), size: 22),
+                  Icon(icon, color: const Color(0xFFE8503A), size: 22),
                   const SizedBox(height: 5),
                   Text(
                     label,
@@ -882,31 +839,117 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: _glassBorderColor(), width: 1),
               ),
-              child: Row(
+              child: Column(
                 children: [
-                  _buildMiniStat(
-                    value: _formatNumber(_todayMinutes),
-                    unit: context.l10n.unitMinute,
-                    label: context.l10n.statsToday,
+                  Row(
+                    children: [
+                      _buildMiniStat(
+                        value: _formatNumber(_todayMinutes),
+                        unit: context.l10n.unitMinute,
+                        label: context.l10n.statsToday,
+                      ),
+                      _buildMiniStatDivider(),
+                      _buildMiniStat(
+                        value: _formatNumber((_weekMinutes / 60).round()),
+                        unit: 'h',
+                        label: context.l10n.homeWeeklyTotal,
+                      ),
+                      _buildMiniStatDivider(),
+                      _buildMiniStat(
+                        value: _formatNumber((_totalMinutes / 60).round()),
+                        unit: 'h',
+                        label: context.l10n.homeTotalReading,
+                      ),
+                    ],
                   ),
-                  _buildMiniStatDivider(),
-                  _buildMiniStat(
-                    value: _formatNumber((_weekMinutes / 60).round()),
-                    unit: 'h',
-                    label: context.l10n.homeWeeklyTotal,
-                  ),
-                  _buildMiniStatDivider(),
-                  _buildMiniStat(
-                    value: _formatNumber((_totalMinutes / 60).round()),
-                    unit: 'h',
-                    label: context.l10n.homeTotalReading,
-                  ),
+                  const SizedBox(height: 18),
+                  _buildWeeklyRhythm(),
                 ],
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  /// 近 7 天阅读时间迷你柱状条：强化首页「阅读节奏」焦点。
+  Widget _buildWeeklyRhythm() {
+    final palette = _palette;
+    final values = _weeklyData
+        .take(7)
+        .map((item) {
+          final raw =
+              item['readingTime'] ??
+              item['duration'] ??
+              item['minutes'] ??
+              item['value'] ??
+              0;
+          return raw is num ? raw.toDouble() : double.tryParse('$raw') ?? 0;
+        })
+        .toList(growable: false);
+    while (values.length < 7) {
+      values.add(0);
+    }
+    final maxValue = values.fold<double>(0, (a, b) => a > b ? a : b);
+    final hasData = maxValue > 0;
+    const barWidth = 4.0, gap = 6.0;
+    final rowWidth = 7 * barWidth + 6 * gap;
+    final today = DateTime.now().weekday;
+
+    return Row(
+      children: [
+        Expanded(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                context.l10n.homeWeeklyTotal,
+                style: TextStyle(
+                  color: palette.secondaryTextColor,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (hasData)
+                Text(
+                  '${_formatNumber(_weekMinutes)} ${context.l10n.unitMinute}',
+                  style: TextStyle(
+                    color: palette.secondaryTextColor,
+                    fontSize: 11,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 16),
+        SizedBox(
+          width: rowWidth,
+          height: 26,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: List.generate(7, (index) {
+              final current = index == today - 1;
+              final height = hasData
+                  ? 6 + (20 * (values[index] / maxValue)).clamp(0.0, 20.0)
+                  : 6.0;
+              return Container(
+                width: barWidth,
+                height: height,
+                decoration: BoxDecoration(
+                  color: current
+                      ? const Color(0xFFE8503A)
+                      : (hasData
+                          ? const Color(0xFFE8503A).withValues(alpha: 0.35)
+                          : palette.outlineColor),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              );
+            }),
+          ),
+        ),
+      ],
     );
   }
 
@@ -930,7 +973,7 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                   overflow: TextOverflow.fade,
                   softWrap: false,
                   style: const TextStyle(
-                    color: Color(0xFF6C4CF6),
+                    color: Color(0xFFE8503A),
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
                     letterSpacing: -0.3,
@@ -1076,25 +1119,6 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
       ),
     );
   }
-
-  BoxDecoration _cardDecoration({
-    required Color color,
-    required double radius,
-  }) {
-    final palette = _palette;
-    return BoxDecoration(
-      color: color,
-      borderRadius: BorderRadius.circular(radius),
-      border: Border.all(color: palette.outlineColor, width: 0.8),
-      boxShadow: [
-        BoxShadow(
-          color: palette.shadowColor,
-          blurRadius: 24,
-          offset: const Offset(0, 10),
-        ),
-      ],
-    );
-  }
 }
 
 class _HeroHeaderDelegate extends SliverPersistentHeaderDelegate {
@@ -1132,7 +1156,7 @@ class _HeroHeaderDelegate extends SliverPersistentHeaderDelegate {
           gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF6C4CF6), Color(0xFF8B7CF8)],
+            colors: [Color(0xFFE8503A), Color(0xFFE8503A)],
           ),
         ),
         child: Padding(

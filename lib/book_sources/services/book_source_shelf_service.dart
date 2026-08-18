@@ -32,7 +32,7 @@ class BookSourceShelfService {
     Directory? downloadDirectory,
   }) : _downloadDirectory = downloadDirectory,
        _bookDao = bookDao ?? BookDao(),
-       _client = client ?? BookSourceClient(),
+       _client = client ?? BookSourceClient.shared(),
        _sourceCoverCache = sourceCoverCache ?? SourceCoverCache.instance;
 
   final BookDao _bookDao;

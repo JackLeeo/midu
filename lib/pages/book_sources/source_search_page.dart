@@ -49,7 +49,7 @@ class SourceSearchPage extends StatefulWidget {
 
 class _SourceSearchPageState extends State<SourceSearchPage> {
   // 米读品牌紫
-  static const Color _brandPurple = Color(0xFF6C4CF6);
+  static const Color _brandPurple = Color(0xFFE8503A);
   static const Color _brandPurpleLight = Color(0xFF9B7CF7);
 
   final TextEditingController _queryController = TextEditingController();
@@ -1331,7 +1331,7 @@ class _SourcePickerTile extends StatelessWidget {
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
                     colors: [
-                      Color(0xFF6C4CF6),
+                      Color(0xFFE8503A),
                       Color(0xFF9B7CF7),
                     ],
                   ),

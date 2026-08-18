@@ -22,7 +22,7 @@ class MiduAppTheme {
         onPrimary: Colors.white,
         primaryContainer: MiduColors.brandBg,
         onPrimaryContainer: MiduColors.brandDeep,
-        secondary: const Color(0xFF8A5CF6),
+        secondary: const Color(0xFFFF8A65),
         surface: MiduColors.surface,
         onSurface: MiduColors.ink900,
         surfaceContainerHighest: MiduColors.surfaceDim,
@@ -33,14 +33,14 @@ class MiduAppTheme {
         seedColor: MiduColors.brand,
         brightness: Brightness.dark,
         primary: MiduColors.brandSoft,
-        onPrimary: const Color(0xFF1A0B3F),
+        onPrimary: const Color(0xFF3A0F02),
         primaryContainer: MiduColors.brandDeep,
         onPrimaryContainer: MiduColors.brandSoft,
-        secondary: const Color(0xFFA28EFF),
-        surface: const Color(0xFF0E0722),
-        onSurface: const Color(0xFFEFE9FF),
-        surfaceContainerHighest: const Color(0xFF1E1240),
-        outline: const Color(0xFF3D2A73),
+        secondary: const Color(0xFFFFAA85),
+        surface: const Color(0xFF1A0B06),
+        onSurface: const Color(0xFFFBE9E2),
+        surfaceContainerHighest: const Color(0xFF2E170E),
+        outline: const Color(0xFF5A3020),
       );
 
   static ThemeData _base({required ColorScheme scheme, required bool dark}) {
@@ -215,9 +215,9 @@ class MiduAppTheme {
       // ---------- SnackBar ----------
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: const Color(0xE5150A33),
+        backgroundColor: const Color(0xE526110B),
         contentTextStyle: const TextStyle(
-          color: Color(0xFFEFE9FF),
+          color: Color(0xFFFBE9E2),
           fontSize: 14,
           fontWeight: FontWeight.w500,
         ),
@@ -252,10 +252,10 @@ class MiduAppTheme {
     final scheme = _darkScheme();
     return _base(scheme: scheme, dark: true).copyWith(
       primaryColor: MiduColors.brandSoft,
-      scaffoldBackgroundColor: const Color(0xFF0E0722),
+      scaffoldBackgroundColor: const Color(0xFF1A0B06),
       textTheme: _textTheme(
-        const Color(0xFFEFE9FF),
-        const Color(0xFFB6AEE8),
+        const Color(0xFFFBE9E2),
+        const Color(0xFFC9A89B),
       ),
     );
   }
@@ -380,12 +380,12 @@ class AppTheme {
 class AppThemes {
   AppThemes._();
 
-  /// 米读默认强调色（紫色主色 #6C4CF6）。
+  /// 米读默认强调色（暖橙朱砂主色 #E8503A）。
   static const Color defaultAccentColor = MiduColors.brand;
 
   /// 预设强调色列表（供颜色选择器使用）。
   static const List<Color> accentColors = <Color>[
-    Color(0xFF6C4CF6), // 紫水晶
+    Color(0xFFE8503A), // 朱砂橙
     Color(0xFF2196F3), // 蓝
     Color(0xFF4CAF50), // 绿
     Color(0xFFFF9800), // 橙
@@ -406,7 +406,7 @@ class AppThemes {
       brightness: Brightness.dark,
       primary: Color.alphaBlend(
         accent.withValues(alpha: 0.85),
-        const Color(0xFF1A0B3F),
+        const Color(0xFF3A0F02),
       ),
     );
     return AppTheme(lightColorScheme: light, darkColorScheme: dark);
@@ -416,7 +416,7 @@ class AppThemes {
   static Color accentColorForLegacyTheme(String? name) {
     switch (name) {
       case 'purple':
-        return const Color(0xFF6C4CF6);
+        return const Color(0xFFE8503A);
       case 'blue':
         return const Color(0xFF2196F3);
       case 'green':
@@ -424,13 +424,13 @@ class AppThemes {
       case 'orange':
         return const Color(0xFFFF9800);
       default:
-        return const Color(0xFF6C4CF6);
+        return const Color(0xFFE8503A);
     }
   }
 
-  /// 根据强调色返回名称（简单匹配常见紫色）。
+  /// 根据强调色返回名称（简单匹配常见主色）。
   static String getAccentColorName(Color color) {
-    if (color.toARGB32() == 0xFF6C4CF6) return 'purple';
+    if (color.toARGB32() == 0xFFE8503A) return 'purple';
     return 'custom';
   }
 }

@@ -914,11 +914,11 @@ class _LibraryPageState extends State<LibraryPage> {
               gradient: const LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [Color(0xFF8B7CF8), Color(0xFF6C4CF6)],
+                colors: [Color(0xFFE8503A), Color(0xFFE8503A)],
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF6C4CF6).withValues(alpha: 0.3),
+                  color: const Color(0xFFE8503A).withValues(alpha: 0.3),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
                 ),
@@ -1093,6 +1093,29 @@ class _LibraryPageState extends State<LibraryPage> {
                             left: 6,
                             child: _BookSelectionIndicator(
                               selected: _isBookSelected(book),
+                            ),
+                          ),
+                        if (!_selection.isActive &&
+                            book.progress > 0 &&
+                            book.progress < 1)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: ClipRRect(
+                              borderRadius: const BorderRadius.vertical(
+                                bottom: Radius.circular(10),
+                              ),
+                              child: SizedBox(
+                                height: 5,
+                                child: LinearProgressIndicator(
+                                  value: book.progress.clamp(0.0, 1.0),
+                                  backgroundColor: Colors.black26,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.primary,
+                                ),
+                              ),
                             ),
                           ),
                       ],

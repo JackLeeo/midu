@@ -111,7 +111,8 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
   static const _openingLoaderDelay = Duration(milliseconds: 650);
   static const _openingContentSettleDelay = Duration(milliseconds: 360);
 
-  late final BookSourceClient _client = widget.client ?? BookSourceClient();
+  late final BookSourceClient _client =
+      widget.client ?? BookSourceClient.shared();
   late final BookSourceShelfService _shelfService =
       widget.shelfService ?? BookSourceShelfService(client: _client);
   final BookDao _bookDao = BookDao();
