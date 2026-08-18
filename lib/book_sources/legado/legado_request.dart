@@ -407,27 +407,23 @@ List<int> _encode(String value, String charset) {
 }
 
 String _decode(List<int> bytes, String configured, Headers headers) {
-  final contentType = headers
-      .value(HttpHeaders.contentTypeHeader)
-      ?.toLowerCase();
-  final headerCharset = contentType == null
-      ? null
-      : RegExp(
-          r'''charset\s*=\s*["']?([^;"'\s]+)''',
-        ).firstMatch(contentType)?.group(1);
-  final normalizedHeader = headerCharset?.toLowerCase();
-  final charset =
-      normalizedHeader != null &&
-          (_supportedCharsets.contains(normalizedHeader) ||
-              normalizedHeader == 'gb18030')
-      ? normalizedHeader
-      : configured;
-  if (charset == 'gbk' || charset == 'gb2312' || charset == 'gb18030') {
-    final encoded = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
-    return decodeGbkFast(
-      encoded,
-      lenient: !isLikelyValidGbkByteStream(encoded),
-    );
+  final raw = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+  // 中文站点常把响应的 charset 标错或漏标（HTTP 头、请求配置都与页面实际编码不符），
+  // 直接信它们会导致整页乱码，或「详情/目录乱码、正文正常」。
+  // 改以内容为准：整段能作为合法 UTF-8 解码即按 UTF-8，否则按 GBK 解码。
+  if (_looksLikeUtf8(raw)) {
+    return utf8.decode(raw, allowMalformed: true);
   }
-  return utf8.decode(bytes, allowMalformed: true);
+  return decodeGbkFast(
+    raw,
+    lenient: !isLikelyValidGbkByteStream(raw),
+  );
+}
+
+/// 整段字节按 UTF-8 宽松解码后若无替换符（U+FFFD），判定为合法 UTF-8。
+/// 简体中文 GBK 页面的双字节序列几乎不可能构成合法的 UTF-8，故可在 UTF-8/GBK 间可靠判定。
+bool _looksLikeUtf8(Uint8List bytes) {
+  if (bytes.isEmpty) return true;
+  final decoded = utf8.decode(bytes, allowMalformed: true);
+  return !decoded.contains('\uFFFD');
 }

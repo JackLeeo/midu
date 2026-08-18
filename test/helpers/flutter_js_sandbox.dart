@@ -12,6 +12,7 @@ import 'dart:io';
 
 import 'package:flutter_js/flutter_js.dart';
 import 'package:midu/book_sources/legado/legado_fjs_sandbox.dart';
+import 'package:midu/book_sources/legado/legado_ajax_rewrite.dart';
 
 /// Windows 下把 flutter_js 包内的 quickjs DLL 复制到测试 cwd（FFI 加载需要）。
 /// 在测试 setUpAll 中调用；非 Windows 平台自动跳过。
@@ -56,7 +57,7 @@ void copyQuickJsDllIfNeeded() {
 /// flutter_js 版 [LegadoJsSandbox]。
 ///
 /// 变量在 Dart 侧维护（跨 eval 持久），每次 eval 通过 __vars 进出 JS 上下文。
-class FlutterLegadoJsSandbox implements LegadoJsSandbox {
+class FlutterLegadoJsSandbox implements LegadoJsSandbox, AjaxFetcherSink {
   FlutterLegadoJsSandbox() : _runtime = QuickJsRuntime2();
 
   final JavascriptRuntime _runtime;
@@ -65,6 +66,14 @@ class FlutterLegadoJsSandbox implements LegadoJsSandbox {
 
   /// 最近一次 JS 执行失败的错误信息（无则 null），用于测试诊断。
   String? lastError;
+
+  /// java.ajax / java.connect 网络执行器。本地 QuickJS 无 JS→Dart 异步桥，
+  /// 采用「eval 前源码改写」预取响应并内联（同生产 fjs 沙箱，见
+  /// [legado_ajax_rewrite.rewriteAjaxCalls]）。
+  AjaxFetcher? _ajaxFetcher;
+
+  @override
+  void setAjaxFetcher(AjaxFetcher? fetcher) => _ajaxFetcher = fetcher;
 
   @override
   Future<void> init() async {
@@ -128,6 +137,9 @@ class FlutterLegadoJsSandbox implements LegadoJsSandbox {
     java.put = function(k, v){ __vars[k] = v == null ? '' : String(v); return ''; };
     java.get = function(k){ return __vars[k] || ''; };
     java.getString = function(k, d){ var s = __vars[k]; return (s === undefined || s === null || s === '') ? (d == null ? '' : String(d)) : String(s); };
+    java.ajax = function(url, options){ return ''; };
+    java.connect = function(url, options){ return ''; };
+    java.http = function(){ return ''; };
     if (typeof bridge === 'undefined') { bridge = function(){ return ''; }; }
     if (typeof document === 'undefined') { document = {}; }
     document.baseURI = __baseUrl;
@@ -153,6 +165,10 @@ class FlutterLegadoJsSandbox implements LegadoJsSandbox {
     lastError = null;
     final code = _stripJsTag(rawCode);
     if (code.trim().isEmpty) return '';
+
+    // java.ajax / java.connect 预处理：把字面量调用先取回响应再给 JS（见
+    // [legado_ajax_rewrite.rewriteAjaxCalls]，生产/测试沙箱共用）。
+    final rewritten = await rewriteAjaxCalls(code, baseUri: baseUri, fetcher: _ajaxFetcher);
 
     // 注入额外全局（result/finalResult 是特殊寄存器，包装内处理）
     final globalsCode = StringBuffer();
@@ -186,7 +202,7 @@ class FlutterLegadoJsSandbox implements LegadoJsSandbox {
         var __error = '';
         var __completion = '';
         try {
-          var __v = eval(${jsonEncode(code)});
+          var __v = eval(${jsonEncode(rewritten)});
           if (__v !== undefined && __v !== null) __completion = String(__v);
         } catch(e) { __error = String(e); }
         return JSON.stringify({ result: finalResult || __completion || result, vars: __vars, error: __error });

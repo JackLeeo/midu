@@ -35,6 +35,7 @@ dependencies:
   sqflite: ^2.4.3
   path: ^1.9.1
   crypto: ^3.0.7
+  pointycastle: ^3.8.0
 
   # 电子书格式支持
   epubx: ^4.0.0

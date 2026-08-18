@@ -35,6 +35,7 @@ class BookSourceClient {
   // 测试/诊断注入：为每个源构造 JS 沙箱。生产为 null 时用默认 fjs；
   // 本机无 fjs.dll 时用 FlutterLegadoJsSandbox（flutter_js QuickJS）跑真实链路。
   final LegadoJsSandbox Function(String sourceId)? _sandboxFactory;
+  final bool _enableAjaxBridge;
 
   /// 单次响应体上限。书源返回的都是 JSON 元数据/章节文本，
   /// 超过该值基本可以判定为异常或恶意响应，中途截断防止 OOM。
@@ -58,7 +59,9 @@ class BookSourceClient {
     BookSourceChapterCache? chapterCache,
     BookSourceNetworkPolicy networkPolicy = const BookSourceNetworkPolicy(),
     LegadoJsSandbox Function(String sourceId)? sandboxFactory,
+    bool enableAjaxBridge = false,
   }) : _sandboxFactory = sandboxFactory,
+       _enableAjaxBridge = enableAjaxBridge,
        _chapterCache = chapterCache ?? const BookSourceChapterCache(),
        _networkPolicy = networkPolicy,
        _dio =
@@ -612,7 +615,12 @@ class BookSourceClient {
       source.id,
       () {
         final sandbox = _sandboxFactory?.call(source.id);
-        return sandbox == null ? LegadoRuntime() : LegadoRuntime(sandbox: sandbox);
+        return sandbox == null
+            ? LegadoRuntime(enableAjaxBridge: _enableAjaxBridge)
+            : LegadoRuntime(
+                sandbox: sandbox,
+                enableAjaxBridge: _enableAjaxBridge,
+              );
       },
     );
   }

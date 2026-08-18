@@ -14,11 +14,20 @@
 //   5. result / finalResult 寄存器 — JS 规则把结果写入这两个全局变量
 
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:fjs/fjs.dart';
 import 'package:crypto/crypto.dart';
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html_parser;
+import 'package:pointycastle/api.dart';
+import 'package:pointycastle/block/aes.dart';
+import 'package:pointycastle/block/modes/cbc.dart';
+import 'package:pointycastle/block/modes/ecb.dart';
+import 'package:pointycastle/padded_block_cipher/padded_block_cipher_impl.dart';
+import 'package:pointycastle/paddings/pkcs7.dart';
+
+import 'legado_ajax_rewrite.dart';
 
 /// Legado 书源 JS 沙箱统一接口。
 ///
@@ -48,7 +57,7 @@ abstract class LegadoJsSandbox {
 /// FJS QuickJS 沙箱包装，提供 Legado 书源 JS 所需 polyfill。
 ///
 /// 单沙箱实例应与 LegadoRuntime 生命周期绑定（对应一个注册源或全局复用）。
-class LegadoFjsSandbox implements LegadoJsSandbox {
+class LegadoFjsSandbox implements LegadoJsSandbox, AjaxFetcherSink {
   LegadoFjsSandbox();
 
   JsEngine? _engine;
@@ -69,6 +78,20 @@ class LegadoFjsSandbox implements LegadoJsSandbox {
   String _currentHtml = '';
   Uri? _currentBaseUri;
   dom.Document? _domCache;
+
+  /// JS 内 `java.ajax / java.connect` 的网络执行器。由运行时注入（复用请求层的
+  /// 内容自适应解码）。为空时不做预取改写，相关调用回退为空串（现状行为）。
+  ///
+  /// QuickJS 的 bridge 回调是同步的，无法在同步桥里做异步 HTTP；因此采用
+  /// 「eval 前源码改写」：在把规则交给引擎执行前，把 `java.ajax('URL'[,...])`
+  /// 这类字面量调用先取回响应，内联成字符串字面量，再交给 JS。
+  AjaxFetcher? _ajaxFetcher;
+
+  /// 注入 [java.ajax] / [java.connect] 的网络执行器（幂等）。测试或未接入时可不设。
+  @override
+  void setAjaxFetcher(AjaxFetcher? fetcher) {
+    _ajaxFetcher = fetcher;
+  }
 
   static bool _libInited = false;
 
@@ -127,7 +150,8 @@ class LegadoFjsSandbox implements LegadoJsSandbox {
   }) async {
     if (!_inited) await init();
     final engine = _engine!;
-    final code = _stripJsTag(rawCode);
+    // java.ajax / java.connect 预处理：把字面量调用先取回响应再给 JS（见 [_ajaxFetcher]）。
+    final code = await _rewriteAjaxCalls(_stripJsTag(rawCode));
     if (code.trim().isEmpty) return '';
 
     if (docHtml != null) {
@@ -234,6 +258,19 @@ class LegadoFjsSandbox implements LegadoJsSandbox {
           final dir = _argS(args, 2) == 'dec' ? false : true;
           return _s(_rc4(_argS(args, 0), _argS(args, 1), dir));
         }
+      case 'aes_encrypt':
+        {
+          final out = _argS(args, 6);
+          return _s(
+            _aes(_argS(args, 0), _argS(args, 1), _argS(args, 2), _argS(args, 3), true, out),
+          );
+        }
+      case 'aes_decrypt':
+        {
+          return _s(
+            _aes(_argS(args, 0), _argS(args, 1), _argS(args, 2), _argS(args, 3), false, _argS(args, 6)),
+          );
+        }
       case 'json_parse':
         try {
           final r = jsonDecode(_argS(args, 0));
@@ -274,11 +311,12 @@ class LegadoFjsSandbox implements LegadoJsSandbox {
   // ========= Polyfill 注入（注入时把 bridge 封装成友好的 JS 函数） =========
 
   Future<void> _injectLegadoGlobals(JsEngine engine) async {
-    // 注入辅助：__dart(cmd, a, b, c) 作为 bridge 的方便封装
+    // 注入辅助：__dart(cmd, a, b, ...) 作为 bridge 的方便封装（可变参数）
     await _safeEval(engine, r'''
-      var __dart = function(cmd, a, b, c) {
+      var __dart = function(cmd) {
         try {
-          var payload = JSON.stringify({__cmd: String(cmd), args: [a,b,c]});
+          var args = Array.prototype.slice.call(arguments, 1);
+          var payload = JSON.stringify({__cmd: String(cmd), args: args});
           var r = typeof bridge === 'function' ? bridge(payload) : '';
           return (r === undefined || r === null) ? '' : String(r);
         } catch(e) { return ''; }
@@ -302,8 +340,8 @@ class LegadoFjsSandbox implements LegadoJsSandbox {
         sha256Encode:     function(s){ return __dart('sha256', s == null ? '' : String(s)); },
         base64Encode:     function(s){ return __dart('btoa', s == null ? '' : String(s)); },
         base64Decode:     function(s){ return __dart('atob', s == null ? '' : String(s)); },
-        aesEncrypt:       function(s, k, iv, m, p, pad, out){ return ''; },  // TODO(plus): pointycastle AES
-        aesDecrypt:       function(s, k, iv, m, p, pad, out){ return ''; },
+        aesEncrypt:       function(s, k, iv, m, p, pad, out){ return __dart('aes_encrypt', s==null||s===undefined?'':String(s), k==null||k===undefined?'':String(k), iv==null||iv===undefined?'':String(iv), m==null||m===undefined?'':String(m), p==null||p===undefined?'':String(p), pad==null||pad===undefined?'':String(pad), out==null||out===undefined?'':String(out)); },
+        aesDecrypt:       function(s, k, iv, m, p, pad, out){ return __dart('aes_decrypt', s==null||s===undefined?'':String(s), k==null||k===undefined?'':String(k), iv==null||iv===undefined?'':String(iv), m==null||m===undefined?'':String(m), p==null||p===undefined?'':String(p), pad==null||pad===undefined?'':String(pad), out==null||out===undefined?'':String(out)); },
         rc4Encrypt:       function(s, k){ return __dart('rc4', s, k, 'enc'); },
         rc4Decrypt:       function(s, k){ return __dart('rc4', s, k, 'dec'); }
       };
@@ -328,6 +366,12 @@ class LegadoFjsSandbox implements LegadoJsSandbox {
       java.put = function(k, v){ __dart('source_put', k, v == null ? '' : String(v)); return ''; };
       java.get = function(k){ return __dart('source_get', k); };
       java.getString = function(k, d){ var s = __dart('source_get', k); return (s === undefined || s === null || s === '') ? (d == null ? '' : String(d)) : String(s); };
+
+      // java.ajax / java.connect 无法在同步 bridge 里发网络请求，由 eval 前的
+      // 预处理改写为内联响应；此处仅作未被改写场景的兜底（返回空串）。
+      java.ajax = function(url, options){ return ''; };
+      java.connect = function(url, options){ return ''; };
+      java.http = function(){ return ''; };
 
       // source / cache
       source = {
@@ -499,6 +543,144 @@ class LegadoFjsSandbox implements LegadoJsSandbox {
     } catch (_) {
       return '';
     }
+  }
+
+  // ========= java.ajax / java.connect 预处理改写（委托共用库） =========
+
+  /// 把规则里的 `java.ajax('URL')` / `java.connect('URL', {options})` 字面量调用
+  /// 先取回响应，改写为内联字符串字面量后交给 JS 执行。实现见共用库
+  /// [rewriteAjaxCalls]（生产/测试沙箱复用同一份逻辑）。
+  Future<String> _rewriteAjaxCalls(String code) {
+    return rewriteAjaxCalls(
+      code,
+      baseUri: _currentBaseUri,
+      fetcher: _ajaxFetcher,
+    );
+  }
+
+  // ========= AES（点加密，ECB/CBC + PKCS7/无填充） =========
+
+  /// Legado 源 AES 加密，支持 ECB/CBC、PKCS7/无填充；key/iv 自动识别 hex 或 utf8。
+  /// 仅覆盖主流用法（ECB/CBC）；其它模式（CFB/OFB/CTR）回退空串（不劣于旧行为）。
+  String _aes(String data, String key, String iv, String modeStr, bool encrypt, String out) {
+    try {
+      final mode = _aesMode(modeStr);
+      if (mode != 'ECB' && mode != 'CBC') return '';
+      final padded = _aesPadded(modeStr);
+      if (mode != 'ECB' && iv.trim().isEmpty) return '';
+      final k = _aesKeyBytes(key);
+      final ivBytes = mode == 'ECB' ? Uint8List(0) : _aesKeyBytes(iv);
+      final input = encrypt
+          ? Uint8List.fromList(utf8.encode(data))
+          : _aesDecodeInput(data);
+      final processed = _aesExec(mode, k, ivBytes, padded, encrypt, input);
+      if (encrypt) {
+        final hexEnc = processed
+            .map((b) => b.toRadixString(16).toUpperCase().padLeft(2, '0'))
+            .join();
+        return out.trim().toLowerCase() == 'base64'
+            ? base64Encode(processed)
+            : hexEnc;
+      }
+      return utf8.decode(processed, allowMalformed: true);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  Uint8List _aesDecodeInput(String data) {
+    final trimmed = data.trim();
+    final isHex = trimmed.isNotEmpty &&
+        trimmed.length % 2 == 0 &&
+        RegExp(r'^[0-9a-fA-F]+$').hasMatch(trimmed);
+    if (isHex) return _hexToBytes(trimmed);
+    return Uint8List.fromList(base64Decode(trimmed.replaceAll(RegExp(r'\s'), '')));
+  }
+
+  static Uint8List _hexToBytes(String hex) {
+    final out = Uint8List(hex.length ~/ 2);
+    for (var i = 0; i < out.length; i++) {
+      out[i] = int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16);
+    }
+    return out;
+  }
+
+  /// 解析模式串：`AES/CBC/PKCS7Padding`、`CBC`、`ECB`、`CBCNoPadding` 等。
+  static String _aesMode(String m) {
+    final s = m.trim().toUpperCase().replaceFirst('AES/', '');
+    final first = s.split('/').first;
+    for (final candidate in ['ECB', 'CBC', 'CFB', 'OFB', 'CTR']) {
+      if (first.contains(candidate)) return candidate;
+    }
+    return s.contains('ECB') ? 'ECB' : 'CBC';
+  }
+
+  static bool _aesPadded(String m) {
+    final s = m.trim().toUpperCase();
+    return !s.contains('NOPADDING') && !s.endsWith('NO');
+  }
+
+  static Uint8List _aesKeyBytes(String s) {
+    final t = s.trim();
+    if (t.isNotEmpty &&
+        (t.length == 32 || t.length == 48 || t.length == 64) &&
+        RegExp(r'^[0-9a-fA-F]+$').hasMatch(t)) {
+      return _hexToBytes(t);
+    }
+    return Uint8List.fromList(utf8.encode(t));
+  }
+
+  /// 执行一次 AES 加/解密。
+  ///
+  ///  - 带填充（PKCS7）：用 [PaddedBlockCipherImpl]，输入可任意长。
+  ///  - 无填充：底层块密码需 16 字节对齐；解密时自动去除尾部的 0 填充
+  ///    （部分 Legado 源无 PKCS7，但明文短于块长时用 0 补齐）。
+  Uint8List _aesExec(
+    String mode,
+    Uint8List key,
+    Uint8List iv,
+    bool padded,
+    bool encrypt,
+    Uint8List input,
+  ) {
+    final aes = AESEngine();
+    if (padded) {
+      final PaddedBlockCipher cipher;
+      final CipherParameters params;
+      if (mode == 'ECB') {
+        cipher = PaddedBlockCipherImpl(PKCS7Padding(), ECBBlockCipher(aes));
+        params = KeyParameter(key);
+      } else {
+        cipher = PaddedBlockCipherImpl(PKCS7Padding(), CBCBlockCipher(aes));
+        params = ParametersWithIV(KeyParameter(key), iv);
+      }
+      cipher.init(encrypt, PaddedBlockCipherParameters(params, null));
+      return cipher.process(input);
+    }
+
+    // NoPadding：逐 16 字节块处理。
+    final BlockCipher cipher;
+    final CipherParameters params;
+    if (mode == 'ECB') {
+      cipher = ECBBlockCipher(aes);
+      params = KeyParameter(key);
+    } else {
+      cipher = CBCBlockCipher(aes);
+      params = ParametersWithIV(KeyParameter(key), iv);
+    }
+    cipher.init(encrypt, params);
+    final out = Uint8List(input.lengthInBytes);
+    for (var off = 0; off < input.lengthInBytes; off += 16) {
+      cipher.processBlock(input, off, out, off);
+    }
+    if (!encrypt) {
+      var end = out.length;
+      while (end > 16 && out[end - 1] == 0) {
+        end--;
+      }
+      return out.sublist(0, end);
+    }
+    return out;
   }
 
   List<Map<String, dynamic>> _docQuery(String selector, String mode) {

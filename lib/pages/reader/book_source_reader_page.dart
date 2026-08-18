@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -4464,6 +4465,61 @@ class _SwitchRowData {
   }
 }
 
+/// 换源面板后台对齐的输入/输出（compute 隔离传输用，仅含可发送基础字段）。
+class _AlignInput {
+  const _AlignInput({
+    required this.currentTitle,
+    required this.currentIndex,
+    required this.currentTotal,
+    required this.targetTitles,
+  });
+
+  final String currentTitle;
+  final int currentIndex;
+  final int currentTotal;
+  final List<String> targetTitles;
+}
+
+class _AlignOutcome {
+  const _AlignOutcome({
+    required this.index,
+    required this.confidence,
+    required this.isApproximate,
+  });
+
+  final int index;
+  final double confidence;
+  final bool isApproximate;
+}
+
+/// 在后台 isolate 中执行章节对齐，避免大目录 O(N) 标题匹配阻塞主线程。
+_AlignOutcome _alignChapters(_AlignInput input) {
+  final target = List<BookSourceChapter>.generate(
+    input.targetTitles.length,
+    (i) => BookSourceChapter(
+      id: '',
+      title: input.targetTitles[i],
+      order: i,
+    ),
+  );
+  final current = BookSourceChapter(
+    id: '',
+    title: input.currentTitle,
+    order: input.currentIndex,
+  );
+  final result = ChapterAligner.align(
+    currentChapter: current,
+    currentIndex: input.currentIndex,
+    currentTotal: input.currentTotal,
+    targetChapters: target,
+  );
+  return _AlignOutcome(
+    index: result.index,
+    confidence: result.confidence,
+    isApproximate: result.isApproximate,
+  );
+}
+
 class _BookSourceSwitchSheet extends StatefulWidget {
   const _BookSourceSwitchSheet({
     required this.palette,
@@ -4508,6 +4564,11 @@ class _BookSourceSwitchSheetState extends State<_BookSourceSwitchSheet> {
   String? _searchMoreError;
   String? _lastSearchTerm;
 
+  // 换源面板并发上限：避免一次打开就并发拉取全部源的目录并对齐，导致主线程卡顿。
+  static const int _maxConcurrentLoads = 3;
+  int _activeLoads = 0;
+  final List<int> _loadQueue = [];
+
   @override
   void initState() {
     super.initState();
@@ -4524,14 +4585,33 @@ class _BookSourceSwitchSheetState extends State<_BookSourceSwitchSheet> {
         status: status,
       );
     }).toList();
+    // 有限并发加载，避免一次性并发 N 个源的网络请求与对齐阻塞 UI。
     for (var i = 0; i < _rows.length; i++) {
       final row = _rows[i];
       if (row.isCurrent || row.source == null) continue;
-      unawaited(_loadRowAlignment(i));
+      _enqueueLoad(i);
     }
   }
 
-  Future<void> _loadRowAlignment(int index) async {
+  /// 入队一次目录加载；低于并发上限立即执行，否则排队等待空位。
+  void _enqueueLoad(int index) {
+    if (_activeLoads < _maxConcurrentLoads) {
+      _activeLoads++;
+      unawaited(_runLoad(index));
+    } else {
+      _loadQueue.add(index);
+    }
+  }
+
+  void _drainQueue() {
+    while (_activeLoads < _maxConcurrentLoads && _loadQueue.isNotEmpty) {
+      final next = _loadQueue.removeAt(0);
+      _activeLoads++;
+      unawaited(_runLoad(next));
+    }
+  }
+
+  Future<void> _runLoad(int index) async {
     final row = _rows[index];
     final source = row.source!;
     try {
@@ -4544,25 +4624,32 @@ class _BookSourceSwitchSheetState extends State<_BookSourceSwitchSheet> {
         return;
       }
       final sorted = [...chapters]..sort((a, b) => a.order.compareTo(b.order));
-      final align = ChapterAligner.align(
-        currentChapter: widget.currentChapter,
-        currentIndex: widget.currentChapterIndex,
-        currentTotal: widget.currentChaptersLength,
-        targetChapters: sorted,
+      // 章节对齐放到后台 isolate 执行，避免大目录的 O(N) 标题匹配阻塞主线程。
+      final outcome = await compute(
+        _alignChapters,
+        _AlignInput(
+          currentTitle: widget.currentChapter.title,
+          currentIndex: widget.currentChapterIndex,
+          currentTotal: widget.currentChaptersLength,
+          targetTitles: sorted.map((c) => c.title).toList(growable: false),
+        ),
       );
       if (!mounted) return;
       setState(() {
         _rows[index] = row.copyWith(
           status: _SwitchRowStatus.ready,
-          confidence: align.confidence,
-          isApproximate: align.isApproximate,
+          confidence: outcome.confidence,
+          isApproximate: outcome.isApproximate,
           targetChapterCount: sorted.length,
-          alignedTitle: align.chapter.title,
+          alignedTitle: sorted[outcome.index].title,
         );
       });
     } catch (_) {
       if (!mounted) return;
       setState(() => _rows[index] = row.copyWith(status: _SwitchRowStatus.error));
+    } finally {
+      _activeLoads--;
+      _drainQueue();
     }
   }
 
@@ -4665,7 +4752,7 @@ class _BookSourceSwitchSheetState extends State<_BookSourceSwitchSheet> {
           final row = _rows[i];
           if (row.isCurrent || row.source == null) continue;
           if (row.status == _SwitchRowStatus.loading) {
-            unawaited(_loadRowAlignment(i));
+            _enqueueLoad(i);
           }
         }
       }

@@ -7,18 +7,29 @@ import '../../utils/debug_logger.dart';
 import '../models/registered_book_source.dart';
 import '../protocol/book_source_protocol.dart';
 import 'legado_book_source.dart';
+import 'legado_ajax_rewrite.dart';
 import 'legado_fjs_sandbox.dart';
 import 'legado_request.dart';
 import 'legado_rule_engine.dart';
 
 class LegadoRuntime {
-  LegadoRuntime({LegadoTransport? transport, LegadoJsSandbox? sandbox})
-    : _transport = transport ?? LegadoHttpTransport(),
-      _sandbox = sandbox ?? LegadoFjsSandbox();
+  LegadoRuntime({
+    LegadoTransport? transport,
+    LegadoJsSandbox? sandbox,
+    this.enableAjaxBridge = false,
+  }) : _transport = transport ?? LegadoHttpTransport(),
+       _sandbox = sandbox ?? LegadoFjsSandbox();
 
   static const int _maxSearchItems = 100;
   static const int _maxChapters = 30000;
   static const int _maxPageHops = 20;
+
+  /// 是否给沙箱接入 java.ajax / java.connect 网络执行器。
+  /// 开启走「eval 前静态改写」，仅命中字面量调用（真实源多为动态调用，命中不了），
+  /// 且 fjs 同步桥语义无法复刻 Legado 的同步 java.ajax，收益有限、有额外开销。
+  /// 健康度对比显示开桥不升反略降，因此默认关闭（生产保持无桥基线）；诊断/对照
+  /// 测试可显式传 true 量化贡献。
+  final bool enableAjaxBridge;
 
   final LegadoTransport _transport;
   final LegadoJsSandbox _sandbox;
@@ -31,7 +42,40 @@ class LegadoRuntime {
   Future<void> _ensureSandbox() async {
     if (_sandboxInited) return;
     await _sandbox.init();
+    // 给沙箱接入 java.ajax / java.connect 网络执行器，复用请求层解码。
+    // 生产 fjs 与本地 flutter_js 沙箱都实现 AjaxFetcherSink。
+    if (enableAjaxBridge && _sandbox is AjaxFetcherSink) {
+      (_sandbox as AjaxFetcherSink).setAjaxFetcher(_rawFetch);
+    }
     _sandboxInited = true;
+  }
+
+  /// java.ajax / java.connect 的原始抓取：构造请求并复用请求层（含内容自适应
+  /// 解码）。失败返回空串（与旧行为一致，不抛错炸掉规则）。
+  Future<String> _rawFetch(
+    String url, {
+    String method = 'GET',
+    Map<String, String>? headers,
+    String? body,
+  }) async {
+    try {
+      final isPost = method.trim().toUpperCase() == 'POST';
+      return (
+        await _transport.send(
+          LegadoRequestTemplate(
+            url: Uri.parse(url),
+            method: isPost
+                ? LegadoRequestMethod.post
+                : LegadoRequestMethod.get,
+            headers: headers ?? const {},
+            charset: 'utf-8',
+            body: isPost ? body : null,
+          ),
+        )
+      ).body;
+    } catch (_) {
+      return '';
+    }
   }
 
   void close({bool force = true}) {
