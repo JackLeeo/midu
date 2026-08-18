@@ -11,6 +11,7 @@ import 'package:midu/book_sources/services/book_source_aggregated_search.dart';
 import 'package:midu/book_sources/services/book_source_client.dart';
 import 'package:midu/book_sources/services/book_source_shelf_service.dart';
 import 'package:midu/utils/localization_extension.dart';
+import 'package:midu/utils/glass_config.dart';
 import 'package:midu/widgets/generated_book_cover.dart';
 import 'package:midu/widgets/source_cover_image.dart';
 
@@ -992,6 +993,7 @@ class _GlassContainer extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
       child: BackdropFilter(
+        enabled: !GlassEffectConfig.shouldDisableBlur,
         filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
         child: Container(
           decoration: BoxDecoration(
@@ -1135,6 +1137,7 @@ class _ShimmerCard extends StatelessWidget {
         return ClipRRect(
           borderRadius: BorderRadius.circular(20),
           child: BackdropFilter(
+            enabled: !GlassEffectConfig.shouldDisableBlur,
             filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
             child: Container(
               height: 94,

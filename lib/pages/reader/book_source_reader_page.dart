@@ -4842,6 +4842,7 @@ class _BookSourceSwitchSheetState extends State<_BookSourceSwitchSheet> {
               top: Radius.circular(MiduRadius.xl),
             ),
             child: BackdropFilter(
+              enabled: !GlassEffectConfig.shouldDisableBlur,
               filter: ImageFilter.blur(
                 sigmaX: MiduGlassSigma.sheet,
                 sigmaY: MiduGlassSigma.sheet,

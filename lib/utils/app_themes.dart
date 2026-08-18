@@ -355,9 +355,9 @@ enum AppUiStyle {
       case 'glass':
       case null:
       case '':
-        return AppUiStyle.glass; // 米读默认玻璃态
       default:
-        return AppUiStyle.glass;
+        // 米读已移除玻璃态，统一使用实色 Material 3
+        return AppUiStyle.material3;
     }
   }
 }

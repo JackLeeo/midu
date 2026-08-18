@@ -14,6 +14,7 @@ import 'package:midu/book_sources/services/book_source_health_service.dart';
 import 'package:midu/book_sources/services/book_source_import_analyzer.dart';
 import 'package:midu/book_sources/services/book_source_registry.dart';
 import 'package:midu/utils/debug_logger.dart';
+import 'package:midu/utils/glass_config.dart';
 import 'package:midu/utils/layout_helper.dart';
 import 'package:midu/utils/localization_extension.dart';
 import 'package:midu/utils/page_style_helper.dart';
@@ -802,6 +803,7 @@ class _BookSourceManagementPageState extends State<BookSourceManagementPage> {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(28),
               child: BackdropFilter(
+                enabled: !GlassEffectConfig.shouldDisableBlur,
                 filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
                 child: Container(
                   decoration: BoxDecoration(

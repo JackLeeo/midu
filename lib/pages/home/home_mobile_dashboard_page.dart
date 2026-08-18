@@ -877,14 +877,6 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
       children: [
         Expanded(
           child: _buildQuickActionButton(
-            icon: Icons.search_rounded,
-            label: context.l10n.search,
-            onTap: _navigateToSearch,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _buildQuickActionButton(
             icon: Icons.explore_rounded,
             label: context.l10n.discover,
             onTap: _navigateToDiscover,

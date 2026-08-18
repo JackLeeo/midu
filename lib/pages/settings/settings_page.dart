@@ -148,6 +148,9 @@ class _SettingsPageState extends State<SettingsPage> {
   final ScrollController _scrollController = ScrollController();
   late final AppCacheManager _cacheManager;
 
+  // 侧边抽屉分组导航：当前选中的设置分组下标。
+  int _selectedGroupIndex = 0;
+
   bool _enableAutoSave = true;
   bool _keepScreenOn = false;
   int _autoSaveInterval = 30;
@@ -427,7 +430,8 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  // 提取页面内容部分，在两种模式下共用
+  // 提取页面内容部分，在两种模式下共用。
+  // 布局改为「左侧分组抽屉 + 右侧选中分组内容」，把分散的长列表收敛成分组导航。
   Widget _buildContent(
     BuildContext context,
     ThemeNotifier themeNotifier,
@@ -440,185 +444,333 @@ class _SettingsPageState extends State<SettingsPage> {
         NavigationContext.of(context)?.useRailNavigation ?? false;
     final mobileChrome = HomeMobileChromeScope.of(context);
     final viewPadding = MediaQuery.viewPaddingOf(context);
+
+    // 侧边抽屉分组：每一项是一个设置分组（标题 + 图标 + 内容构建器）。
+    final groups = <_SettingsGroup>[
+      _SettingsGroup(
+        title: l10n.settingsSectionAppearanceFonts,
+        icon: Icons.palette_outlined,
+        build: () => _buildAppearanceSection(themeNotifier, appSettings),
+      ),
+      _SettingsGroup(
+        title: l10n.readingSettings,
+        icon: Icons.book_outlined,
+        build: () => _buildReadingSection(),
+      ),
+      _SettingsGroup(
+        title: l10n.settingsSectionDataServices,
+        icon: Icons.hub_outlined,
+        build: () => _buildDataSection(webDavSync),
+      ),
+      _SettingsGroup(
+        title: l10n.settingsSectionGeneral,
+        icon: Icons.tune_rounded,
+        build: () => _buildGeneralSection(appSettings),
+      ),
+      _SettingsGroup(
+        title: '高级设置',
+        icon: Icons.developer_mode_rounded,
+        build: () => _buildAdvancedSection(),
+      ),
+      _SettingsGroup(
+        title: l10n.settingsAbout,
+        icon: Icons.info_outline_rounded,
+        build: () => _buildAboutCard(),
+      ),
+    ];
+    final selectedIndex = _selectedGroupIndex.clamp(0, groups.length - 1);
+
     return Container(
       decoration: BoxDecoration(
         gradient: PageStyleHelper.backgroundGradient(context),
       ),
-      child: ListView(
-        controller: _scrollController,
-        padding: EdgeInsets.fromLTRB(
-          16,
-          useRailNavigation ? viewPadding.top + 8 : mobileChrome.pageTopPadding,
-          16,
-          useRailNavigation
-              ? viewPadding.bottom + 24
-              : mobileChrome.pageBottomPadding,
-        ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (useRailNavigation) ...[
-            _buildSettingsTopRow(l10n, useRailNavigation),
-            const SizedBox(height: 24),
-          ],
-          _buildHeader(l10n),
-          const SizedBox(height: 22),
-          _buildSectionCard(
-            title: l10n.settingsSectionAppearanceFonts,
-            icon: Icons.palette_outlined,
-            children: [
-              _buildUiStyleSelector(themeNotifier),
-              _buildThemeToggle(themeNotifier),
-              _buildAccentColorSelector(themeNotifier),
-              _buildAppFontSelector(appSettings),
-              _buildReaderFontSelector(appSettings),
-              _buildCustomFontsManager(appSettings),
-              _buildActionSetting(
-                title: l10n.settingsLibraryLayoutTitle,
-                subtitle: l10n.settingsCurrentValue(
-                  appSettings.libraryLayoutMode == LibraryLayoutMode.card
-                      ? l10n.settingsLibraryLayoutCard
-                      : l10n.settingsLibraryLayoutGrid,
-                ),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const LibraryLayoutSettingsPage(),
-                  ),
-                ),
-                icon: Icons.view_module_outlined,
-              ),
-              _buildActionSetting(
-                title: l10n.settingsFloatingNavigationTitle,
-                subtitle: l10n.settingsFloatingNavigationSubtitle,
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const FloatingNavigationSettingsPage(),
-                  ),
-                ),
-                icon: Icons.dock_outlined,
-              ),
-            ],
+          // 左侧分组抽屉
+          _buildGroupRail(
+            groups: groups,
+            selectedIndex: selectedIndex,
+            useRailNavigation: useRailNavigation,
+            viewPadding: viewPadding,
           ),
-          const SizedBox(height: 22),
-          _buildSectionCard(
-            title: l10n.readingSettings,
-            icon: Icons.book_outlined,
-            children: [
-              _buildSwitchSetting(
-                title: l10n.settingsVolumeKeyTurnTitle,
-                subtitle: l10n.settingsVolumeKeyTurnSubtitle,
-                value: _enableVolumeKeyTurn,
-                onChanged: (value) =>
-                    setState(() => _enableVolumeKeyTurn = value),
-                icon: Icons.volume_up,
+          // 右侧：选中分组的设置内容
+          Expanded(
+            child: ListView(
+              controller: _scrollController,
+              padding: EdgeInsets.fromLTRB(
+                0,
+                useRailNavigation
+                    ? viewPadding.top + 8
+                    : mobileChrome.pageTopPadding,
+                16,
+                useRailNavigation
+                    ? viewPadding.bottom + 24
+                    : mobileChrome.pageBottomPadding,
               ),
-              _buildSwitchSetting(
-                title: l10n.settingsAutoResumeReadingTitle,
-                subtitle: l10n.settingsAutoResumeReadingSubtitle,
-                value: _autoResumeReading,
-                onChanged: (value) =>
-                    setState(() => _autoResumeReading = value),
-                icon: Icons.restore,
-              ),
-              _buildActionSetting(
-                title: l10n.readerTopBarStyleTitle,
-                subtitle: _readerTopBarStyleTitle(_readerTopBarStyle),
-                onTap: _showReaderTopBarStylePicker,
-                icon: Icons.vertical_align_top_rounded,
-              ),
-            ],
-          ),
-          const SizedBox(height: 22),
-          _buildSectionCard(
-            title: l10n.settingsSectionDataServices,
-            icon: Icons.hub_outlined,
-            children: [
-              _buildActionSetting(
-                title: l10n.bookSourceManagementTitle,
-                subtitle: l10n.settingsContentSourcesSubtitle,
-                onTap: _openBookSourceManagement,
-                icon: Icons.travel_explore_outlined,
-              ),
-              _buildActionSetting(
-                title: l10n.settingsWebDavSyncTitle,
-                badge: l10n.webDavBetaBadge,
-                subtitle: _webDavSyncSubtitle(webDavSync),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const WebDavSyncPage(),
-                  ),
-                ),
-                icon: Icons.cloud_outlined,
-                trailing: _webDavSyncTrailing(webDavSync),
-              ),
-              _buildActionSetting(
-                title: l10n.settingsCacheManagementTitle,
-                subtitle: l10n.settingsCacheManagementSubtitle(
-                  _loadingCacheUsage
-                      ? l10n.settingsCacheCalculating
-                      : AppCacheManager.formatBytes(
-                          _cacheUsage?.totalBytes ?? 0,
-                        ),
-                ),
-                onTap: () => unawaited(_openCacheManagement()),
-                icon: Icons.cleaning_services_outlined,
-              ),
-            ],
-          ),
-          const SizedBox(height: 22),
-          _buildSectionCard(
-            title: l10n.settingsSectionGeneral,
-            icon: Icons.tune_rounded,
-            children: [
-              _buildLanguageSelector(appSettings),
-              _buildSwitchSetting(
-                title: l10n.settingsKeepScreenOnTitle,
-                subtitle: l10n.settingsKeepScreenOnSubtitle,
-                value: _keepScreenOn,
-                onChanged: _setKeepScreenOn,
-                icon: Icons.stay_current_portrait,
-              ),
-              _buildSwitchSetting(
-                title: l10n.settingsAutoSaveTitle,
-                subtitle: l10n.settingsAutoSaveSubtitle,
-                value: _enableAutoSave,
-                onChanged: (value) => setState(() => _enableAutoSave = value),
-                icon: Icons.save_outlined,
-              ),
-            ],
-          ),
-          const SizedBox(height: 22),
-          _buildSectionCard(
-            title: '高级设置',
-            icon: Icons.developer_mode_rounded,
-            children: [
-              _buildSwitchSetting(
-                title: '调试模式',
-                subtitle: '开启后记录详细操作日志，用于问题定位',
-                value: _debugModeEnabled,
-                onChanged: (value) => unawaited(_setDebugMode(value)),
-                icon: Icons.bug_report_outlined,
-                persistPageSettings: false,
-              ),
-              if (_debugModeEnabled) ...[
-                _buildActionSetting(
-                  title: '导出调试日志',
-                  subtitle: '导出日志文件用于分享或反馈',
-                  onTap: () => unawaited(_exportDebugLogs()),
-                  icon: Icons.file_download_outlined,
-                ),
-                _buildActionSetting(
-                  title: '清空调试日志',
-                  subtitle: '清空所有已记录的日志',
-                  onTap: _clearDebugLogs,
-                  icon: Icons.delete_sweep_outlined,
-                ),
+              children: [
+                if (useRailNavigation) ...[
+                  _buildSettingsTopRow(l10n, useRailNavigation),
+                  const SizedBox(height: 24),
+                ],
+                _buildHeader(l10n),
+                const SizedBox(height: 22),
+                groups[selectedIndex].build(),
+                const SizedBox(height: 26),
               ],
-            ],
+            ),
           ),
-          const SizedBox(height: 22),
-          _buildAboutCard(),
-          const SizedBox(height: 100),
         ],
       ),
+    );
+  }
+
+  // 左侧设置分组抽屉：纵向排列各组，高亮的为当前分组。
+  Widget _buildGroupRail({
+    required List<_SettingsGroup> groups,
+    required int selectedIndex,
+    required bool useRailNavigation,
+    required EdgeInsets viewPadding,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: 104,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          16,
+          useRailNavigation ? viewPadding.top + 8 : 20,
+          6,
+          0,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < groups.length; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _buildGroupItem(
+                  group: groups[i],
+                  selected: i == selectedIndex,
+                  onTap: () {
+                    if (i == _selectedGroupIndex) return;
+                    setState(() => _selectedGroupIndex = i);
+                  },
+                  scheme: scheme,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGroupItem({
+    required _SettingsGroup group,
+    required bool selected,
+    required VoidCallback onTap,
+    required ColorScheme scheme,
+  }) {
+    final iconColor = selected ? scheme.onPrimary : scheme.onSurfaceVariant;
+    return Material(
+      color: selected ? scheme.primary : Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          child: Column(
+            children: [
+              Icon(group.icon, size: 22, color: iconColor),
+              const SizedBox(height: 6),
+              Text(
+                group.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  height: 1.1,
+                  color: iconColor,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // 外观与字体分组
+  Widget _buildAppearanceSection(
+    ThemeNotifier themeNotifier,
+    AppSettingsNotifier appSettings,
+  ) {
+    final l10n = context.l10n;
+    return _buildSectionCard(
+      title: l10n.settingsSectionAppearanceFonts,
+      icon: Icons.palette_outlined,
+      children: [
+        _buildUiStyleSelector(themeNotifier),
+        _buildThemeToggle(themeNotifier),
+        _buildAccentColorSelector(themeNotifier),
+        _buildAppFontSelector(appSettings),
+        _buildReaderFontSelector(appSettings),
+        _buildCustomFontsManager(appSettings),
+        _buildActionSetting(
+          title: l10n.settingsLibraryLayoutTitle,
+          subtitle: l10n.settingsCurrentValue(
+            appSettings.libraryLayoutMode == LibraryLayoutMode.card
+                ? l10n.settingsLibraryLayoutCard
+                : l10n.settingsLibraryLayoutGrid,
+          ),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const LibraryLayoutSettingsPage(),
+            ),
+          ),
+          icon: Icons.view_module_outlined,
+        ),
+        _buildActionSetting(
+          title: l10n.settingsFloatingNavigationTitle,
+          subtitle: l10n.settingsFloatingNavigationSubtitle,
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const FloatingNavigationSettingsPage(),
+            ),
+          ),
+          icon: Icons.dock_outlined,
+        ),
+      ],
+    );
+  }
+
+  // 阅读设置分组
+  Widget _buildReadingSection() {
+    final l10n = context.l10n;
+    return _buildSectionCard(
+      title: l10n.readingSettings,
+      icon: Icons.book_outlined,
+      children: [
+        _buildSwitchSetting(
+          title: l10n.settingsVolumeKeyTurnTitle,
+          subtitle: l10n.settingsVolumeKeyTurnSubtitle,
+          value: _enableVolumeKeyTurn,
+          onChanged: (value) => setState(() => _enableVolumeKeyTurn = value),
+          icon: Icons.volume_up,
+        ),
+        _buildSwitchSetting(
+          title: l10n.settingsAutoResumeReadingTitle,
+          subtitle: l10n.settingsAutoResumeReadingSubtitle,
+          value: _autoResumeReading,
+          onChanged: (value) => setState(() => _autoResumeReading = value),
+          icon: Icons.restore,
+        ),
+        _buildActionSetting(
+          title: l10n.readerTopBarStyleTitle,
+          subtitle: _readerTopBarStyleTitle(_readerTopBarStyle),
+          onTap: _showReaderTopBarStylePicker,
+          icon: Icons.vertical_align_top_rounded,
+        ),
+      ],
+    );
+  }
+
+  // 数据与书源分组
+  Widget _buildDataSection(WebDavSyncController webDavSync) {
+    final l10n = context.l10n;
+    return _buildSectionCard(
+      title: l10n.settingsSectionDataServices,
+      icon: Icons.hub_outlined,
+      children: [
+        _buildActionSetting(
+          title: l10n.bookSourceManagementTitle,
+          subtitle: l10n.settingsContentSourcesSubtitle,
+          onTap: _openBookSourceManagement,
+          icon: Icons.travel_explore_outlined,
+        ),
+        _buildActionSetting(
+          title: l10n.settingsWebDavSyncTitle,
+          badge: l10n.webDavBetaBadge,
+          subtitle: _webDavSyncSubtitle(webDavSync),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const WebDavSyncPage(),
+            ),
+          ),
+          icon: Icons.cloud_outlined,
+          trailing: _webDavSyncTrailing(webDavSync),
+        ),
+        _buildActionSetting(
+          title: l10n.settingsCacheManagementTitle,
+          subtitle: l10n.settingsCacheManagementSubtitle(
+            _loadingCacheUsage
+                ? l10n.settingsCacheCalculating
+                : AppCacheManager.formatBytes(_cacheUsage?.totalBytes ?? 0),
+          ),
+          onTap: () => unawaited(_openCacheManagement()),
+          icon: Icons.cleaning_services_outlined,
+        ),
+      ],
+    );
+  }
+
+  // 通用设置分组
+  Widget _buildGeneralSection(AppSettingsNotifier appSettings) {
+    final l10n = context.l10n;
+    return _buildSectionCard(
+      title: l10n.settingsSectionGeneral,
+      icon: Icons.tune_rounded,
+      children: [
+        _buildLanguageSelector(appSettings),
+        _buildSwitchSetting(
+          title: l10n.settingsKeepScreenOnTitle,
+          subtitle: l10n.settingsKeepScreenOnSubtitle,
+          value: _keepScreenOn,
+          onChanged: _setKeepScreenOn,
+          icon: Icons.stay_current_portrait,
+        ),
+        _buildSwitchSetting(
+          title: l10n.settingsAutoSaveTitle,
+          subtitle: l10n.settingsAutoSaveSubtitle,
+          value: _enableAutoSave,
+          onChanged: (value) => setState(() => _enableAutoSave = value),
+          icon: Icons.save_outlined,
+        ),
+      ],
+    );
+  }
+
+  // 高级设置分组
+  Widget _buildAdvancedSection() {
+    return _buildSectionCard(
+      title: '高级设置',
+      icon: Icons.developer_mode_rounded,
+      children: [
+        _buildSwitchSetting(
+          title: '调试模式',
+          subtitle: '开启后记录详细操作日志，用于问题定位',
+          value: _debugModeEnabled,
+          onChanged: (value) => unawaited(_setDebugMode(value)),
+          icon: Icons.bug_report_outlined,
+          persistPageSettings: false,
+        ),
+        if (_debugModeEnabled) ...[
+          _buildActionSetting(
+            title: '导出调试日志',
+            subtitle: '导出日志文件用于分享或反馈',
+            onTap: () => unawaited(_exportDebugLogs()),
+            icon: Icons.file_download_outlined,
+          ),
+          _buildActionSetting(
+            title: '清空调试日志',
+            subtitle: '清空所有已记录的日志',
+            onTap: _clearDebugLogs,
+            icon: Icons.delete_sweep_outlined,
+          ),
+        ],
+      ],
     );
   }
 
@@ -2457,6 +2609,19 @@ class _LanguageOption {
   final String label;
 
   const _LanguageOption({required this.code, required this.label});
+}
+
+/// 设置页侧边抽屉的一个分组：标题 + 图标 + 内容构建器。
+class _SettingsGroup {
+  const _SettingsGroup({
+    required this.title,
+    required this.icon,
+    required this.build,
+  });
+
+  final String title;
+  final IconData icon;
+  final Widget Function() build;
 }
 
 String _hexColor(Color color) =>

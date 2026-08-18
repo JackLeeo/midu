@@ -1,9 +1,6 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../core/reader/reader_leaf_status.dart';
-import '../utils/glass_config.dart';
 import '../utils/reader_themes.dart';
 import 'reader_top_information_bar.dart';
 
@@ -163,11 +160,11 @@ class ReaderChromeOverlay extends StatelessWidget {
           ),
         AnimatedPositioned(
           key: topKey,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutBack,
-          left: 20,
-          right: 20,
-          top: visible ? 10 : -130,
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOut,
+          left: 0,
+          right: 0,
+          top: visible ? 0 : -140,
           child: SafeArea(
             bottom: false,
             child: ReaderControlBar(
@@ -177,7 +174,7 @@ class ReaderChromeOverlay extends StatelessWidget {
                 height: 58,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
+                    horizontal: 6,
                     vertical: 7,
                   ),
                   child: Row(
@@ -188,7 +185,7 @@ class ReaderChromeOverlay extends StatelessWidget {
                         tooltip: backTooltip,
                         icon: Icons.arrow_back_rounded,
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 4),
                       Expanded(
                         child: Text(
                           title,
@@ -202,7 +199,7 @@ class ReaderChromeOverlay extends StatelessWidget {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 4),
                       ReaderControlIconButton(
                         palette: palette,
                         onPressed: bookmarkBusy ? null : onBookmark,
@@ -221,11 +218,11 @@ class ReaderChromeOverlay extends StatelessWidget {
         ),
         AnimatedPositioned(
           key: bottomKey,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutBack,
-          left: 22,
-          right: 22,
-          bottom: visible ? 16 : -110,
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOut,
+          left: 0,
+          right: 0,
+          bottom: visible ? 0 : -120,
           child: SafeArea(
             top: false,
             child: ReaderControlBar(
@@ -236,7 +233,7 @@ class ReaderChromeOverlay extends StatelessWidget {
                 children: [
                   // 章节信息 + 整本进度条
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 8, 14, 4),
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 2),
                     child: Row(
                       children: [
                         Expanded(
@@ -266,74 +263,71 @@ class ReaderChromeOverlay extends StatelessWidget {
                     value: chapterProgress.clamp(0.0, 1.0),
                     onChangeEnd: onSliderSeek,
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 18),
                   SizedBox(
-                    height: 60,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 9),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          if (onPreviousChapter != null)
-                            ReaderControlIconButton(
-                              palette: palette,
-                              onPressed: onPreviousChapter,
-                              tooltip: MaterialLocalizations.of(
-                                context,
-                              ).previousPageTooltip,
-                              icon: Icons.skip_previous_rounded,
-                            ),
+                    height: 52,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        if (onPreviousChapter != null)
                           ReaderControlIconButton(
                             palette: palette,
-                            onPressed: onTableOfContents,
-                            tooltip: tableOfContentsTooltip,
-                            icon: Icons.format_list_bulleted_rounded,
+                            onPressed: onPreviousChapter,
+                            tooltip: MaterialLocalizations.of(
+                              context,
+                            ).previousPageTooltip,
+                            icon: Icons.skip_previous_rounded,
                           ),
-                          if (onSwitchSource != null)
-                            ReaderControlIconButton(
-                              palette: palette,
-                              onPressed: onSwitchSource,
-                              tooltip: switchSourceTooltip ?? '',
-                              icon: Icons.swap_horiz_rounded,
-                            ),
-                          if (onReadAloud != null)
-                            ReaderControlIconButton(
-                              palette: palette,
-                              onPressed: onReadAloud,
-                              tooltip: readAloudTooltip ?? '',
-                              icon: readAloudActive
-                                  ? Icons.graphic_eq_rounded
-                                  : Icons.headphones_rounded,
-                              active: readAloudActive,
-                            ),
-                          if (onAskAi != null)
-                            ReaderControlIconButton(
-                              palette: palette,
-                              onPressed: onAskAi,
-                              tooltip: askAiTooltip ?? '',
-                              icon: Icons.auto_awesome_outlined,
-                            ),
-                          if (showSettingsAction)
-                            ReaderControlIconButton(
-                              palette: palette,
-                              onPressed: onSettings,
-                              tooltip: settingsTooltip,
-                              icon: Icons.tune_rounded,
-                            ),
-                          if (onNextChapter != null)
-                            ReaderControlIconButton(
-                              palette: palette,
-                              onPressed: onNextChapter,
-                              tooltip: MaterialLocalizations.of(
-                                context,
-                              ).nextPageTooltip,
-                              icon: Icons.skip_next_rounded,
-                            ),
-                        ],
-                      ),
+                        ReaderControlIconButton(
+                          palette: palette,
+                          onPressed: onTableOfContents,
+                          tooltip: tableOfContentsTooltip,
+                          icon: Icons.format_list_bulleted_rounded,
+                        ),
+                        if (onReadAloud != null)
+                          ReaderControlIconButton(
+                            palette: palette,
+                            onPressed: onReadAloud,
+                            tooltip: readAloudTooltip ?? '',
+                            icon: readAloudActive
+                                ? Icons.graphic_eq_rounded
+                                : Icons.headphones_rounded,
+                            active: readAloudActive,
+                          ),
+                        if (onSwitchSource != null)
+                          ReaderControlIconButton(
+                            palette: palette,
+                            onPressed: onSwitchSource,
+                            tooltip: switchSourceTooltip ?? '',
+                            icon: Icons.swap_horiz_rounded,
+                          ),
+                        if (onAskAi != null)
+                          ReaderControlIconButton(
+                            palette: palette,
+                            onPressed: onAskAi,
+                            tooltip: askAiTooltip ?? '',
+                            icon: Icons.auto_awesome_outlined,
+                          ),
+                        if (showSettingsAction)
+                          ReaderControlIconButton(
+                            palette: palette,
+                            onPressed: onSettings,
+                            tooltip: settingsTooltip,
+                            icon: Icons.tune_rounded,
+                          ),
+                        if (onNextChapter != null)
+                          ReaderControlIconButton(
+                            palette: palette,
+                            onPressed: onNextChapter,
+                            tooltip: MaterialLocalizations.of(
+                              context,
+                            ).nextPageTooltip,
+                            icon: Icons.skip_next_rounded,
+                          ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 10),
                 ],
               ),
             ),
@@ -404,110 +398,26 @@ class ReaderControlBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 主流入放观感：顶部栏与底部栏统一用轻量圆角胶囊（radius 24）。顶部栏
-    // 更贴边、底部栏略浮起，但都保持玻璃质感的半透明材质。
-    final borderRadius = BorderRadius.circular(24);
-    final blurEnabled = !GlassEffectConfig.shouldDisableBlur;
-    // 不叠加预设，直接使用与悬浮导航栏/首页顶栏一致的标准玻璃参数
-    final config = GlassEffectHelper.getReadingControlConfig(
-      isTopBar: isTopBar,
-      brightness: palette.brightness,
-    );
-    final surfaceOpacity = blurEnabled ? config['opacity']! : 1.0;
-    final cleanSurface = blurEnabled
-        ? GlassEffectConfig.chromeBaseColor(
-            palette.controlBar,
-            palette.brightness,
-            lightBlend: 0.28,
-          )
-        : palette.controlBar;
-    final highlight = blurEnabled
-        ? Color.lerp(
-            cleanSurface,
-            Colors.white,
-            palette.brightness == Brightness.dark ? 0.06 : 0.1,
-          )!
-        : cleanSurface;
-    final panel = DecoratedBox(
+    // 对齐主流阅读 App：顶栏/底栏为通栏实色背景，贴边无圆角、无悬浮阴影，
+    // 仅用一条分割线把控制栏与正文区域区分开。
+    final divider = Color.lerp(
+      palette.border,
+      palette.text,
+      palette.brightness == Brightness.dark ? 0.10 : 0.05,
+    )!.withValues(alpha: palette.brightness == Brightness.dark ? 0.35 : 0.18);
+    return DecoratedBox(
       decoration: BoxDecoration(
-        borderRadius: borderRadius,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            highlight.withValues(
-              alpha: (surfaceOpacity + (blurEnabled ? 0.08 : 0.0)).clamp(
-                0.0,
-                1.0,
-              ),
-            ),
-            cleanSurface.withValues(
-              alpha: (surfaceOpacity - (blurEnabled ? 0.02 : 0.0)).clamp(
-                0.0,
-                1.0,
-              ),
-            ),
-          ],
-        ),
-        border: Border.all(
-          color: blurEnabled
-              ? Color.lerp(
-                  palette.border,
-                  Colors.white,
-                  palette.brightness == Brightness.dark ? 0.16 : 0.14,
-                )!.withValues(
-                  alpha: palette.brightness == Brightness.light ? 0.28 : 0.54,
-                )
-              : palette.border,
-          width: 1,
+        color: palette.controlBar,
+        border: Border(
+          top: isTopBar
+              ? const BorderSide.none()
+              : BorderSide(color: divider, width: 1),
+          bottom: isTopBar
+              ? BorderSide(color: divider, width: 1)
+              : const BorderSide.none(),
         ),
       ),
       child: Material(color: Colors.transparent, child: child),
-    );
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: borderRadius,
-        boxShadow: [
-          BoxShadow(
-            color: blurEnabled
-                ? GlassEffectConfig.chromeShadowColor(
-                    source: palette.shadow,
-                    brightness: palette.brightness,
-                    darkOpacity: 0.46,
-                  )
-                : palette.shadow.withValues(
-                    alpha: palette.brightness == Brightness.dark ? 0.46 : 0.22,
-                  ),
-            blurRadius: blurEnabled && palette.brightness == Brightness.light
-                ? 24
-                : 32,
-            spreadRadius: -5,
-            offset: Offset(
-              0,
-              blurEnabled && palette.brightness == Brightness.light ? 8 : 16,
-            ),
-          ),
-          if (!blurEnabled || palette.brightness == Brightness.dark)
-            BoxShadow(
-              color: palette.shadow.withValues(alpha: 0.10),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: borderRadius,
-        child: blurEnabled
-            ? BackdropFilter(
-                filter: ImageFilter.blur(
-                  sigmaX: config['blur']!,
-                  sigmaY: config['blur']!,
-                ),
-                child: panel,
-              )
-            : panel,
-      ),
     );
   }
 }
@@ -530,42 +440,18 @@ class ReaderControlIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final glassEnabled = !GlassEffectConfig.shouldDisableBlur;
-    final cleanControlFill = glassEnabled
-        ? GlassEffectConfig.chromeBaseColor(
-            palette.controlFill,
-            palette.brightness,
-            lightBlend: 0.22,
-          )
-        : palette.controlFill;
-    // 激活态（已书签 / 朗读中）用主题强调色点亮，未激活态保持中性玻璃填充。
+    // 主流阅读 App 的工具栏按钮：纯图标式，无填充/无描边，激活态用主题色点亮。
     final foreground = active ? palette.accent : palette.text;
-    final background = active
-        ? palette.accent.withValues(alpha: glassEnabled ? 0.16 : 0.14)
-        : cleanControlFill.withValues(
-            alpha: glassEnabled
-                ? (palette.brightness == Brightness.light ? 0.76 : 0.58)
-                : 1.0,
-          );
-    final border = active
-        ? palette.accent.withValues(alpha: glassEnabled ? 0.34 : 0.42)
-        : glassEnabled
-        ? Color.lerp(palette.border, Colors.white, 0.12)!.withValues(
-            alpha: palette.brightness == Brightness.light ? 0.28 : 0.48,
-          )
-        : palette.border;
-    return IconButton.filledTonal(
+    return IconButton(
       onPressed: onPressed,
       tooltip: tooltip,
-      icon: Icon(icon, size: 22),
+      icon: Icon(icon, size: 23),
+      color: foreground,
+      disabledColor: palette.secondaryText.withValues(alpha: 0.4),
       style: IconButton.styleFrom(
-        foregroundColor: foreground,
-        backgroundColor: background,
         minimumSize: const Size.square(44),
         maximumSize: const Size.square(44),
         padding: EdgeInsets.zero,
-        side: BorderSide(color: border, width: 0.8),
-        shape: const CircleBorder(),
       ),
     );
   }

@@ -7,7 +7,7 @@ import 'midu_theme.dart';
 class GlassConfig {
   GlassConfig._();
 
-  /// 将任意 child 包成玻璃态背景（iOS 风毛玻璃）
+  /// 将任意 child 包成玻璃态背景（已全局移除模糊，改为实色卡片）
   static Widget card({
     required Widget child,
     double sigma = 14,
@@ -20,33 +20,40 @@ class GlassConfig {
   }) {
     return Builder(
       builder: (context) {
+        final scheme = Theme.of(context).colorScheme;
         final dark = Theme.of(context).brightness == Brightness.dark;
+        // 实色卡面：亮色用 surfaceContainer，暗色用 surfaceContainerHigh
         final bg = dark
-            ? (tintDark ?? MiduColors.glassDark)
-            : (tintLight ?? MiduColors.glassLight);
-        final borderSide = BorderSide(
-          color: dark
-              ? MiduColors.glassBorderDark
-              : MiduColors.glassBorderLight,
-          width: 0.5,
+            ? scheme.surfaceContainerHigh
+            : scheme.surfaceContainer;
+        final radius =
+            customBorder ?? BorderRadius.circular(borderRadius);
+        final content = Container(
+          padding: padding,
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: radius,
+            border: Border.all(
+              color: scheme.outlineVariant.withValues(alpha: 0.35),
+              width: 0.5,
+            ),
+          ),
+          child: child,
         );
+
+        if (GlassEffectConfig.shouldDisableBlur) {
+          return Container(
+            margin: margin,
+            child: ClipRRect(borderRadius: radius, child: content),
+          );
+        }
         return Container(
           margin: margin,
           child: ClipRRect(
-            borderRadius:
-                customBorder ?? BorderRadius.circular(borderRadius),
+            borderRadius: radius,
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
-              child: Container(
-                padding: padding,
-                decoration: BoxDecoration(
-                  color: bg,
-                  borderRadius:
-                      customBorder ?? BorderRadius.circular(borderRadius),
-                  border: Border.fromBorderSide(borderSide),
-                ),
-                child: child,
-              ),
+              child: content,
             ),
           ),
         );
@@ -63,14 +70,18 @@ class GlassConfig {
   }) {
     return Builder(
       builder: (context) {
+        final scheme = Theme.of(context).colorScheme;
         final dark = Theme.of(context).brightness == Brightness.dark;
+        // 实色栏面，不透明
         final bg = dark
-            ? (tintDark ?? const Color(0x66120A2E))
-            : (tintLight ?? const Color(0x72FFFFFF));
+            ? scheme.surfaceContainerHigh
+            : scheme.surfaceContainer;
+        final bar = Container(color: bg, child: child);
+        if (GlassEffectConfig.shouldDisableBlur) return bar;
         return ClipRect(
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
-            child: Container(color: bg, child: child),
+            child: bar,
           ),
         );
       },
@@ -87,9 +98,9 @@ class GlassConfig {
 class GlassEffectConfig {
   GlassEffectConfig._();
 
-  static bool _disableAllGlass = false;
+  static bool _disableAllGlass = true;
 
-  /// 当设备不支持或用户关闭玻璃效果时返回 true。
+  /// 已全局移除玻璃效果，恒为 true。
   static bool get shouldDisableBlur => _disableAllGlass;
 
   /// 对基础透明度做 clamp 归一化。
@@ -124,12 +135,12 @@ class GlassEffectConfig {
     return Theme.of(context).colorScheme.surface;
   }
 
-  /// 全局关闭所有玻璃效果。
-  static void setDisableAllGlassEffects(bool value) => _disableAllGlass = value;
+  /// 全局关闭所有玻璃效果（已强制关闭，忽略入参）。
+  static void setDisableAllGlassEffects(bool value) => _disableAllGlass = true;
 
-  /// 应用性能模式：当 reduceEffects 为 true 时关闭玻璃态等高开销效果。
+  /// 应用性能模式：已全局移除玻璃态，忽略入参强制关闭。
   static void applyPerformanceMode({bool reduceEffects = false}) {
-    if (reduceEffects) _disableAllGlass = true;
+    _disableAllGlass = true;
   }
 
   /// 导航栏模糊强度。

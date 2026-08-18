@@ -110,6 +110,13 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   List<SourcedBook> _categoryBooks = const [];
   bool _loadingCategoryBooks = false;
 
+  // 最新榜单分页：默认展示一页，点击"下一页"再展开，避免无限下滑。
+  static const int latestPageSize = 10;
+  int _latestVisibleCount = 0;
+
+  // 分类频道聚合：去重后最多直显若干，超出的收纳进"更多分类"。
+  static const int maxCategoryChips = 8;
+
   @override
   void initState() {
     super.initState();
@@ -142,6 +149,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     _selectedCategory = null;
     _categoryBooks = const [];
     _loadingCategoryBooks = false;
+    _latestVisibleCount = 0;
     await _loadSources();
   }
 
@@ -170,6 +178,10 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         _shelves = results[0] as List<_DiscoveryShelf>;
         _categories = results[1] as List<_SourcedCategory>;
         _latest = results[2] as List<SourcedBook>;
+        // 最新榜单仅展示第一页，其余按"下一页"逐步展开。
+        _latestVisibleCount = _latest.isEmpty
+            ? 0
+            : latestPageSize.clamp(1, _latest.length);
         _loadingBookStore = false;
       });
     } catch (error) {
@@ -184,8 +196,32 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   bool _hasAnyBookStore() =>
       _shelves.any((shelf) => shelf.items.isNotEmpty) ||
       _categories.isNotEmpty ||
-      _latest.isNotEmpty ||
-      _bookStoreError != null;
+      _latest.isNotEmpty;
+
+  /// 分类频道聚合：按名称去重，避免同一分类跨多个源重复堆叠。
+  List<_SourcedCategory> get _aggregatedCategories {
+    final seen = <String>{};
+    final out = <_SourcedCategory>[];
+    for (final c in _categories) {
+      final key = c.name.trim();
+      if (key.isEmpty) continue;
+      if (seen.add(key)) out.add(c);
+    }
+    return out;
+  }
+
+  /// 超出可直显上限时，是否还有未被收纳进"更多分类"的分类。
+  bool get _hasMoreCategories =>
+      _aggregatedCategories.length > maxCategoryChips;
+
+  /// 点击"下一页"后再展开一批最新榜单；到末尾后不再增长。
+  void _openLatestMore() {
+    if (_latest.isEmpty) return;
+    setState(() {
+      _latestVisibleCount =
+          (_latestVisibleCount + latestPageSize).clamp(0, _latest.length);
+    });
+  }
 
   Future<List<_DiscoveryShelf>> _safelyFetchShelves() async {
     try {
@@ -710,6 +746,10 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   }
 
   List<Widget> _buildCategorySlivers(double bottomPadding) {
+    final cats = _aggregatedCategories;
+    final visibleCats = _hasMoreCategories
+        ? cats.take(maxCategoryChips).toList(growable: false)
+        : cats;
     return [
       SliverToBoxAdapter(
         child: _centerSectionChild(
@@ -719,13 +759,36 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
               _buildSectionHeader(
                 context.l10n.discoverCategories,
                 Icons.category_rounded,
+                trailing: _hasMoreCategories
+                    ? TextButton.icon(
+                        onPressed: () => _openCategoryPicker(cats),
+                        icon: Icon(
+                          Icons.chevron_right_rounded,
+                          size: 18,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                        ),
+                        label: Text(
+                          '全部 ${cats.length} 个',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.primary,
+                          ),
+                        ),
+                      )
+                    : null,
               ),
               const SizedBox(height: 12),
               SizedBox(
                 height: 44,
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
-                  itemCount: _categories.length + 1,
+                  itemCount: visibleCats.length + 1,
                   separatorBuilder: (_, _) => const SizedBox(width: 10),
                   itemBuilder: (context, index) {
                     if (index == 0) {
@@ -733,11 +796,11 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
                         label: '全部分类',
                         icon: Icons.grid_view_rounded,
                         selected: _selectedCategory == null,
-                        onTap: () => _openCategoryPicker(_categories),
+                        onTap: () => _openCategoryPicker(visibleCats),
                         scheme: Theme.of(context).colorScheme,
                       );
                     }
-                    final category = _categories[index - 1];
+                    final category = visibleCats[index - 1];
                     final isSelected =
                         category.source.id == _selectedCategory?.source.id &&
                         category.id == _selectedCategory?.id;
@@ -773,6 +836,8 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     List<SourcedBook> latest,
     double bottomPadding,
   ) {
+    final shown = _latestVisibleCount.clamp(0, latest.length);
+    final remain = latest.length - shown;
     return [
       SliverToBoxAdapter(
         child: _centerSectionChild(
@@ -781,14 +846,25 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
             child: _buildSectionHeader(
               context.l10n.discoverLatest,
               Icons.local_fire_department_rounded,
+              trailing: remain > 0
+                  ? Text(
+                      '${shown}/${latest.length}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurfaceVariant,
+                      ),
+                    )
+                  : null,
             ),
           ),
         ),
       ),
       SliverPadding(
-        padding: EdgeInsets.fromLTRB(16, 6, 16, bottomPadding),
+        padding: EdgeInsets.fromLTRB(16, 6, 16, 0),
         sliver: SliverList.builder(
-          itemCount: latest.length,
+          itemCount: shown,
           itemBuilder: (context, index) {
             final result = latest[index];
             return _centerSectionChild(
@@ -801,6 +877,51 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
           },
         ),
       ),
+      if (remain > 0)
+        _paddedSectionSliver(
+          _centerSectionChild(
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Material(
+                color: Theme.of(context).colorScheme.primary.withValues(
+                  alpha: 0.08,
+                ),
+                borderRadius: BorderRadius.circular(14),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: _openLatestMore,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '展开更多 ${remain} 条',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          size: 18,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          topPadding: 8,
+          bottomPadding: bottomPadding,
+        ),
     ];
   }
 
