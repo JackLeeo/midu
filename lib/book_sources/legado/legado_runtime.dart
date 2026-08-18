@@ -24,6 +24,17 @@ class LegadoRuntime {
   static const int _maxChapters = 30000;
   static const int _maxPageHops = 20;
 
+  /// 浏览器的默认请求头。部分站点按 UA 中是否含移动端标记来决定是否返回完整
+  /// HTML：无浏览器 UA（Dart 默认）时只返回截断的分页预览，导致章节正文不全。
+  /// 源的头可在 [_request] 中逐一覆盖，这里仅为兜底。
+  static const Map<String, String> _defaultBrowserHeaders = {
+    'User-Agent':
+        'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36',
+    'Accept':
+        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'zh-CN,zh;q=0.9',
+  };
+
   /// 是否给沙箱接入 java.ajax / java.connect 网络执行器。
   /// 开启走「eval 前静态改写」，仅命中字面量调用（真实源多为动态调用，命中不了），
   /// 且 fjs 同步桥语义无法复刻 Legado 的同步 java.ajax，收益有限、有额外开销。
@@ -180,10 +191,13 @@ class LegadoRuntime {
     );
   }
 
+  /// [normalizeChapterOrder] 开关仅供诊断/取证：生产始终开启归一化，诊断脚本
+  /// 传 false 取原始目录顺序以核对源端真实结构（不影响生产行为，默认 true）。
   Future<List<BookSourceChapter>> getChapters(
     RegisteredBookSource registered,
-    String bookId,
-  ) async {
+    String bookId, {
+    bool normalizeChapterOrder = true,
+  }) async {
     await _ensureSandbox();
     final source = _source(registered);
     _ensureRunnable(source);
@@ -227,21 +241,83 @@ class LegadoRuntime {
     }
     // 部分源目录会整表倒序，或在顶部插入最近更新章节（随后的才是第 1 章起）；
     // 依据章节名中提取到的序号做归一化，保证按故事顺序返回。
-    return _normalizeChapterOrder(chapters);
+    return normalizeChapterOrder
+        ? _normalizeChapterOrder(chapters)
+        : _renumber(chapters);
   }
 
-  /// 从章节名中提取首个数字序号（如「第123章」= 123、「1000 目标」= 1000）。
+  /// 从章节名中提取首个数字序号，兼容阿拉伯数字与中文数字：
+  /// 「第123章」= 123、「第2章」= 2、「第一百二十三章」= 123、「第四千五百六十二章」= 4562。
+  /// 无法识别时返回 null。
   static int? _extractChapterOrdinal(String title) {
-    final match = RegExp(r'\d+').firstMatch(title);
-    return match == null ? null : int.tryParse(match.group(0)!);
+    // 1) 阿拉伯数字：优先「第N章/节」，退而取首个连续数字串。
+    final arabic = _arabicChapter.firstMatch(title);
+    if (arabic != null && arabic.group(1) != null) {
+      final v = int.tryParse(arabic.group(1)!);
+      if (v != null) return v;
+    } else {
+      final any = _arabicAny.firstMatch(title);
+      if (any != null) {
+        final v = int.tryParse(any.group(0)!);
+        if (v != null) return v;
+      }
+    }
+    // 2) 中文数字：优先「第X章/节/回/话」，退而取首个连续中文数字串。
+    final chinese = _chineseChapter.firstMatch(title) ?? _chineseAny.firstMatch(title);
+    if (chinese != null) {
+      // 命中了「第X章」时小组 1 是「X」；否则整个匹配就是中文数字串。
+      final token = chinese.groupCount >= 1 && chinese.group(1) != null
+          ? chinese.group(1)!
+          : chinese.group(0)!;
+      if (token.isNotEmpty) return _chineseToArabic(token);
+    }
+    return null;
+  }
+
+  static final RegExp _arabicChapter = RegExp(r'第(\d+)(?:章|节|回|话)?');
+  static final RegExp _arabicAny = RegExp(r'\d+');
+  static final RegExp _chineseChapter =
+      RegExp(r'第([零一二三四五六七八九十百千万]+)(?:章|节|回|话)?');
+  static final RegExp _chineseAny = RegExp(r'[零一二三四五六七八九十百千万]+');
+
+  static const Map<String, int> _cnDigits = {
+    '零': 0, '一': 1, '二': 2, '三': 3, '四': 4,
+    '五': 5, '六': 6, '七': 7, '八': 8, '九': 9,
+    '十': 10, '百': 100, '千': 1000, '万': 10000,
+  };
+
+  /// 中文数字串 → 阿拉伯数字。支持「四千五百六十二」= 4562、「二十三」= 23、
+  /// 「十」= 10、「一百一十」= 110。解析失败返回 null。
+  static int? _chineseToArabic(String s) {
+    var result = 0;
+    var section = 0; // 万以内的累加段
+    var num = 0;     // 当前数字位
+    for (final ch in s.split('')) {
+      final v = _cnDigits[ch];
+      if (v == null) return null;
+      if (v <= 9) {
+        num = v;
+      } else if (v == 10000) {
+        section = (section + num) * 10000;
+        result += section;
+        section = 0;
+        num = 0;
+      } else {
+        // 十/百/千：若之前无数位（如『十』），按 1 计。
+        section += (num == 0 ? 1 : num) * v;
+        num = 0;
+      }
+    }
+    return result + section + num;
   }
 
   /// 依据序号把目录归一化为「第 1 章在前」的顺序，并重排 order 字段。
   ///
   /// 处理两类异常：
   ///  1. 整表倒序（如 [.., 第3章, 第2章, 第1章]）→ 整体反转。
-  ///  2. 顶部插入了 N 章「最近更新」（如 [第100章..第96章, 第1章..第95章]）→
-  ///     把顶部块移动到末尾，并在块内按其真实顺序排列。
+  ///  2. 顶部堆了一段「后续/最新章节或公告」之后才从第 1 章起（如
+  ///     [第100章..第96章, 公告, 第1章..第95章]）→ 找到重启边界，把顶部非
+  ///     正文的堆块移到末尾，使第 1 章回到最前。
   /// 其余正常情况原样返回。
   List<BookSourceChapter> _normalizeChapterOrder(
     List<BookSourceChapter> raw,
@@ -266,30 +342,50 @@ class LegadoRuntime {
       return _renumber(raw.reversed.toList());
     }
 
-    // 2) 顶部「最近更新」块：找到第一个「跌回低序号（第 1、2 章）重启」的边界。
-    final maxPrefix = math.min(30, n ~/ 2);
+    // 2) 顶部堆块：寻找「从低序号（第 1、2 章）重新开始、其后单调递增」的
+    //    边界 k（取最早的一处），把 [0..k) 堆块移到末尾。要求堆块里确实存在
+    //    更大的章号（>2），避免把正常源的开头误判成堆块。
+    final maxPrefix = math.min(40, n ~/ 2);
     for (var k = 1; k <= maxPrefix; k++) {
-      final boundary = ord[k - 1];
       final restart = ord[k];
-      if (boundary == null || restart == null) continue;
-      if (restart > 2 || boundary < 10) continue;
-      // 确认 k..n 是从低序号开始单调递增的正常目录。
-      var restAscending = true;
-      for (var i = k; i + 1 < n; i++) {
-        final a = ord[i];
-        final b = ord[i + 1];
-        if (a != null && b != null && a > b) {
-          restAscending = false;
-          break;
+      if (restart == null || restart > 2) continue;
+      // 堆块 [0..k) 里必须至少有一个章号 > 2（说明顶部确实堆了后续章节）。
+      if (headHasOnlyPrefaceOrdinals(ord, k)) continue;
+      // 确认 k..n 从低序号起"基本单调递增"：允许极少量倒序（长目录常因
+      // 分卷/番外等出现零星序号回跳）。超过 5% 的相邻对递减则视为不成立。
+      var suffixComparable = 0;
+      var suffixDecreasing = 0;
+      int? prev;
+      for (var i = k; i < n; i++) {
+        final o = ord[i];
+        if (o == null) continue;
+        if (prev != null) {
+          suffixComparable++;
+          if (o < prev) suffixDecreasing++;
         }
+        prev = o;
       }
-      if (!restAscending) continue;
+      if (suffixComparable >= 2 &&
+          suffixDecreasing * 20 > suffixComparable) {
+        continue;
+      }
       final prefix = raw.sublist(0, k);
       final rp = ord.sublist(0, k);
       final prefixAdjusted = _reorderPrefixByOrdinal(prefix, rp);
       return _renumber([...raw.sublist(k), ...prefixAdjusted]);
     }
     return raw;
+  }
+
+  /// 顶部块 [0..k) 是否只含「前置位」的低序号/无序号内容而没有任何后置章号（>2）。
+  /// 若成立，说明顶部并非「最近更新」的倒序堆块，而是正常源的开头内容
+  /// （如序章、公告、番外），此时不应被整体搬到目录末尾。
+  static bool headHasOnlyPrefaceOrdinals(List<int?> ord, int k) {
+    for (var i = 0; i < k; i++) {
+      final v = ord[i];
+      if (v != null && v > 2) return false;
+    }
+    return true;
   }
 
   /// 顶部块内若呈倒序（最近更新通常按新到旧显示），则反转使其从小到大。
@@ -384,6 +480,10 @@ class LegadoRuntime {
           content,
           _optionalRule(rule, 'replaceRegex'),
         );
+        logger.log('content', '替换规则后的内容长度', details: {
+          'source': source.name,
+          'replaceLength': content.length,
+        });
         if (content.trim().isNotEmpty) parts.add(content.trim());
         nextUrl = await _url(document, null, rule, 'nextContentUrl');
       } catch (e, st) {
@@ -462,6 +562,9 @@ class LegadoRuntime {
     );
     final rawHeaders = _sourceHeaders(source);
     final processedHeaders = <String, String>{};
+    // 先写入浏览器级默认头，再让源自定义头覆盖。没有浏览器 UA 时部分站点
+    // （如 m.shuhaige.net）只返回截断的分页预览，导致章节正文显示不全。
+    processedHeaders.addAll(_defaultBrowserHeaders);
     for (final entry in rawHeaders.entries) {
       processedHeaders[entry.key] = await _preprocessJsInString(
         entry.value,

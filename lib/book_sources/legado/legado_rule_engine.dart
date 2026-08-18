@@ -298,21 +298,56 @@ class LegadoRuleEngine {
   String applyReplaceRule(String input, String rule) {
     if (rule.trim().isEmpty) return input;
     ensureSupported(rule, field: 'replacement rule');
-    final transformed = _splitTransform(
-      rule.trim().startsWith('##') ? rule : '##$rule',
-    );
-    if (transformed.pattern == null) return input;
-    try {
-      return _replaceRegex(
-        input,
-        RegExp(transformed.pattern!, multiLine: true, dotAll: true),
-        transformed.replacement,
+    // 若内容为 HTML（@html/@all 提取），块级标签间往往没有换行，先把段落边界
+    // 归一化为 \n，使 replaceRegex 的「按行删除」规则（.*广告.*）不会因整页一行
+    // 而贪婪吞掉全部正文；插入的换行在 HTML 渲染时会被折叠，不影响阅读。
+    var result = _normalizeParagraphNewlines(input);
+    // Legado 的 replaceRegex 是「| 分割的多条独立替换规则」，每条规则各自
+    // 把匹配的正则删除/替换为空。若把整串并成一个正则，贪婪的 `.*` 分支会
+    // 跨段吞掉整页正文（如 `|.*小说网！` 会把第一章活到只剩 7 个字符）。
+    // 这里按顶层 `|` 拆分，逐条独立应用；`.` 也不跨行（无 DOTALL）。
+    for (final segment in _splitReplaceRules(rule)) {
+      final transformed = _splitTransform(
+        segment.trim().startsWith('##') ? segment.trim() : '##${segment.trim()}',
       );
-    } on FormatException {
-      throw const BookSourceProtocolException(
-        'Legado replacement contains an invalid regular expression.',
-      );
+      if (transformed.pattern == null) continue;
+      try {
+        result = _replaceRegex(
+          result,
+          RegExp(transformed.pattern!, multiLine: true),
+          transformed.replacement,
+        );
+      } on FormatException {
+        throw const BookSourceProtocolException(
+          'Legado replacement contains an invalid regular expression.',
+        );
+      }
     }
+    return result;
+  }
+
+  /// 若内容是 HTML，在段落边界之后补换行，为 replaceRegex 提供行边界。
+  /// 主要命中正文常用的 <p> 与 <br>；其余块级标签不重写，避免破坏标签。
+  /// 非 HTML（纯文本）原样返回，交给 [._blockAwareText] 在提取阶段保行。
+  static String _normalizeParagraphNewlines(String s) {
+    if (!s.contains('<')) return s;
+    return s
+        .replaceAll(RegExp(r'</[pP]>'), '</p>\n')
+        .replaceAll(RegExp(r'<[bB][rR]\s*/?>'), '<br>\n');
+  }
+
+  /// 把 Legado 的 replaceRegex 按 `|` 拆成多条独立的替换/删除规则。
+  ///
+  /// Legado 语义：`replaceRegex` 是 `|` 分割的多条规则，每条形如「正则」或
+  /// 「正则##替换」；省略 `##` 即表示删除匹配内容。这里按 `|` 朴素拆分，
+  /// 丢弃空段，逐条独立应用，避免把整串并成单个正则后贪婪分支互相吞内容。
+  static List<String> _splitReplaceRules(String rule) {
+    final segments = <String>[];
+    for (final seg in rule.split('|')) {
+      final t = seg.trim();
+      if (t.isNotEmpty) segments.add(t);
+    }
+    return segments;
   }
 
   Future<List<Object?>> _evaluateAlternatives(
@@ -549,11 +584,14 @@ class LegadoRuleEngine {
 
   List<Object?>? _terminalValue(List<Element> nodes, String segment) {
     return switch (segment) {
-      'text' => nodes.map((node) => node.text).toList(),
+      // 米读：@text/@textNodes 使用按块级元素（<p>/<br>/<div> 等）保留换行的
+      // 提取。若把整页正文压成一行，replaceRegex 里「.*广告.*」这类按行删除的
+      // 贪婪规则会把整页都吞掉（正文显示不全的根因之一）。
+      'text' => nodes.map(_blockAwareText).toList(),
       'ownText' => nodes.map(_ownText).toList(),
       // 米读：textNodes 应返回元素内所有文本节点内容（含后代 <p> 等），
       // 之前误用 ownText 只取直接子文本，导致正文段落被丢空。
-      'textNodes' => nodes.map((node) => node.text.trim()).toList(),
+      'textNodes' => nodes.map((node) => _blockAwareText(node).trim()).toList(),
       // 与 Legado 一致：@html 返回元素 outerHtml（含自身标签），并移除 script/style
       'html' => nodes.map((node) {
         for (final junk in node.querySelectorAll('script,style')) {
@@ -1491,6 +1529,35 @@ int _normalizedIndex(int index, int length) =>
 
 String _ownText(Element element) =>
     element.nodes.whereType<Text>().map((node) => node.data).join().trim();
+
+/// 保留块级元素边界为换行的文本提取。
+///
+/// package:html 的 [Element.text] 会把所有后代文本拼接成一行，导致正文页面
+/// 的段落界限丢失。许多书源的 replaceRegex 依赖「一行一条广告/页眉」并以
+/// `.*关键字.*` 按行删除；一旦整页变成一行，贪婪的 `.*` 会吞掉全部正文。
+/// 这里在块级元素（<p>/<br>/<div> 等）结束后补 `\n`，恢复行边界。
+const Set<String> _blockTags = {
+  'p', 'br', 'div', 'article', 'section', 'blockquote',
+  'li', 'tr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr',
+};
+
+String _blockAwareText(Element root) {
+  final sb = StringBuffer();
+  void walk(Node node) {
+    for (final child in node.nodes) {
+      if (child is Element) {
+        final name = child.localName?.toLowerCase();
+        walk(child);
+        if (name != null && _blockTags.contains(name)) sb.write('\n');
+      } else {
+        sb.write(child.text);
+      }
+    }
+  }
+
+  walk(root);
+  return sb.toString();
+}
 
 bool _matches(Element element, String selector) {
   final parent = element.parent;
