@@ -136,16 +136,18 @@ class LayoutHelper {
     );
   }
 
-  /// 纯封面网格密度。手机严格使用用户选择的 2/3 列；宽屏按相同的
-  /// 封面密度增加列数，避免平板或桌面仍只显示两三个超大封面。
+  /// 纯封面网格密度：按可用宽度自适应列数，封面目标宽度更小，手机也能一排
+  /// 3-4 本，平板/桌面按相同密度继续增加列数，避免封面过大、每屏书过少。
+  /// [mobileColumns]（2/3）作为下限保留用户的最小列数偏好。
   static int coverOnlyGridColumnsForWidth(
     double width, {
     required int mobileColumns,
   }) {
     final normalizedColumns = mobileColumns == 2 ? 2 : 3;
-    if (width < tabletBreakpoint) return normalizedColumns;
-    final targetItemExtent = normalizedColumns == 2 ? 156.0 : 128.0;
-    const horizontalPadding = 20.0;
+    // 封面目标宽度：更紧凑，缩放屏幕时列数重排、封面大小基本不变。
+    const double targetItemExtent = 120.0;
+    const double horizontalPadding = 12.0;
+    if (width <= 0) return normalizedColumns;
     return ((width - horizontalPadding) / targetItemExtent).round().clamp(
       normalizedColumns,
       14,

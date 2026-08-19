@@ -2,6 +2,7 @@
 // 技术要点：Flutter UI、按 Tab 缓存的书源请求、下拉刷新。
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:midu/book_sources/models/registered_book_source.dart';
@@ -17,6 +18,7 @@ import 'package:midu/widgets/generated_book_cover.dart';
 import 'package:midu/widgets/source_cover_image.dart';
 
 import 'book_source_management_page.dart';
+import 'discovery_cache_service.dart';
 import 'source_search_page.dart';
 import 'widgets/sourced_book_widgets.dart';
 
@@ -110,12 +112,12 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   List<SourcedBook> _categoryBooks = const [];
   bool _loadingCategoryBooks = false;
 
+  // 当前展开的分类栏目 key（参考番茄/七猫：先选二级栏目，再选该栏目下的细分分类）。
+  String? _selectedSectionKey;
+
   // 最新榜单分页：默认展示一页，点击"下一页"再展开，避免无限下滑。
   static const int latestPageSize = 10;
   int _latestVisibleCount = 0;
-
-  // 分类频道聚合：去重后最多直显若干，超出的收纳进"更多分类"。
-  static const int maxCategoryChips = 8;
 
   @override
   void initState() {
@@ -149,6 +151,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     _selectedCategory = null;
     _categoryBooks = const [];
     _loadingCategoryBooks = false;
+    _selectedSectionKey = null;
     _latestVisibleCount = 0;
     await _loadSources();
   }
@@ -167,6 +170,16 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       _loadingBookStore = true;
       _bookStoreError = null;
     });
+    // 缓存优先：首次进入先渲染上次的发现页内容，避免空白页；
+    // 网络数据随后在后台拉取并替换。
+    if (!force && !_hasAnyBookStore()) {
+      try {
+        final cached = await DiscoveryCacheService.instance.read();
+        if (cached != null && mounted && _applyDiscoveryCache(cached)) {
+          setState(() => _loadingBookStore = false);
+        }
+      } catch (_) {}
+    }
     try {
       final results = await Future.wait<Object>([
         _safelyFetchShelves(),
@@ -174,16 +187,26 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         _safelyFetchLatest(),
       ]);
       if (!mounted) return;
+      final shelves = results[0] as List<_DiscoveryShelf>;
+      final categories = results[1] as List<_SourcedCategory>;
+      final latest = results[2] as List<SourcedBook>;
       setState(() {
-        _shelves = results[0] as List<_DiscoveryShelf>;
-        _categories = results[1] as List<_SourcedCategory>;
-        _latest = results[2] as List<SourcedBook>;
+        _shelves = shelves;
+        _categories = categories;
+        _latest = latest;
         // 最新榜单仅展示第一页，其余按"下一页"逐步展开。
-        _latestVisibleCount = _latest.isEmpty
-            ? 0
-            : latestPageSize.clamp(1, _latest.length);
+        _latestVisibleCount = latest.isEmpty ? 0 : latestPageSize.clamp(1, latest.length);
         _loadingBookStore = false;
       });
+      // 静默写回缓存，供下次启动秒出内容。
+      final freshCache = _encodeDiscoveryCache(
+        shelves: shelves,
+        categories: categories,
+        latest: latest,
+      );
+      if (freshCache != null) {
+        unawaited(DiscoveryCacheService.instance.write(freshCache));
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -198,6 +221,124 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       _categories.isNotEmpty ||
       _latest.isNotEmpty;
 
+  /// 把当前的发现页数据编码成缓存 JSON（含书源快照，可离线还原）。
+  String? _encodeDiscoveryCache({
+    required List<_DiscoveryShelf> shelves,
+    required List<_SourcedCategory> categories,
+    required List<SourcedBook> latest,
+  }) {
+    try {
+      final sources = <String, Map<String, dynamic>>{};
+      void note(RegisteredBookSource source) {
+        sources[source.id] ??= source.toJson();
+      }
+
+      final shelfJson = shelves.map((shelf) {
+        note(shelf.source);
+        return <String, dynamic>{
+          'sourceId': shelf.source.id,
+          'title': shelf.title,
+          'items': shelf.items.map((book) => book.toJson()).toList(),
+        };
+      }).toList();
+      final categoryJson = categories.map((c) {
+        note(c.source);
+        return <String, dynamic>{
+          'sourceId': c.source.id,
+          'id': c.id,
+          'name': c.name,
+        };
+      }).toList();
+      final latestJson = latest.map((r) {
+        note(r.source);
+        return <String, dynamic>{
+          'sourceId': r.source.id,
+          'book': r.book.toJson(),
+        };
+      }).toList();
+      return jsonEncode(<String, dynamic>{
+        'version': 1,
+        'sources': sources,
+        'shelves': shelfJson,
+        'categories': categoryJson,
+        'latest': latestJson,
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 从缓存 JSON 还原发现页数据；失败返回 false（保持现状）。
+  bool _applyDiscoveryCache(String raw) {
+    try {
+      final root = jsonDecode(raw);
+      if (root is! Map<String, dynamic>) return false;
+      final sources = <String, RegisteredBookSource>{};
+      final rawSources = root['sources'];
+      if (rawSources is Map) {
+        rawSources.forEach((key, value) {
+          if (key is String && value is Map<String, dynamic>) {
+            try {
+              sources[key] = RegisteredBookSource.fromJson(value);
+            } catch (_) {}
+          }
+        });
+      }
+      RegisteredBookSource? sourceOf(dynamic sourceId) =>
+          sources[sourceId is String ? sourceId : ''];
+
+      final shelves = <_DiscoveryShelf>[];
+      for (final entry in (root['shelves'] as List? ?? const [])) {
+        if (entry is! Map<String, dynamic>) continue;
+        final source = sourceOf(entry['sourceId']);
+        if (source == null) continue;
+        final items = (entry['items'] as List? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map((e) => BookSourceBook.fromJson(e))
+            .toList(growable: false);
+        shelves.add(
+          _DiscoveryShelf(
+            source: source,
+            title: entry['title'] is String ? entry['title'] as String : '',
+            items: items,
+          ),
+        );
+      }
+
+      final categories = <_SourcedCategory>[];
+      for (final entry in (root['categories'] as List? ?? const [])) {
+        if (entry is! Map<String, dynamic>) continue;
+        final source = sourceOf(entry['sourceId']);
+        if (source == null) continue;
+        categories.add(
+          _SourcedCategory(
+            source: source,
+            id: entry['id'] is String ? entry['id'] as String : '',
+            name: entry['name'] is String ? entry['name'] as String : '',
+          ),
+        );
+      }
+
+      final latest = <SourcedBook>[];
+      for (final entry in (root['latest'] as List? ?? const [])) {
+        if (entry is! Map<String, dynamic>) continue;
+        final source = sourceOf(entry['sourceId']);
+        final book = entry['book'];
+        if (source == null || book is! Map<String, dynamic>) continue;
+        try {
+          latest.add(SourcedBook(source: source, book: BookSourceBook.fromJson(book)));
+        } catch (_) {}
+      }
+
+      _shelves = shelves;
+      _categories = categories;
+      _latest = latest;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// 分类频道聚合：按名称去重，避免同一分类跨多个源重复堆叠。
   List<_SourcedCategory> get _aggregatedCategories {
     final seen = <String>{};
@@ -210,9 +351,33 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     return out;
   }
 
-  /// 超出可直显上限时，是否还有未被收纳进"更多分类"的分类。
-  bool get _hasMoreCategories =>
-      _aggregatedCategories.length > maxCategoryChips;
+  /// 把聚合后的二级分类按「栏目」分组：关键词命中前优先，未命中的进 '更多分类'。
+  /// 参照番茄/七猫：榜单、玄幻仙侠、都市、言情等各成栏目，再概括展示。
+  List<_CategorySection> _groupCategorySections(List<_SourcedCategory> cats) {
+    final sections = _categorySectionTemplates
+        .map((template) => _CategorySection(template: template, cats: []))
+        .toList(growable: false);
+    final leftovers = <_SourcedCategory>[];
+    outer:
+    for (final c in cats) {
+      final name = c.name.trim().toLowerCase();
+      for (final section in sections) {
+        if (section.key == 'other') continue;
+        if (section.template.keywords
+            .any((keyword) => name.contains(keyword.toLowerCase()))) {
+          section.cats.add(c);
+          continue outer;
+        }
+      }
+      leftovers.add(c);
+    }
+    for (final section in sections) {
+      if (section.key == 'other') {
+        section.cats.addAll(leftovers);
+      }
+    }
+    return sections.where((s) => s.cats.isNotEmpty).toList(growable: false);
+  }
 
   /// 点击"下一页"后再展开一批最新榜单；到末尾后不再增长。
   void _openLatestMore() {
@@ -773,10 +938,20 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
 
   List<Widget> _buildCategorySlivers(double bottomPadding) {
     final cats = _aggregatedCategories;
-    final visibleCats = _hasMoreCategories
-        ? cats.take(maxCategoryChips).toList(growable: false)
-        : cats;
+    if (cats.isEmpty) return const [SliverToBoxAdapter(child: SizedBox.shrink())];
+    final sections = _groupCategorySections(cats);
+    // 展开的栏目：优先用户上次选择，失效则回落到第一个非空栏目。
+    final activeKey = (_selectedSectionKey != null &&
+            sections.any((s) => s.key == _selectedSectionKey))
+        ? _selectedSectionKey!
+        : sections.first.key;
+    final activeSection = sections.firstWhere((s) => s.key == activeKey);
     final selected = _selectedCategory;
+    final selectedInSection =
+        selected != null &&
+        activeSection.cats.any(
+          (c) => c.source.id == selected.source.id && c.id == selected.id,
+        );
     return [
       SliverToBoxAdapter(
         child: _centerSectionChild(
@@ -785,40 +960,51 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
             child: _buildSectionHeader(
               context.l10n.discoverCategories,
               Icons.category_rounded,
-              trailing: _hasMoreCategories
-                  ? TextButton.icon(
-                      onPressed: () => _openCategoryPicker(cats),
-                      icon: Icon(
-                        Icons.chevron_right_rounded,
-                        size: 18,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                      ),
-                      label: Text(
-                        '${cats.length} 个分类',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                    )
-                  : null,
+              subtitle: activeSection.cats.isEmpty
+                  ? null
+                  : '${activeSection.cats.length} 个分类 · 从 ${cats.length} 个总分类聚合',
             ),
           ),
         ),
       ),
-      // 聚合分类：像「最新」一样以整块网格聚合展示，而非薄薄的横向标签条。
+      // 栏目条：参考番茄/七猫，先选「二级栏目」（玄幻仙侠/都市/言情/榜单…），
+      // 再在该栏目下选更细分的分类，避免全部分类一次性堆叠。
+      _categorySectionBar(
+        sections: sections,
+        activeKey: activeKey,
+        onSelect: (key) => setState(() {
+          _selectedSectionKey = key;
+          // 若已选分类不属于新栏目，则清空，等待用户在新栏目内重新选择。
+          if (selected != null &&
+              !activeSection.cats.any(
+                (c) => c.source.id == selected.source.id &&
+                    c.id == selected.id,
+              )) {
+            _selectedCategory = null;
+            _categoryBooks = const [];
+            _loadingCategoryBooks = false;
+          }
+        }),
+        scheme: Theme.of(context).colorScheme,
+      ),
+      // 当前栏目聚合到的细分分类，以紧凑胶囊整块展示。
       _categoryGridSliver(
-        cats: visibleCats,
+        cats: activeSection.cats,
         selected: selected,
-        hasMore: _hasMoreCategories,
+        hasMore: false,
         onSelect: _selectCategoryForBrowse,
         onMore: () => _openCategoryPicker(cats),
         bottomPadding: bottomPadding,
       ),
+      if (selected != null && !selectedInSection)
+        _paddedSectionSliver(
+          _buildSectionHeader(
+            selected.name,
+            Icons.collections_bookmark_outlined,
+          ),
+          topPadding: 18,
+          bottomPadding: 0,
+        ),
       if (selected != null && _loadingCategoryBooks)
         _paddedSectionSliver(
           const Padding(
@@ -831,6 +1017,37 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       if (selected != null && _categoryBooks.isNotEmpty)
         _bookGridSliver(_categoryBooks, bottomPadding: bottomPadding),
     ];
+  }
+
+  /// 栏目横条：横向滚动的一级栏目（榜单/玄幻仙侠/都市/言情/…/更多分类）。
+  static Widget _categorySectionBar({
+    required List<_CategorySection> sections,
+    required String activeKey,
+    required ValueChanged<String> onSelect,
+    required ColorScheme scheme,
+  }) {
+    return SliverPadding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 0, 4),
+      sliver: SliverToBoxAdapter(
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final s in sections)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: _CategorySectionChip(
+                    section: s,
+                    active: s.key == activeKey,
+                    onTap: () => onSelect(s.key),
+                    scheme: scheme,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   /// 分类聚合网格：去重后的分类以「分类卡片」整块展示，超出收纳进末尾的「更多」卡。
@@ -1347,6 +1564,105 @@ class _SourcedCategory {
   });
 }
 
+/// 分类栏目的模板定义：一个栏目 = 一组同类型关键词 + 标题/图标。
+/// 聚合各来源的二级分类后，按关键词归类到对应栏目，参考番茄/七猫的分类组织。
+class _CategorySectionTemplate {
+  final String key;
+  final String title;
+  final IconData icon;
+  final List<String> keywords;
+
+  const _CategorySectionTemplate({
+    required this.key,
+    required this.title,
+    required this.icon,
+    required this.keywords,
+  });
+}
+
+/// 一个已填充分类的栏目实例（[cats] 为该栏目聚合到的二级分类）。
+class _CategorySection {
+  final _CategorySectionTemplate template;
+  final List<_SourcedCategory> cats;
+
+  _CategorySection({required this.template, required this.cats});
+
+  String get title => template.title;
+  String get key => template.key;
+  IconData get icon => template.icon;
+}
+
+/// 分类栏目模板表：顺序决定匹配优先级，'other' 为兜底收纳所有未匹配分类。
+const List<_CategorySectionTemplate> _categorySectionTemplates = [
+  _CategorySectionTemplate(
+    key: 'rank',
+    title: '榜单排行',
+    icon: Icons.emoji_events_outlined,
+    keywords: ['榜单', '排行', '热读', '热门', '月票', '订阅', '点击', '人气', '新书榜', '完结榜'],
+  ),
+  _CategorySectionTemplate(
+    key: 'xuanhuan',
+    title: '玄幻仙侠',
+    icon: Icons.auto_awesome_outlined,
+    keywords: ['玄幻', '奇幻', '魔幻', '仙侠', '修真', '凡人'],
+  ),
+  _CategorySectionTemplate(
+    key: 'wuxia',
+    title: '武侠',
+    icon: Icons.sports_martial_arts_outlined,
+    keywords: ['武侠', '江湖', '武林'],
+  ),
+  _CategorySectionTemplate(
+    key: 'dushi',
+    title: '都市',
+    icon: Icons.location_city_outlined,
+    keywords: ['都市', '校园', '职场', '重生', '兵王', '医生', '律师', '总裁'],
+  ),
+  _CategorySectionTemplate(
+    key: 'yanqing',
+    title: '言情',
+    icon: Icons.favorite_outline,
+    keywords: ['言情', '甜宠', '婚恋', '古言', '现言', '豪门', '爱恋', '女频', '宠'],
+  ),
+  _CategorySectionTemplate(
+    key: 'kehuan',
+    title: '科幻末世',
+    icon: Icons.science_outlined,
+    keywords: ['科幻', '末世', '星际', '机甲', '末日', '丧尸', '未来', '赛博'],
+  ),
+  _CategorySectionTemplate(
+    key: 'xanyi',
+    title: '悬疑推理',
+    icon: Icons.search_outlined,
+    keywords: ['悬疑', '推理', '侦探', '刑侦', '灵异', '惊悚', '探险', '盗墓', '冒险'],
+  ),
+  _CategorySectionTemplate(
+    key: 'lishi',
+    title: '历史军事',
+    icon: Icons.account_balance_outlined,
+    keywords: ['历史', '穿越', '三国', '权谋', '帝王', '王朝', '军事', '战争'],
+  ),
+  _CategorySectionTemplate(
+    key: 'youxi',
+    title: '游戏竞技',
+    icon: Icons.sports_esports_outlined,
+    keywords: ['游戏', '电竞', '竞技', '体育', '足球', '篮球', '王者'],
+  ),
+  _CategorySectionTemplate(
+    key: 'erciyuan',
+    title: '二次元',
+    icon: Icons.movie_filter_outlined,
+    keywords: ['二次元', '动漫', '同人', '轻小说', '综漫', '番'],
+  ),
+  _CategorySectionTemplate(
+    key: 'wenyi',
+    title: '文艺',
+    icon: Icons.article_outlined,
+    keywords: ['文艺', '散文', '诗歌', '文学', '传记', '经典', '人生'],
+  ),
+  _CategorySectionTemplate(key: 'other', title: '更多分类', icon: Icons.category_outlined, keywords: []),
+];
+
 class _CategoryPickerPanel extends StatefulWidget {
   final List<_SourcedCategory> categories;
   final _SourcedCategory? selectedCategory;
@@ -1509,6 +1825,54 @@ class _CategoryPickerEntry {
   const _CategoryPickerEntry.header(this.header) : category = null;
 
   const _CategoryPickerEntry.category(this.category) : header = null;
+}
+
+/// 分类栏目芯片：一级栏目（榜单/玄幻仙侠/都市/言情/…），选中态高亮。
+class _CategorySectionChip extends StatelessWidget {
+  const _CategorySectionChip({
+    required this.section,
+    required this.active,
+    required this.onTap,
+    required this.scheme,
+  });
+
+  final _CategorySection section;
+  final bool active;
+  final VoidCallback onTap;
+  final ColorScheme scheme;
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = active ? scheme.onPrimary : scheme.onSurfaceVariant;
+    return Material(
+      color: active ? scheme.primary : scheme.surfaceContainerLow,
+      shape: const StadiumBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(section.icon, size: 15, color: fg),
+              const SizedBox(width: 5),
+              Text(
+                section.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: fg,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// 发现页「分类」聚合网格：把去重后的分类像「最新」一样整块聚合展示。

@@ -542,7 +542,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }) {
     final scheme = Theme.of(context).colorScheme;
     return SizedBox(
-      width: 112,
+      width: 124,
       child: Container(
         decoration: BoxDecoration(
           color: scheme.surfaceContainerLow,
@@ -556,11 +556,9 @@ class _SettingsPageState extends State<SettingsPage> {
           padding: EdgeInsets.fromLTRB(16, topPadding, 8, 12),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(16),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.only(bottom: 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final items = <Widget>[
                   for (var i = 0; i < groups.length; i++)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
@@ -574,8 +572,27 @@ class _SettingsPageState extends State<SettingsPage> {
                         scheme: scheme,
                       ),
                     ),
-                ],
-              ),
+                ];
+                // 高度充足时纵向撑满侧栏、各分组均分高度，
+                // 消除底部大片空白；高度过小时退回滚动。
+                const double minItemExtent = 60;
+                if (constraints.maxHeight >= groups.length * minItemExtent) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var i = 0; i < items.length; i++)
+                        Expanded(child: items[i]),
+                    ],
+                  );
+                }
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.only(bottom: 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: items,
+                  ),
+                );
+              },
             ),
           ),
         ),
@@ -599,6 +616,7 @@ class _SettingsPageState extends State<SettingsPage> {
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
           child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(group.icon, size: 22, color: iconColor),
               const SizedBox(height: 6),
