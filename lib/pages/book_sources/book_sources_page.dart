@@ -119,6 +119,12 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   // 各栏目的书籍内存缓存（key 为栏目 key）。命中后秒出旧数据，后台静默刷新替换。
   final Map<String, List<SourcedBook>> _sectionCache = {};
 
+  // 各栏目最近一次成功拉取的时间，用于判断缓存是否新鲜，避免刚预热完又重复请求。
+  final Map<String, DateTime> _sectionFetchedAt = {};
+
+  // 栏目缓存的新鲜窗口：窗口内命中缓存不重复拉取，直接使用。
+  static const Duration sectionCacheFreshness = Duration(minutes: 10);
+
   // 最新榜单分页：默认展示一页，点击"下一页"再展开，避免无限下滑。
   static const int latestPageSize = 10;
   int _latestVisibleCount = 0;
@@ -147,6 +153,8 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     await _loadBookStore();
     // 分类数据就绪后，默认选中第一个栏目并聚合其书籍。
     await _autoSelectSection();
+    // 后台静默预热其余栏目并缓存，使切换分类可无感秒出。
+    unawaited(_warmUpAllSections());
   }
 
   Future<void> _reloadAll() async {
@@ -625,7 +633,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     );
     final cached = _sectionCache[key];
     if (cached != null && cached.isNotEmpty) {
-      // 命中缓存：避免闪烁，直接复用旧数据，再后台静默刷新替换。
+      // 命中缓存：避免闪烁，直接复用旧数据。
       final isSwitch = _selectedSectionKey != key || _sectionBooks.isEmpty;
       if (isSwitch) {
         setState(() {
@@ -634,7 +642,12 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
           _loadingSectionBooks = false;
         });
       }
-      unawaited(_refreshSectionBooks(key));
+      // 缓存足够新鲜则不再请求，否则后台静默刷新替换。
+      final fetchedAt = _sectionFetchedAt[key];
+      final stale =
+          fetchedAt == null ||
+          DateTime.now().difference(fetchedAt) > sectionCacheFreshness;
+      if (stale) unawaited(_refreshSectionBooks(key));
       return;
     }
     setState(() {
@@ -645,6 +658,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       final books = await _fetchSectionBooks(active);
       if (!mounted || _selectedSectionKey != key) return;
       _sectionCache[key] = books;
+      _sectionFetchedAt[key] = DateTime.now();
       _persistDiscoveryCache();
       setState(() {
         _sectionBooks = books;
@@ -653,6 +667,38 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     } catch (_) {
       if (!mounted || _selectedSectionKey != key) return;
       setState(() => _loadingSectionBooks = false);
+    }
+  }
+
+  /// 后台静默预热所有尚未缓存的栏目，把它们的数据拉取并写入缓存，
+  /// 用户切换栏目时可无感秒出（不需要再等待网络）。并发 2 个栏目并行。
+  Future<void> _warmUpAllSections() async {
+    final sections = _groupCategorySections(_aggregatedCategories);
+    if (sections.isEmpty) return;
+    // 只补还没缓存的栏目；已命中缓存的不重复请求。
+    final pending = sections
+        .where(
+          (s) => (_sectionCache[s.key] ?? const []).isEmpty,
+        )
+        .toList(growable: false);
+    if (pending.isEmpty) return;
+    const int parallelism = 2;
+    for (var i = 0; i < pending.length; i += parallelism) {
+      final end = math.min(i + parallelism, pending.length);
+      final chunk = pending.sublist(i, end);
+      await Future.wait<Object?>(
+        chunk.map((section) async {
+          try {
+            final books = await _fetchSectionBooks(section);
+            if (!mounted) return;
+            _sectionCache[section.key] = books;
+            _sectionFetchedAt[section.key] = DateTime.now();
+            _persistDiscoveryCache();
+          } catch (_) {}
+          return null;
+        }),
+      );
+      if (!mounted) return;
     }
   }
 
@@ -668,6 +714,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       final books = await _fetchSectionBooks(active);
       if (!mounted) return;
       _sectionCache[key] = books;
+      _sectionFetchedAt[key] = DateTime.now();
       _persistDiscoveryCache();
       // 仍停留在该栏目，或当前无数据时，用新数据替换展示。
       if (_selectedSectionKey == key || _sectionBooks.isEmpty) {
