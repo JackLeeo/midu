@@ -1537,54 +1537,32 @@ class _CategoryGridSliver extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SliverPadding(
-      padding: EdgeInsets.fromLTRB(16, 12, 16, bottomPadding),
+      padding: EdgeInsets.fromLTRB(16, 10, 16, bottomPadding),
       sliver: SliverToBoxAdapter(
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1048),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final width = constraints.maxWidth;
-                final columns = switch (width) {
-                  >= 1080 => 4,
-                  >= 720 => 3,
-                  _ => 2,
-                };
-                const spacing = 12.0;
-                final tileWidth =
-                    (width - spacing * (columns - 1)) / columns;
-                final tileHeight = tileWidth * 0.92;
-                return Wrap(
-                  spacing: spacing,
-                  runSpacing: spacing,
-                  children: [
-                    for (final c in cats)
-                      SizedBox(
-                        width: tileWidth,
-                        height: tileHeight,
-                        child: _CategoryGridTile(
-                          category: c,
-                          selected:
-                              selected?.source.id == c.source.id &&
-                              selected?.id == c.id,
-                          onTap: () => onSelect(c),
-                          scheme: scheme,
-                        ),
-                      ),
-                    if (hasMore)
-                      SizedBox(
-                        width: tileWidth,
-                        height: tileHeight,
-                        child: _CategoryGridTile(
-                          category: null,
-                          selected: false,
-                          onTap: onMore,
-                          scheme: scheme,
-                        ),
-                      ),
-                  ],
-                );
-              },
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final c in cats)
+                  _CategoryGridTile(
+                    category: c,
+                    selected:
+                        selected?.source.id == c.source.id &&
+                        selected?.id == c.id,
+                    onTap: () => onSelect(c),
+                    scheme: scheme,
+                  ),
+                if (hasMore)
+                  _CategoryGridTile(
+                    category: null,
+                    selected: false,
+                    onTap: onMore,
+                    scheme: scheme,
+                  ),
+              ],
             ),
           ),
         ),
@@ -1593,7 +1571,8 @@ class _CategoryGridSliver extends StatelessWidget {
   }
 }
 
-/// 分类网格卡片；[category] 为 null 时渲染为「更多分类」入口卡。
+/// 分类聚合芯片；[category] 为 null 时渲染为「更多分类」入口。
+/// 采用紧凑胶囊，聚合展示同类型分类，而非大尺寸卡片，避免占屏过大。
 class _CategoryGridTile extends StatelessWidget {
   const _CategoryGridTile({
     required this.category,
@@ -1611,66 +1590,34 @@ class _CategoryGridTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final isMore = category == null;
     final fg = selected ? scheme.onPrimary : scheme.onSurface;
-    final subFg = selected
-        ? scheme.onPrimary.withValues(alpha: 0.82)
-        : scheme.onSurfaceVariant;
     return Material(
-      color: selected
-          ? scheme.primary
-          : scheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(14),
+      color: selected ? scheme.primary : scheme.surfaceContainerLow,
+      shape: const StadiumBorder(),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? scheme.onPrimary.withValues(alpha: 0.16)
-                          : scheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(
-                      isMore
-                          ? Icons.grid_view_rounded
-                          : Icons.local_library_rounded,
-                      size: 19,
-                      color: selected ? fg : scheme.primary,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (selected)
-                    Icon(Icons.check_circle_rounded, size: 18, color: fg),
-                ],
-              ),
-              const Spacer(),
               Text(
                 isMore ? '更多分类' : category!.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 14,
-                  color: fg,
-                  height: 1.2,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                isMore ? '查看全部' : category!.source.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 11, color: subFg),
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: fg,
+                ),
               ),
+              if (isMore) ...[
+                const SizedBox(width: 4),
+                Icon(Icons.chevron_right_rounded, size: 16, color: fg),
+              ] else if (selected) ...[
+                const SizedBox(width: 4),
+                Icon(Icons.check_rounded, size: 16, color: fg),
+              ],
             ],
           ),
         ),

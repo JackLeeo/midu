@@ -489,7 +489,7 @@ class _SettingsPageState extends State<SettingsPage> {
         gradient: PageStyleHelper.backgroundGradient(context),
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // 左侧分组抽屉
           _buildGroupRail(
@@ -542,30 +542,40 @@ class _SettingsPageState extends State<SettingsPage> {
   }) {
     final scheme = Theme.of(context).colorScheme;
     return SizedBox(
-      width: 104,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(16, topPadding, 6, 0),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.only(bottom: 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (var i = 0; i < groups.length; i++)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: _buildGroupItem(
-                      group: groups[i],
-                      selected: i == selectedIndex,
-                      onTap: () {
-                        if (i == _selectedGroupIndex) return;
-                        setState(() => _selectedGroupIndex = i);
-                      },
-                      scheme: scheme,
+      width: 112,
+      child: Container(
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerLow,
+          border: Border(
+            right: BorderSide(
+              color: scheme.outline.withValues(alpha: 0.14),
+            ),
+          ),
+        ),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(16, topPadding, 8, 12),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.only(bottom: 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < groups.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _buildGroupItem(
+                        group: groups[i],
+                        selected: i == selectedIndex,
+                        onTap: () {
+                          if (i == _selectedGroupIndex) return;
+                          setState(() => _selectedGroupIndex = i);
+                        },
+                        scheme: scheme,
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

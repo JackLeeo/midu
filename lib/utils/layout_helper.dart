@@ -124,15 +124,15 @@ class LayoutHelper {
   }
 
   // 书库网格按可用宽度推导列数（网格仅在平板/桌面显示）。
-  // 目标是每个格子约 168 逻辑像素宽（封面 ~150），旋转屏幕时封面大小
-  // 基本不变、只重排列数，避免大屏上封面过大。
+  // 目标是每个格子逻辑像素宽度较小（封面 ~120），旋转屏幕时封面大小
+  // 基本不变、只重排列数，避免大屏上封面过大、每屏书籍过少。
   static int bookGridColumnsForWidth(double width) {
-    const double targetItemExtent = 168.0;
-    const double horizontalPadding = 32.0;
+    const double targetItemExtent = 140.0;
+    const double horizontalPadding = 20.0;
     if (width <= 0) return 3;
     return ((width - horizontalPadding) / targetItemExtent).round().clamp(
       3,
-      10,
+      14,
     );
   }
 
@@ -144,11 +144,11 @@ class LayoutHelper {
   }) {
     final normalizedColumns = mobileColumns == 2 ? 2 : 3;
     if (width < tabletBreakpoint) return normalizedColumns;
-    final targetItemExtent = normalizedColumns == 2 ? 184.0 : 148.0;
-    const horizontalPadding = 32.0;
+    final targetItemExtent = normalizedColumns == 2 ? 156.0 : 128.0;
+    const horizontalPadding = 20.0;
     return ((width - horizontalPadding) / targetItemExtent).round().clamp(
       normalizedColumns,
-      12,
+      14,
     );
   }
 

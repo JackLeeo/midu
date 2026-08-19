@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
-
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -14,7 +12,6 @@ import 'package:midu/book_sources/services/book_source_health_service.dart';
 import 'package:midu/book_sources/services/book_source_import_analyzer.dart';
 import 'package:midu/book_sources/services/book_source_registry.dart';
 import 'package:midu/utils/debug_logger.dart';
-import 'package:midu/utils/glass_config.dart';
 import 'package:midu/utils/layout_helper.dart';
 import 'package:midu/utils/localization_extension.dart';
 import 'package:midu/utils/page_style_helper.dart';
@@ -793,33 +790,21 @@ class _BookSourceManagementPageState extends State<BookSourceManagementPage> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setState) => Dialog(
-          backgroundColor: Colors.transparent,
+          backgroundColor: scheme.surfaceContainerHigh,
           insetPadding: const EdgeInsets.symmetric(
             horizontal: 28,
             vertical: 24,
           ),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 560),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(28),
-              child: BackdropFilter(
-                enabled: !GlassEffectConfig.shouldDisableBlur,
-                filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        scheme.primary.withValues(alpha: 0.18),
-                        scheme.surface.withValues(alpha: 0.96),
-                      ],
-                    ),
-                    border: Border.all(
-                      color: scheme.primary.withValues(alpha: 0.34),
-                    ),
-                    borderRadius: BorderRadius.circular(28),
-                  ),
+            child: Container(
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHigh,
+                border: Border.all(
+                  color: scheme.primary.withValues(alpha: 0.34),
+                ),
+                borderRadius: BorderRadius.circular(28),
+              ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -994,9 +979,7 @@ class _BookSourceManagementPageState extends State<BookSourceManagementPage> {
               ),
             ),
           ),
-        ),
-      ),
-    );
+        );
   }
 
   Widget _summaryChip(String label, Color accent) {

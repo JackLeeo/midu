@@ -330,7 +330,6 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
         ? (mediaQuery.size.width >= 1600 ? 1080.0 : 920.0)
         : double.infinity;
     final firstBook = _recentBooks.isEmpty ? null : _recentBooks.first;
-    final carouselBooks = _recentBooks.skip(1).toList(growable: false);
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -408,24 +407,6 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                           ),
                           child: _buildReadingFootprint(),
                         ),
-                      ),
-                      const SizedBox(height: 26),
-                      _buildMaxWidthBox(
-                        maxWidth: maxWidth,
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: metrics.horizontalPadding,
-                          ),
-                          child: _buildSectionLabel(
-                            context.l10n.homeRecentReading,
-                            onMore: _openStats,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      _buildMaxWidthBox(
-                        maxWidth: maxWidth,
-                        child: _buildRecentBooksCarousel(carouselBooks),
                       ),
                       SizedBox(height: metrics.contentBottomPadding + 16),
                     ]),
@@ -859,86 +840,6 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
     );
   }
 
-  Widget _buildRecentBooksCarousel(List<Book> books) {
-    if (books.isEmpty) {
-      final palette = _palette;
-      return SizedBox(
-        height: 200,
-        child: Center(
-          child: Text(
-            context.l10n.homeTodayReadingJourneyStart,
-            style: TextStyle(
-              color: palette.secondaryTextColor,
-              fontSize: 14,
-            ),
-          ),
-        ),
-      );
-    }
-
-    return SizedBox(
-      height: 210,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: books.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 12),
-        itemBuilder: (context, index) => _buildCarouselItem(books[index]),
-      ),
-    );
-  }
-
-  Widget _buildCarouselItem(Book book) {
-    final palette = _palette;
-    final progress = (book.progress * 100).round();
-    return Semantics(
-      button: true,
-      label:
-          '${book.title}，${context.l10n.homeReadingProgressPercent('$progress')}',
-      child: InkWell(
-        onTap: () => _openBook(book),
-        borderRadius: BorderRadius.circular(8),
-        child: SizedBox(
-          width: 108,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildBookCover(
-                book,
-                width: 104,
-                height: 156,
-                radius: 8,
-                elevated: true,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                book.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: palette.primaryTextColor,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                book.author,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: palette.secondaryTextColor,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildWeeklyMiniStats() {
     final scheme = Theme.of(context).colorScheme;
     final palette = _palette;
@@ -1119,60 +1020,6 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
           ),
         ],
       );
-  }
-
-  Widget _buildSectionLabel(String title, {VoidCallback? onMore}) {
-    final palette = _palette;
-    final scheme = Theme.of(context).colorScheme;
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Expanded(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Container(
-                width: 3,
-                height: 18,
-                decoration: BoxDecoration(
-                  color: scheme.primary,
-                  borderRadius: BorderRadius.circular(99),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    color: palette.primaryTextColor,
-                    fontSize: 19,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.3,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (onMore != null)
-          InkWell(
-            onTap: onMore,
-            borderRadius: BorderRadius.circular(99),
-            child: Padding(
-              padding: const EdgeInsets.all(4),
-              child: Text(
-                '更多 ›',
-                style: TextStyle(
-                  color: scheme.primary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
   }
 
   Future<void> _navigateToSearch() async {

@@ -1110,7 +1110,7 @@ class _LibraryPageState extends State<LibraryPage> {
       builder: (context, constraints) {
         // 列数由可用宽度和目标封面宽度推导：旋转屏幕时封面大小基本不变，
         // 只是列数重排，不再按断点写死列数。
-        const double horizontalPadding = 32.0;
+        const double horizontalPadding = 20.0;
         final crossAxisCount = LayoutHelper.bookGridColumnsForWidth(
           constraints.maxWidth,
         );
