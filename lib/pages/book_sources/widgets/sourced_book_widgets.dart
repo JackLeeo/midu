@@ -662,6 +662,18 @@ class _SourcedBookDetailsSheetState extends State<_SourcedBookDetailsSheet> {
             Expanded(
               child: SizedBox(
                 height: 52,
+                child: OutlinedButton.icon(
+                  key: const Key('bookSourceDownloadButton'),
+                  onPressed: _startDownload,
+                  icon: const Icon(Icons.download_for_offline_outlined),
+                  label: Text(context.l10n.fontDownload),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: SizedBox(
+                height: 52,
                 child: FilledButton.icon(
                   key: const Key('bookSourceReadButton'),
                   onPressed: _openReader,

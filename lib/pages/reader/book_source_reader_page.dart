@@ -168,7 +168,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
   double _horizontalMargin = ReaderSettings.defaultHorizontalMargin;
   double _topMargin = ReaderMarginSettings.defaultTop;
   double _bottomMargin = ReaderMarginSettings.defaultBottom;
-  String _readerThemeId = ReaderThemes.day.id;
+  String _readerThemeId = ReaderThemes.parchment.id;
   BookSourcePageMode _pageMode = ReaderSettings.defaultPageMode;
   bool _pullBookmarkEnabled = false;
   bool _tapPageAnimationEnabled = true;
@@ -238,6 +238,8 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
   ReaderAloudController? _readerAloudController;
   bool _readerAloudActive = false;
   ReaderAloudHighlight? _readerAloudHighlight;
+  bool _downloadingBook = false;
+  double _downloadProgress = 0;
 
   ReaderThemePalette get _readerTheme =>
       _loadingCatalog && widget.initialTheme != null
@@ -2091,22 +2093,84 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     );
   }
 
-  Future<void> _showAskAiPanel() async {
-    // 米读：AI 功能已移除
-    if (!mounted) return;
-    showSideToast(
-      context,
-      'AI 助手功能暂未开放',
+  /// 下载全书到本地（缓存离线阅读）。复用书架服务的下载逻辑，显示进度对话框。
+  Future<void> _downloadCurrentBook() async {
+    if (_chapters.isEmpty || _downloadingBook) return;
+    _controlsTimer?.cancel();
+    setState(() {
+      _downloadingBook = true;
+      _downloadProgress = 0;
+    });
+    var lastProgress = 0.0;
+    final progressDialog = showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          backgroundColor: _readerTheme.surface,
+          surfaceTintColor: Colors.transparent,
+          content: SizedBox(
+            width: 300,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 18),
+                Text(
+                  '正在缓存《${_activeBook.title}》',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  lastProgress >= 1
+                      ? '完成'
+                      : '已下载 ${(lastProgress * 100).round()}%',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 6),
+                LinearProgressIndicator(value: lastProgress.clamp(0.0, 1.0)),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
-  }
-
-  Future<void> _askAiAboutSelection(ReaderSelectionSnapshot selection) async {
-    // 米读：AI 功能已移除
+    var succeeded = false;
+    String? errorMessage;
+    try {
+      await _shelfService.downloadToLocal(
+        source: _activeSource,
+        book: _activeBook,
+        onProgress: (completed, total) {
+          final fraction = total <= 0 ? 1.0 : completed / total;
+          lastProgress = fraction;
+          if (!mounted) return;
+          // 使用全局 setState 更新快照；对话框由下方重开时读取最新值。
+        },
+      );
+      succeeded = true;
+    } catch (error) {
+      errorMessage = error.toString();
+    }
     if (!mounted) return;
-    showSideToast(
-      context,
-      'AI 助手功能暂未开放',
-    );
+    Navigator.of(context).pop(); // 关闭进度对话框
+    setState(() {
+      _downloadingBook = false;
+      _downloadProgress = 0;
+    });
+    if (succeeded) {
+      showSideToast(
+        context,
+        '《${_activeBook.title}》已缓存到本地',
+        kind: SideToastKind.success,
+      );
+    } else {
+      showSideToast(
+        context,
+        errorMessage == null ? '缓存失败' : '缓存失败：$errorMessage',
+        kind: SideToastKind.error,
+      );
+    }
   }
 
   // 换源：解析书架书的多源信息并打开换源面板。
@@ -2607,10 +2671,10 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
                           : () => unawaited(_showReaderAloudPanel()),
                       readAloudTooltip: context.l10n.ttsReading,
                       readAloudActive: _readerAloudActive,
-                      onAskAi: _chapters.isEmpty
+                      onDownload: _chapters.isEmpty
                           ? null
-                          : () => unawaited(_showAskAiPanel()),
-                      askAiTooltip: context.l10n.readerAskAi,
+                          : () => unawaited(_downloadCurrentBook()),
+                      downloadTooltip: '缓存本书',
                       onSwitchSource: _chapters.isEmpty
                           ? null
                           : _showSwitchSourcePanel,
@@ -3253,7 +3317,6 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       spokenHighlight: _readerAloudHighlight,
       onSaveTextAnnotation: _saveTextAnnotation,
       onAnnotationUnavailable: () => _ensureAnnotationBook(),
-      onAskAiSelection: _askAiAboutSelection,
       fillAvailableSpace: fillAvailableSpace,
       onInteractionChanged: (active) {
         if (!mounted || _annotationInteractionActive == active) return;

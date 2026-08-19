@@ -19,7 +19,7 @@ class ReaderSettings {
   static const double defaultHorizontalMargin = 18;
   static const int defaultFirstLineIndent = 2;
   static const int defaultParagraphSpacing = 0;
-  static const String defaultThemeId = 'day';
+  static const String defaultThemeId = 'parchment';
   static const ReaderPageMode defaultPageMode = ReaderPageMode.horizontalSlide;
   static const bool defaultTabletTwoPageEnabled = true;
 

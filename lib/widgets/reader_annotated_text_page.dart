@@ -46,7 +46,6 @@ class ReaderAnnotatedTextPage extends StatefulWidget {
     this.baseSourceSpanBuilder,
     this.onAnnotationUnavailable,
     this.onInteractionChanged,
-    this.onAskAiSelection,
     this.fillAvailableSpace = true,
   });
 
@@ -68,8 +67,6 @@ class ReaderAnnotatedTextPage extends StatefulWidget {
   final VoidCallback? onAnnotationUnavailable;
   final ReaderTextAnnotationSaveCallback onSaveTextAnnotation;
   final ValueChanged<bool>? onInteractionChanged;
-  final Future<void> Function(ReaderSelectionSnapshot selection)?
-  onAskAiSelection;
   final bool fillAvailableSpace;
 
   @override
@@ -222,19 +219,6 @@ class _ReaderAnnotatedTextPageState extends State<ReaderAnnotatedTextPage> {
     }
   }
 
-  Future<void> _askAi(SelectableRegionState regionState) async {
-    final selection = _selectionSnapshot;
-    final handler = widget.onAskAiSelection;
-    if (selection == null || handler == null) return;
-    _clearSelection(regionState);
-    widget.onInteractionChanged?.call(true);
-    try {
-      await handler(selection);
-    } finally {
-      widget.onInteractionChanged?.call(false);
-    }
-  }
-
   Widget _buildSelectionToolbar(
     BuildContext context,
     SelectableRegionState regionState,
@@ -248,9 +232,6 @@ class _ReaderAnnotatedTextPageState extends State<ReaderAnnotatedTextPage> {
       onHighlight: () => unawaited(_createHighlight(regionState)),
       onNote: () => unawaited(_createNote(regionState)),
       onCopy: copyItem?.onPressed,
-      onAskAi: widget.onAskAiSelection == null
-          ? null
-          : () => unawaited(_askAi(regionState)),
     );
   }
 
@@ -283,7 +264,6 @@ class ReaderSelectionToolbar extends StatelessWidget {
     required this.onHighlight,
     required this.onNote,
     required this.onCopy,
-    this.onAskAi,
   });
 
   final ReaderThemePalette palette;
@@ -291,7 +271,6 @@ class ReaderSelectionToolbar extends StatelessWidget {
   final VoidCallback onHighlight;
   final VoidCallback onNote;
   final VoidCallback? onCopy;
-  final VoidCallback? onAskAi;
 
   @override
   Widget build(BuildContext context) {
@@ -336,13 +315,6 @@ class ReaderSelectionToolbar extends StatelessWidget {
           color: palette.text,
           onPressed: onNote,
         ),
-        if (onAskAi != null)
-          _ReaderSelectionAction(
-            icon: Icons.auto_awesome_outlined,
-            label: context.l10n.readerAskAi,
-            color: palette.text,
-            onPressed: onAskAi,
-          ),
         _ReaderSelectionAction(
           icon: Icons.content_copy_rounded,
           label: material.copyButtonLabel,

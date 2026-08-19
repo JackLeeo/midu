@@ -749,16 +749,7 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                         ),
                       ],
                     ),
-                    SizedBox(height: spacious ? 14 : 12),
-                    Text(
-                      '→ ${context.l10n.continueReading}',
-                      style: TextStyle(
-                        color: scheme.primary,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
+                    ],
                 ),
               ),
             ],

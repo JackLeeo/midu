@@ -244,7 +244,7 @@ class _NativeReaderPageState extends State<NativeReaderPage>
   double _topMargin = ReaderMarginSettings.defaultTop;
   double _bottomMargin = ReaderMarginSettings.defaultBottom;
   FontOption _readerFont = FontCatalog.defaultReaderFont;
-  String _readerThemeId = ReaderThemes.day.id;
+  String _readerThemeId = ReaderThemes.parchment.id;
   bool _pullBookmarkEnabled = false;
   bool _tapPageAnimationEnabled = true;
   ReaderTapZones _tapZones = ReaderTapZones.defaults;
@@ -1000,7 +1000,6 @@ class _NativeReaderPageState extends State<NativeReaderPage>
       baseSourceSpanBuilder: (start, end) =>
           _styledSpanForRange(chapter, start, end, _readerTextStyle),
       onSaveTextAnnotation: _saveTextAnnotation,
-      onAskAiSelection: _askAiAboutSelection,
       fillAvailableSpace: fillAvailableSpace,
       onInteractionChanged: (active) {
         if (!mounted || _annotationInteractionActive == active) return;
@@ -1983,27 +1982,6 @@ class _NativeReaderPageState extends State<NativeReaderPage>
       aloudService: aloudService,
       palette: _readerTheme,
       themeData: _readerThemeData,
-    );
-  }
-
-  Future<void> _showAskAiPanel(
-    _NativeChapter chapter,
-    _ReaderPageData page,
-  ) async {
-    // 米读：AI 功能已移除
-    if (!mounted) return;
-    showSideToast(
-      context,
-      'AI 助手功能暂未开放',
-    );
-  }
-
-  Future<void> _askAiAboutSelection(ReaderSelectionSnapshot selection) async {
-    // 米读：AI 功能已移除
-    if (!mounted) return;
-    showSideToast(
-      context,
-      'AI 助手功能暂未开放',
     );
   }
 
@@ -4759,10 +4737,6 @@ class _NativeReaderPageState extends State<NativeReaderPage>
                                     : null,
                                 readAloudTooltip: context.l10n.ttsReading,
                                 readAloudActive: _readerAloudActive,
-                                onAskAi: () => unawaited(
-                                  _showAskAiPanel(chapter, bookmarkPage),
-                                ),
-                                askAiTooltip: context.l10n.readerAskAi,
                                 onSettings: _showReadingSettings,
                                 backTooltip: MaterialLocalizations.of(
                                   context,

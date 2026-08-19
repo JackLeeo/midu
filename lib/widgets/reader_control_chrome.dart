@@ -27,8 +27,8 @@ class ReaderChromeOverlay extends StatelessWidget {
     this.onReadAloud,
     this.readAloudTooltip,
     this.readAloudActive = false,
-    this.onAskAi,
-    this.askAiTooltip,
+    this.onDownload,
+    this.downloadTooltip,
     this.onSwitchSource,
     this.switchSourceTooltip,
     this.bookmarkBusy = false,
@@ -61,8 +61,8 @@ class ReaderChromeOverlay extends StatelessWidget {
   final VoidCallback? onTableOfContents;
   final VoidCallback onSettings;
   final VoidCallback? onReadAloud;
-  final VoidCallback? onAskAi;
-  final String? askAiTooltip;
+  final VoidCallback? onDownload;
+  final String? downloadTooltip;
   final VoidCallback? onSwitchSource;
   final String? switchSourceTooltip;
   final String backTooltip;
@@ -265,7 +265,7 @@ class ReaderChromeOverlay extends StatelessWidget {
                   ),
                   const SizedBox(height: 18),
                   SizedBox(
-                    height: 52,
+                    height: 68,
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
@@ -277,12 +277,14 @@ class ReaderChromeOverlay extends StatelessWidget {
                               context,
                             ).previousPageTooltip,
                             icon: Icons.skip_previous_rounded,
+                            label: '上一章',
                           ),
                         ReaderControlIconButton(
                           palette: palette,
                           onPressed: onTableOfContents,
                           tooltip: tableOfContentsTooltip,
                           icon: Icons.format_list_bulleted_rounded,
+                          label: '目录',
                         ),
                         if (onReadAloud != null)
                           ReaderControlIconButton(
@@ -293,6 +295,7 @@ class ReaderChromeOverlay extends StatelessWidget {
                                 ? Icons.graphic_eq_rounded
                                 : Icons.headphones_rounded,
                             active: readAloudActive,
+                            label: '听书',
                           ),
                         if (onSwitchSource != null)
                           ReaderControlIconButton(
@@ -300,13 +303,15 @@ class ReaderChromeOverlay extends StatelessWidget {
                             onPressed: onSwitchSource,
                             tooltip: switchSourceTooltip ?? '',
                             icon: Icons.swap_horiz_rounded,
+                            label: '换源',
                           ),
-                        if (onAskAi != null)
+                        if (onDownload != null)
                           ReaderControlIconButton(
                             palette: palette,
-                            onPressed: onAskAi,
-                            tooltip: askAiTooltip ?? '',
-                            icon: Icons.auto_awesome_outlined,
+                            onPressed: onDownload,
+                            tooltip: downloadTooltip ?? '',
+                            icon: Icons.download_rounded,
+                            label: '缓存',
                           ),
                         if (showSettingsAction)
                           ReaderControlIconButton(
@@ -314,6 +319,7 @@ class ReaderChromeOverlay extends StatelessWidget {
                             onPressed: onSettings,
                             tooltip: settingsTooltip,
                             icon: Icons.tune_rounded,
+                            label: '设置',
                           ),
                         if (onNextChapter != null)
                           ReaderControlIconButton(
@@ -323,6 +329,7 @@ class ReaderChromeOverlay extends StatelessWidget {
                               context,
                             ).nextPageTooltip,
                             icon: Icons.skip_next_rounded,
+                            label: '下一章',
                           ),
                       ],
                     ),
@@ -429,6 +436,7 @@ class ReaderControlIconButton extends StatelessWidget {
     required this.onPressed,
     required this.tooltip,
     required this.icon,
+    this.label,
     this.active = false,
   });
 
@@ -436,22 +444,48 @@ class ReaderControlIconButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final String tooltip;
   final IconData icon;
+  final String? label;
   final bool active;
 
   @override
   Widget build(BuildContext context) {
-    // 主流阅读 App 的工具栏按钮：纯图标式，无填充/无描边，激活态用主题色点亮。
+    // 主流阅读 App 的工具栏按钮：纯图标式，激活态用主题色点亮；可带中文标识。
     final foreground = active ? palette.accent : palette.text;
-    return IconButton(
-      onPressed: onPressed,
-      tooltip: tooltip,
-      icon: Icon(icon, size: 23),
-      color: foreground,
-      disabledColor: palette.secondaryText.withValues(alpha: 0.4),
-      style: IconButton.styleFrom(
-        minimumSize: const Size.square(44),
-        maximumSize: const Size.square(44),
-        padding: EdgeInsets.zero,
+    if (label == null) {
+      return IconButton(
+        onPressed: onPressed,
+        tooltip: tooltip,
+        icon: Icon(icon, size: 23),
+        color: foreground,
+        disabledColor: palette.secondaryText.withValues(alpha: 0.4),
+        style: IconButton.styleFrom(
+          minimumSize: const Size.square(44),
+          maximumSize: const Size.square(44),
+          padding: EdgeInsets.zero,
+        ),
+      );
+    }
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 23, color: foreground),
+            const SizedBox(height: 3),
+            Text(
+              label!,
+              style: TextStyle(
+                fontSize: 10.5,
+                height: 1,
+                color: foreground,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
