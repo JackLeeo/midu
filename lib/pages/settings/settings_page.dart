@@ -151,6 +151,9 @@ class _SettingsPageState extends State<SettingsPage> {
   // 侧边抽屉分组导航：当前选中的设置分组下标。
   int _selectedGroupIndex = 0;
 
+  // iOS 不允许更换运行时字体，因此在 iOS 上不显示字体相关设置项。
+  bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
+
   bool _enableAutoSave = true;
   bool _keepScreenOn = false;
   int _autoSaveInterval = 30;
@@ -448,7 +451,7 @@ class _SettingsPageState extends State<SettingsPage> {
     // 侧边抽屉分组：每一项是一个设置分组（标题 + 图标 + 内容构建器）。
     final groups = <_SettingsGroup>[
       _SettingsGroup(
-        title: l10n.settingsSectionAppearanceFonts,
+        title: _isIos ? '外观' : l10n.settingsSectionAppearanceFonts,
         icon: Icons.palette_outlined,
         build: () => _buildAppearanceSection(themeNotifier, appSettings),
       ),
@@ -614,15 +617,16 @@ class _SettingsPageState extends State<SettingsPage> {
   ) {
     final l10n = context.l10n;
     return _buildSectionCard(
-      title: l10n.settingsSectionAppearanceFonts,
+      title: _isIos ? '外观' : l10n.settingsSectionAppearanceFonts,
       icon: Icons.palette_outlined,
       children: [
-        _buildUiStyleSelector(themeNotifier),
         _buildThemeToggle(themeNotifier),
         _buildAccentColorSelector(themeNotifier),
-        _buildAppFontSelector(appSettings),
-        _buildReaderFontSelector(appSettings),
-        _buildCustomFontsManager(appSettings),
+        if (!_isIos) ...[
+          _buildAppFontSelector(appSettings),
+          _buildReaderFontSelector(appSettings),
+          _buildCustomFontsManager(appSettings),
+        ],
         _buildActionSetting(
           title: l10n.settingsLibraryLayoutTitle,
           subtitle: l10n.settingsCurrentValue(
@@ -997,17 +1001,6 @@ class _SettingsPageState extends State<SettingsPage> {
       subtitle: l10n.settingsCurrentValue(_themeModeLabel(mode)),
       onTap: () => _showThemeModeModal(themeNotifier),
       icon: _themeModeIcon(mode),
-    );
-  }
-
-  Widget _buildUiStyleSelector(ThemeNotifier themeNotifier) {
-    final l10n = context.l10n;
-    return _buildSwitchSetting(
-      title: l10n.settingsUiStyleTitle,
-      subtitle: l10n.settingsGlassEffectSubtitle,
-      value: themeNotifier.isGlassEffectsEnabled,
-      onChanged: themeNotifier.setGlassEffectsEnabled,
-      icon: Icons.blur_on_rounded,
     );
   }
 

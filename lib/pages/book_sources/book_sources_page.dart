@@ -388,19 +388,8 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       _loadingCategoryBooks = true;
     });
     try {
-      final page = await _client.getDiscovery(
-        category.source,
-        exploreUrlOverride: category.id,
-      );
+      final books = await _fetchCategoryAcrossSources(category);
       if (!mounted || _selectedCategory != category) return;
-      final books = <SourcedBook>[];
-      for (final section in page.sections) {
-        for (final item in section.items) {
-          if (item.book != null) {
-            books.add(SourcedBook(source: category.source, book: item.book!));
-          }
-        }
-      }
       setState(() {
         _categoryBooks = books;
         _loadingCategoryBooks = false;
@@ -409,6 +398,43 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       if (!mounted || _selectedCategory != category) return;
       setState(() => _loadingCategoryBooks = false);
     }
+  }
+
+  /// 分类按名称跨来源聚合：与"最新"板块一致，不区分来源，把每个提供该分类的
+  /// 书源结果合并穿插，而不是只返回某一书源的二级分类资源。
+  Future<List<SourcedBook>> _fetchCategoryAcrossSources(
+    _SourcedCategory category,
+  ) async {
+    final name = category.name.trim();
+    final candidates =
+        _categories.where((c) => c.name.trim() == name).toList(growable: false);
+    if (candidates.isEmpty) return const [];
+    final results = await Future.wait(
+      candidates.map((c) async {
+        try {
+          final page = await _client.getDiscovery(
+            c.source,
+            exploreUrlOverride: c.id,
+          );
+          final books = <SourcedBook>[];
+          for (final section in page.sections) {
+            for (final item in section.items) {
+              if (item.book != null) {
+                books.add(SourcedBook(source: c.source, book: item.book!));
+              }
+            }
+          }
+          return (source: c.source, books: books);
+        } catch (_) {
+          return (source: c.source, books: const <SourcedBook>[]);
+        }
+      }),
+    );
+    final batches = results
+        .where((result) => result.books.isNotEmpty)
+        .map((result) => result.books)
+        .toList(growable: false);
+    return BookSourcesPage.interleaveLatestBatches(batches);
   }
 
   Future<void> _openCategoryPicker(List<_SourcedCategory> categories) async {

@@ -1865,7 +1865,7 @@ class _DetectedSourceSummary extends StatelessWidget {
           else if (preview != null)
             Text(
               context.l10n.additionalSourcesPreview(
-                preview.supported,
+                preview.supported + preview.partial, // 可导入/可使用（含 JS 增强）
                 preview.partial,
                 preview.unsupported,
               ),

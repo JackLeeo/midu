@@ -336,8 +336,29 @@ class _SourcedBookDetailsLoaderState extends State<_SourcedBookDetailsLoader> {
         widget.result.book.id,
       );
       if (mounted) setState(() => _book = book);
+      // 后台预热：详情展示期间提前拉取目录与首章，缓存命中后点击“阅读”
+      // 可立即渲染正文，避免跳转阅读页仍需串行等待目录+章节两个网络请求。
+      unawaited(_warmReaderCache(book));
     } catch (_) {
       // Search/discovery summaries remain usable when detail is unavailable.
+    }
+  }
+
+  // 预热阅读页所需缓存：目录+首章内容。失败不阻塞详情展示，阅读页会自行重试。
+  Future<void> _warmReaderCache(BookSourceBook book) async {
+    try {
+      final chapters = await widget.client.getChapters(
+        widget.result.source,
+        book.id,
+      );
+      if (chapters.isEmpty) return;
+      await widget.client.getChapterContent(
+        widget.result.source,
+        bookId: book.id,
+        chapterId: chapters.first.id,
+      );
+    } catch (_) {
+      // 静默失败即可，阅读页加载时会重新请求。
     }
   }
 

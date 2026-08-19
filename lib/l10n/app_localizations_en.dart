@@ -2015,7 +2015,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String additionalSourcesPreview(int supported, int partial, int unsupported) {
-    return '$supported available, $partial partially supported, $unsupported not supported';
+    return '$supported usable ($partial need JS enhancement), $unsupported not supported';
   }
 
   @override

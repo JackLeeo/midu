@@ -6099,7 +6099,7 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
 
   @override
   String additionalSourcesPreview(int supported, int partial, int unsupported) {
-    return '可使用 $supported 個，部分支援 $partial 個，暫不支援 $unsupported 個';
+    return '可使用 $supported 個（其中 $partial 個帶 JS 增強），暫不支援 $unsupported 個';
   }
 
   @override

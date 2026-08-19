@@ -957,7 +957,7 @@
   "additionalSourcesChooseFile": "從 JSON 檔案新增",
   "additionalSourcesUrlLabel": "書源 JSON 網址",
   "additionalSourcesLoadUrl": "從 URL 載入",
-  "additionalSourcesPreview": "可使用 {supported} 個，部分支援 {partial} 個，暫不支援 {unsupported} 個",
+  "additionalSourcesPreview": "可使用 {supported} 個（其中 {partial} 個帶 JS 增強），暫不支援 {unsupported} 個",
   "@additionalSourcesPreview": {"placeholders":{"supported":{"type":"int"},"partial":{"type":"int"},"unsupported":{"type":"int"}}},
   "additionalSourcesAvailable": "可使用",
   "additionalSourcesPartial": "部分支援",

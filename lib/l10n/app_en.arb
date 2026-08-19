@@ -2098,7 +2098,7 @@
   "additionalSourcesChooseFile": "Add from JSON file",
   "additionalSourcesUrlLabel": "Source JSON URL",
   "additionalSourcesLoadUrl": "Load URL",
-  "additionalSourcesPreview": "{supported} available, {partial} partially supported, {unsupported} not supported",
+  "additionalSourcesPreview": "{supported} usable ({partial} need JS enhancement), {unsupported} not supported",
   "@additionalSourcesPreview": {"placeholders":{"supported":{"type":"int"},"partial":{"type":"int"},"unsupported":{"type":"int"}}},
   "additionalSourcesAvailable": "Available",
   "additionalSourcesPartial": "Partially supported",

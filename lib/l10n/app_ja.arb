@@ -957,7 +957,7 @@
   "additionalSourcesChooseFile": "JSON ファイルから追加",
   "additionalSourcesUrlLabel": "ソース JSON URL",
   "additionalSourcesLoadUrl": "URL から読み込む",
-  "additionalSourcesPreview": "利用可能 {supported}、一部対応 {partial}、未対応 {unsupported}",
+  "additionalSourcesPreview": "利用可能 {supported}（うち {partial} は JS 拡張が必要）、未対応 {unsupported}",
   "@additionalSourcesPreview": {"placeholders":{"supported":{"type":"int"},"partial":{"type":"int"},"unsupported":{"type":"int"}}},
   "additionalSourcesAvailable": "利用可能",
   "additionalSourcesPartial": "一部対応",

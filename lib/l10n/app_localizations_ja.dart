@@ -1944,7 +1944,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String additionalSourcesPreview(int supported, int partial, int unsupported) {
-    return '利用可能 $supported、一部対応 $partial、未対応 $unsupported';
+    return '利用可能 $supported（うち $partial は JS 拡張が必要）、未対応 $unsupported';
   }
 
   @override

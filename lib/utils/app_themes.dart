@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 
+import 'glass_config.dart';
+
 import 'midu_theme.dart';
 
 class MiduAppTheme {
@@ -203,10 +205,14 @@ class MiduAppTheme {
           borderRadius: BorderRadius.circular(MiduRadius.pill),
         ),
       ),
-      // ---------- Bottom Sheet：毛玻璃 ----------
+      // ---------- Bottom Sheet：实色不透明背景（玻璃已全局关闭） ----------
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: Colors.transparent,
-        modalBackgroundColor: Colors.transparent,
+        backgroundColor: GlassEffectConfig.shouldDisableBlur
+            ? scheme.surfaceContainerLow
+            : Colors.transparent,
+        modalBackgroundColor: GlassEffectConfig.shouldDisableBlur
+            ? scheme.surfaceContainerLow
+            : Colors.transparent,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(
             top: Radius.circular(MiduRadius.xl),

@@ -355,6 +355,8 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                 slivers: [
                   SliverList(
                     delegate: SliverChildListDelegate([
+                      // 顶部为悬浮标题栏让位，避免问候区被遮挡显示不全。
+                      SizedBox(height: metrics.contentTopPadding),
                       _buildMaxWidthBox(
                         maxWidth: maxWidth,
                         child: Padding(

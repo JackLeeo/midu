@@ -1362,7 +1362,7 @@
   "additionalSourcesChooseFile": "从 JSON 文件添加",
   "additionalSourcesUrlLabel": "书源 JSON 地址",
   "additionalSourcesLoadUrl": "从 URL 加载",
-  "additionalSourcesPreview": "可使用 {supported} 个，部分支持 {partial} 个，暂不支持 {unsupported} 个",
+  "additionalSourcesPreview": "可使用 {supported} 个（其中 {partial} 个带 JS 增强），暂不支持 {unsupported} 个",
   "@additionalSourcesPreview": {"placeholders":{"supported":{"type":"int"},"partial":{"type":"int"},"unsupported":{"type":"int"}}},
   "additionalSourcesAvailable": "可使用",
   "additionalSourcesPartial": "部分支持",
