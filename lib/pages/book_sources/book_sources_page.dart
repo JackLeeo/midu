@@ -3,6 +3,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:midu/book_sources/models/registered_book_source.dart';
@@ -108,12 +109,12 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   bool _loadingBookStore = true;
   Object? _bookStoreError;
 
-  _SourcedCategory? _selectedCategory;
-  List<SourcedBook> _categoryBooks = const [];
-  bool _loadingCategoryBooks = false;
-
-  // 当前展开的分类栏目 key（参考番茄/七猫：先选二级栏目，再选该栏目下的细分分类）。
+  // 当前展开的分类栏目 key（参考番茄/七猫：选一级栏目后，下方直接聚合展示该栏目书籍）。
   String? _selectedSectionKey;
+
+  // 当前栏目聚合到的书籍（跨来源、按书名去重），以列表形式展示。
+  List<SourcedBook> _sectionBooks = const [];
+  bool _loadingSectionBooks = false;
 
   // 最新榜单分页：默认展示一页，点击"下一页"再展开，避免无限下滑。
   static const int latestPageSize = 10;
@@ -141,6 +142,8 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       _loadingSources = false;
     });
     await _loadBookStore();
+    // 分类数据就绪后，默认选中第一个栏目并聚合其书籍。
+    await _autoSelectSection();
   }
 
   Future<void> _reloadAll() async {
@@ -148,10 +151,9 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     _categories = const [];
     _latest = const [];
     _bookStoreError = null;
-    _selectedCategory = null;
-    _categoryBooks = const [];
-    _loadingCategoryBooks = false;
     _selectedSectionKey = null;
+    _sectionBooks = const [];
+    _loadingSectionBooks = false;
     _latestVisibleCount = 0;
     await _loadSources();
   }
@@ -539,30 +541,72 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     return batches;
   }
 
-  void _selectCategoryForBrowse(_SourcedCategory category) {
-    if (category.source.id != _selectedCategory?.source.id ||
-        category.id != _selectedCategory?.id) {
-      unawaited(_selectCategory(category));
+  /// 自动加载默认栏目（数据未加载或栏目切换后调用），保证分类区下方立刻有书可看。
+  Future<void> _autoSelectSection() async {
+    final sections = _groupCategorySections(_aggregatedCategories);
+    if (sections.isEmpty) return;
+    final key = (_selectedSectionKey != null &&
+            sections.any((s) => s.key == _selectedSectionKey))
+        ? _selectedSectionKey!
+        : sections.first.key;
+    // 已加载过同一栏目则跳过，避免重复请求。
+    if (_selectedSectionKey == key && _sectionBooks.isNotEmpty) return;
+    await _loadSectionBooks(key);
+  }
+
+  /// 切换到指定栏目并聚合加载该栏目下各细分分类的书籍。
+  Future<void> _loadSectionBooks(String key) async {
+    final sections = _groupCategorySections(_aggregatedCategories);
+    if (sections.isEmpty) return;
+    final active = sections.firstWhere(
+      (s) => s.key == key,
+      orElse: () => sections.first,
+    );
+    setState(() {
+      _selectedSectionKey = key;
+      _loadingSectionBooks = true;
+    });
+    try {
+      final books = await _fetchSectionBooks(active);
+      if (!mounted || _selectedSectionKey != key) return;
+      setState(() {
+        _sectionBooks = books;
+        _loadingSectionBooks = false;
+      });
+    } catch (_) {
+      if (!mounted || _selectedSectionKey != key) return;
+      setState(() => _loadingSectionBooks = false);
     }
   }
 
-  Future<void> _selectCategory(_SourcedCategory category) async {
-    setState(() {
-      _selectedCategory = category;
-      _categoryBooks = const [];
-      _loadingCategoryBooks = true;
-    });
-    try {
-      final books = await _fetchCategoryAcrossSources(category);
-      if (!mounted || _selectedCategory != category) return;
-      setState(() {
-        _categoryBooks = books;
-        _loadingCategoryBooks = false;
-      });
-    } catch (_) {
-      if (!mounted || _selectedCategory != category) return;
-      setState(() => _loadingCategoryBooks = false);
+  /// 聚合一个栏目里所有细分分类的书籍：跨来源、按书名去重，结果按批次交错混排。
+  /// 并发限制 3，避免分类多时一次性拉爆；'其他' 分类较多时只取前若干避免过载。
+  Future<List<SourcedBook>> _fetchSectionBooks(_CategorySection section) async {
+    final byName = <String, _SourcedCategory>{};
+    for (final c in section.cats) {
+      final name = c.name.trim();
+      if (name.isEmpty) continue;
+      byName.putIfAbsent(name, () => c);
     }
+    final unique = byName.values.toList(growable: false);
+    const int parallelism = 3;
+    const int maxCategories = 12;
+    final seen = <String>{};
+    final merged = <SourcedBook>[];
+    final take = math.min(unique.length, maxCategories);
+    for (var start = 0; start < take; start += parallelism) {
+      final end = math.min(start + parallelism, take);
+      final chunk = unique.sublist(start, end);
+      final batches = await Future.wait(chunk.map(_fetchCategoryAcrossSources));
+      for (final batch in batches) {
+        for (final r in batch) {
+          final title = r.book.title.trim();
+          if (title.isNotEmpty && seen.add(title)) merged.add(r);
+        }
+      }
+      if (!mounted) break;
+    }
+    return merged;
   }
 
   /// 分类按名称跨来源聚合：与"最新"板块一致，不区分来源，把每个提供该分类的
@@ -600,50 +644,6 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         .map((result) => result.books)
         .toList(growable: false);
     return BookSourcesPage.interleaveLatestBatches(batches);
-  }
-
-  Future<void> _openCategoryPicker(List<_SourcedCategory> categories) async {
-    final size = MediaQuery.sizeOf(context);
-    final picker = _CategoryPickerPanel(
-      categories: categories,
-      selectedCategory: _selectedCategory,
-      title: context.l10n.discoverCategories,
-      searchLabel: context.l10n.search,
-      noResultsLabel: context.l10n.bookSourcesNoResults,
-    );
-    final _SourcedCategory? selected;
-    if (size.width >= 720) {
-      selected = await showDialog<_SourcedCategory>(
-        context: context,
-        builder: (context) => Dialog(
-          clipBehavior: Clip.antiAlias,
-          child: SizedBox(
-            width: (size.width - 48).clamp(320, 520).toDouble(),
-            height: (size.height - 48).clamp(320, 680).toDouble(),
-            child: picker,
-          ),
-        ),
-      );
-    } else {
-      selected = await showModalBottomSheet<_SourcedCategory>(
-        context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        clipBehavior: Clip.antiAlias,
-        builder: (context) => SizedBox(
-          height: MediaQuery.sizeOf(context).height * 0.82,
-          child: Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.viewInsetsOf(context).bottom,
-            ),
-            child: picker,
-          ),
-        ),
-      );
-    }
-    if (selected != null && mounted && selected != _selectedCategory) {
-      await _selectCategory(selected);
-    }
   }
 
   void _openSearch() {
@@ -945,13 +945,6 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
             sections.any((s) => s.key == _selectedSectionKey))
         ? _selectedSectionKey!
         : sections.first.key;
-    final activeSection = sections.firstWhere((s) => s.key == activeKey);
-    final selected = _selectedCategory;
-    final selectedInSection =
-        selected != null &&
-        activeSection.cats.any(
-          (c) => c.source.id == selected.source.id && c.id == selected.id,
-        );
     return [
       SliverToBoxAdapter(
         child: _centerSectionChild(
@@ -960,52 +953,25 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
             child: _buildSectionHeader(
               context.l10n.discoverCategories,
               Icons.category_rounded,
-              subtitle: activeSection.cats.isEmpty
+              subtitle: _sectionBooks.isEmpty
                   ? null
-                  : '${activeSection.cats.length} 个分类 · 从 ${cats.length} 个总分类聚合',
+                  : '共 $_sectionBooks.length 本书 · 聚合 $cats.length 个分类',
             ),
           ),
         ),
       ),
-      // 栏目条：参考番茄/七猫，先选「二级栏目」（玄幻仙侠/都市/言情/榜单…），
-      // 再在该栏目下选更细分的分类，避免全部分类一次性堆叠。
+      // 一级栏目条（参考番茄/七猫：榜单/玄幻仙侠/都市/言情/…），选中后下方
+      // 直接展示该栏目聚合书籍列表，不再重复展示二级分类选项。
       _categorySectionBar(
         sections: sections,
         activeKey: activeKey,
-        onSelect: (key) => setState(() {
-          _selectedSectionKey = key;
-          // 若已选分类不属于新栏目，则清空，等待用户在新栏目内重新选择。
-          if (selected != null &&
-              !activeSection.cats.any(
-                (c) => c.source.id == selected.source.id &&
-                    c.id == selected.id,
-              )) {
-            _selectedCategory = null;
-            _categoryBooks = const [];
-            _loadingCategoryBooks = false;
-          }
-        }),
+        onSelect: (key) {
+          if (key == activeKey) return;
+          unawaited(_loadSectionBooks(key));
+        },
         scheme: Theme.of(context).colorScheme,
       ),
-      // 当前栏目聚合到的细分分类，以紧凑胶囊整块展示。
-      _categoryGridSliver(
-        cats: activeSection.cats,
-        selected: selected,
-        hasMore: false,
-        onSelect: _selectCategoryForBrowse,
-        onMore: () => _openCategoryPicker(cats),
-        bottomPadding: bottomPadding,
-      ),
-      if (selected != null && !selectedInSection)
-        _paddedSectionSliver(
-          _buildSectionHeader(
-            selected.name,
-            Icons.collections_bookmark_outlined,
-          ),
-          topPadding: 18,
-          bottomPadding: 0,
-        ),
-      if (selected != null && _loadingCategoryBooks)
+      if (_loadingSectionBooks)
         _paddedSectionSliver(
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 30),
@@ -1013,10 +979,48 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
           ),
           topPadding: 16,
           bottomPadding: bottomPadding,
+        )
+      else if (_sectionBooks.isNotEmpty)
+        _categoryBookListSliver(_sectionBooks, bottomPadding: bottomPadding)
+      else if (_selectedSectionKey != null && !_loadingSectionBooks)
+        _paddedSectionSliver(
+          _centerSectionChild(
+            Padding(
+              padding: const EdgeInsets.only(top: 26, bottom: 26),
+              child: Text(
+                context.l10n.bookSourcesNoResults,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+          bottomPadding: bottomPadding,
         ),
-      if (selected != null && _categoryBooks.isNotEmpty)
-        _bookGridSliver(_categoryBooks, bottomPadding: bottomPadding),
     ];
+  }
+
+  /// 栏目聚合书籍列表：行式（封面缩略 + 标题 + 作者/来源），非网格卡片。
+  SliverList _categoryBookListSliver(
+    List<SourcedBook> books, {
+    required double bottomPadding,
+  }) {
+    return SliverList.builder(
+      itemCount: books.length,
+      itemBuilder: (context, index) {
+        final result = books[index];
+        return _centerSectionChild(
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 0),
+            child: _CategoryBookListRow(
+              result: result,
+              onTap: () => _actions.showBookDetails(result),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   /// 栏目横条：横向滚动的一级栏目（榜单/玄幻仙侠/都市/言情/…/更多分类）。
@@ -1050,26 +1054,6 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     );
   }
 
-  /// 分类聚合网格：去重后的分类以「分类卡片」整块展示，超出收纳进末尾的「更多」卡。
-  _CategoryGridSliver _categoryGridSliver({
-    required List<_SourcedCategory> cats,
-    required _SourcedCategory? selected,
-    required bool hasMore,
-    required void Function(_SourcedCategory) onSelect,
-    required VoidCallback onMore,
-    required double bottomPadding,
-  }) {
-    return _CategoryGridSliver(
-      cats: cats,
-      selected: selected,
-      hasMore: hasMore,
-      onSelect: onSelect,
-      onMore: onMore,
-      bottomPadding: bottomPadding,
-      scheme: Theme.of(context).colorScheme,
-    );
-  }
-
   List<Widget> _buildLatestSectionSlivers(
     List<SourcedBook> latest,
     double bottomPadding,
@@ -1086,7 +1070,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
               Icons.local_fire_department_rounded,
               trailing: remain > 0
                   ? Text(
-                      '${shown}/${latest.length}',
+                      '$shown/${latest.length}',
                       style: TextStyle(
                         fontSize: 12,
                         color: Theme.of(
@@ -1137,7 +1121,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          '展开更多 ${remain} 条',
+                          '展开更多 $remain 条',
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
@@ -1233,45 +1217,6 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _bookGridSliver(
-    List<SourcedBook> books, {
-    required double bottomPadding,
-  }) {
-    return SliverPadding(
-      padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPadding),
-      sliver: SliverLayoutBuilder(
-        builder: (context, constraints) {
-          final width = constraints.crossAxisExtent;
-          // 窄屏 2 列，宽屏 3 列（>=720），超宽屏 4 列（>=1080）
-          final columns = switch (width) {
-            >= 1080 => 4,
-            >= 720 => 3,
-            _ => 2,
-          };
-          const spacing = 12.0;
-          return SliverGrid(
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: columns,
-              mainAxisSpacing: spacing,
-              crossAxisSpacing: spacing,
-              childAspectRatio: 0.68, // 更接近书卡（封面高+标题短）
-            ),
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                final result = books[index];
-                return _DiscoverGridBookCard(
-                  result: result,
-                  onTap: () => _actions.showBookDetails(result),
-                );
-              },
-              childCount: books.length,
-            ),
-          );
-        },
       ),
     );
   }
@@ -1663,170 +1608,6 @@ const List<_CategorySectionTemplate> _categorySectionTemplates = [
   _CategorySectionTemplate(key: 'other', title: '更多分类', icon: Icons.category_outlined, keywords: []),
 ];
 
-class _CategoryPickerPanel extends StatefulWidget {
-  final List<_SourcedCategory> categories;
-  final _SourcedCategory? selectedCategory;
-  final String title;
-  final String searchLabel;
-  final String noResultsLabel;
-
-  const _CategoryPickerPanel({
-    required this.categories,
-    required this.selectedCategory,
-    required this.title,
-    required this.searchLabel,
-    required this.noResultsLabel,
-  });
-
-  @override
-  State<_CategoryPickerPanel> createState() => _CategoryPickerPanelState();
-}
-
-class _CategoryPickerPanelState extends State<_CategoryPickerPanel> {
-  final TextEditingController _searchController = TextEditingController();
-  String _query = '';
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  List<_CategoryPickerEntry> _entries() {
-    final query = _query.trim().toLowerCase();
-    final matches = widget.categories.where((category) {
-      if (query.isEmpty) return true;
-      return category.name.toLowerCase().contains(query) ||
-          category.source.name.toLowerCase().contains(query);
-    });
-    final entries = <_CategoryPickerEntry>[];
-    String? sourceId;
-    for (final category in matches) {
-      if (category.source.id != sourceId) {
-        sourceId = category.source.id;
-        entries.add(_CategoryPickerEntry.header(category.source.name));
-      }
-      entries.add(_CategoryPickerEntry.category(category));
-    }
-    return entries;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final entries = _entries();
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.surface,
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 8, 10),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    widget.title,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close_rounded),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: TextField(
-              key: const Key('bookSourceCategorySearchField'),
-              controller: _searchController,
-              autofocus: false,
-              textInputAction: TextInputAction.search,
-              onChanged: (value) => setState(() => _query = value),
-              decoration: InputDecoration(
-                hintText: widget.searchLabel,
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: _query.isEmpty
-                    ? null
-                    : IconButton(
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() => _query = '');
-                        },
-                        icon: const Icon(Icons.clear_rounded),
-                      ),
-                border: const OutlineInputBorder(),
-              ),
-            ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: entries.isEmpty
-                ? Center(
-                    child: Text(
-                      widget.noResultsLabel,
-                      style: TextStyle(color: scheme.onSurfaceVariant),
-                    ),
-                  )
-                : ListView.builder(
-                    key: const Key('bookSourceCategoryLazyList'),
-                    itemCount: entries.length,
-                    itemBuilder: (context, index) {
-                      final entry = entries[index];
-                      final category = entry.category;
-                      if (category == null) {
-                        return Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
-                          child: Text(
-                            entry.header!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.labelLarge
-                                ?.copyWith(
-                                  color: scheme.primary,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                          ),
-                        );
-                      }
-                      final selected = category == widget.selectedCategory;
-                      return ListTile(
-                        key: Key(
-                          'bookSourceCategory-${category.source.id}-${category.id}',
-                        ),
-                        selected: selected,
-                        title: Text(
-                          category.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: selected
-                            ? Icon(Icons.check_rounded, color: scheme.primary)
-                            : null,
-                        onTap: () => Navigator.of(context).pop(category),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CategoryPickerEntry {
-  final String? header;
-  final _SourcedCategory? category;
-
-  const _CategoryPickerEntry.header(this.header) : category = null;
-
-  const _CategoryPickerEntry.category(this.category) : header = null;
-}
-
 /// 分类栏目芯片：一级栏目（榜单/玄幻仙侠/都市/言情/…），选中态高亮。
 class _CategorySectionChip extends StatelessWidget {
   const _CategorySectionChip({
@@ -1875,186 +1656,111 @@ class _CategorySectionChip extends StatelessWidget {
   }
 }
 
-/// 发现页「分类」聚合网格：把去重后的分类像「最新」一样整块聚合展示。
-///
-/// 内部用 Wrap 按屏宽自适应列数渲染分类卡片；有更多分类时，末尾追加一张
-/// 「更多分类」卡打开选择面板。点击卡片即加载该分类的书籍网格。
-class _CategoryGridSliver extends StatelessWidget {
-  const _CategoryGridSliver({
-    required this.cats,
-    required this.selected,
-    required this.hasMore,
-    required this.onSelect,
-    required this.onMore,
-    required this.bottomPadding,
-    required this.scheme,
-  });
-
-  final List<_SourcedCategory> cats;
-  final _SourcedCategory? selected;
-  final bool hasMore;
-  final void Function(_SourcedCategory) onSelect;
-  final VoidCallback onMore;
-  final double bottomPadding;
-  final ColorScheme scheme;
-
-  @override
-  Widget build(BuildContext context) {
-    return SliverPadding(
-      padding: EdgeInsets.fromLTRB(16, 10, 16, bottomPadding),
-      sliver: SliverToBoxAdapter(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1048),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final c in cats)
-                  _CategoryGridTile(
-                    category: c,
-                    selected:
-                        selected?.source.id == c.source.id &&
-                        selected?.id == c.id,
-                    onTap: () => onSelect(c),
-                    scheme: scheme,
-                  ),
-                if (hasMore)
-                  _CategoryGridTile(
-                    category: null,
-                    selected: false,
-                    onTap: onMore,
-                    scheme: scheme,
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 分类聚合芯片；[category] 为 null 时渲染为「更多分类」入口。
-/// 采用紧凑胶囊，聚合展示同类型分类，而非大尺寸卡片，避免占屏过大。
-class _CategoryGridTile extends StatelessWidget {
-  const _CategoryGridTile({
-    required this.category,
-    required this.selected,
-    required this.onTap,
-    required this.scheme,
-  });
-
-  final _SourcedCategory? category;
-  final bool selected;
-  final VoidCallback onTap;
-  final ColorScheme scheme;
-
-  @override
-  Widget build(BuildContext context) {
-    final isMore = category == null;
-    final fg = selected ? scheme.onPrimary : scheme.onSurface;
-    return Material(
-      color: selected ? scheme.primary : scheme.surfaceContainerLow,
-      shape: const StadiumBorder(),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                isMore ? '更多分类' : category!.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                  color: fg,
-                ),
-              ),
-              if (isMore) ...[
-                const SizedBox(width: 4),
-                Icon(Icons.chevron_right_rounded, size: 16, color: fg),
-              ] else if (selected) ...[
-                const SizedBox(width: 4),
-                Icon(Icons.check_rounded, size: 16, color: fg),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 发现页网格书卡（无外层 SizedBox 宽高，根据 SliverGrid 自适应）
-class _DiscoverGridBookCard extends StatelessWidget {
+/// 栏目聚合书籍列表行：封面缩略 + 标题 + 作者/来源，行式展示（非网格卡片）。
+class _CategoryBookListRow extends StatelessWidget {
   final SourcedBook result;
   final VoidCallback onTap;
 
-  const _DiscoverGridBookCard({
-    required this.result,
-    required this.onTap,
-  });
+  const _CategoryBookListRow({required this.result, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final dpr = MediaQuery.devicePixelRatioOf(context);
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    final book = result.book;
+    final fallback = SizedBox(
+      width: 50,
+      height: 75,
+      child: GeneratedBookCover(title: book.title, author: book.author),
+    );
+    final thumb = ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: book.coverUrl == null
+          ? fallback
+          : SourceCoverImage(
+              url: book.coverUrl!,
+              width: 50,
+              height: 75,
+              fit: BoxFit.cover,
+              cacheWidth: (60 * dpr).round(),
+              fallback: fallback,
+            ),
+    );
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: scheme.outlineVariant.withValues(alpha: 0.4),
+              width: 0.6,
+            ),
+          ),
+        ),
+        child: Row(
           children: [
+            thumb,
+            const SizedBox(width: 12),
             Expanded(
-              flex: 7,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: result.book.coverUrl == null
-                    ? GeneratedBookCover(
-                        title: result.book.title,
-                        author: result.book.author,
-                      )
-                    : SourceCoverImage(
-                        url: result.book.coverUrl!,
-                        fit: BoxFit.cover,
-                        cacheWidth: (220 * dpr).round(),
-                        fallback: GeneratedBookCover(
-                          title: result.book.title,
-                          author: result.book.author,
-                        ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    book.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14.5,
+                      color: scheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    [
+                      if (book.author.isNotEmpty) book.author,
+                      result.source.name,
+                    ].join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: scheme.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  if (book.description != null &&
+                      book.description!.isNotEmpty)
+                    Text(
+                      book.description!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: scheme.onSurfaceVariant,
+                        fontSize: 11.5,
+                        height: 1.3,
                       ),
+                    )
+                  else
+                    Text(
+                      result.source.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: scheme.outline,
+                        fontSize: 11.5,
+                      ),
+                    ),
+                ],
               ),
             ),
-            const SizedBox(height: 9),
-            Text(
-              result.book.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                color: scheme.onSurface,
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              result.book.author.isEmpty
-                  ? result.source.name
-                  : result.book.author,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: scheme.onSurfaceVariant,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
+            const SizedBox(width: 8),
+            Icon(
+              Icons.chevron_right_rounded,
+              size: 18,
+              color: scheme.outlineVariant,
             ),
           ],
         ),

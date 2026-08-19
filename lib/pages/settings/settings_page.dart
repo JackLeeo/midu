@@ -500,6 +500,9 @@ class _SettingsPageState extends State<SettingsPage> {
             topPadding: useRailNavigation
                 ? viewPadding.top + 8
                 : mobileChrome.pageTopPadding,
+            bottomPadding: useRailNavigation
+                ? 12
+                : mobileChrome.pageBottomPadding,
           ),
           // 右侧：选中分组的设置内容
           Expanded(
@@ -539,6 +542,7 @@ class _SettingsPageState extends State<SettingsPage> {
     required bool useRailNavigation,
     required EdgeInsets viewPadding,
     required double topPadding,
+    required double bottomPadding,
   }) {
     final scheme = Theme.of(context).colorScheme;
     return SizedBox(
@@ -553,7 +557,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ),
         child: Padding(
-          padding: EdgeInsets.fromLTRB(16, topPadding, 8, 12),
+          padding: EdgeInsets.fromLTRB(16, topPadding, 8, bottomPadding),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(16),
             child: LayoutBuilder(
