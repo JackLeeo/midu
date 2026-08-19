@@ -116,6 +116,9 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   List<SourcedBook> _sectionBooks = const [];
   bool _loadingSectionBooks = false;
 
+  // 各栏目的书籍内存缓存（key 为栏目 key）。命中后秒出旧数据，后台静默刷新替换。
+  final Map<String, List<SourcedBook>> _sectionCache = {};
+
   // 最新榜单分页：默认展示一页，点击"下一页"再展开，避免无限下滑。
   static const int latestPageSize = 10;
   int _latestVisibleCount = 0;
@@ -200,6 +203,17 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         _latestVisibleCount = latest.isEmpty ? 0 : latestPageSize.clamp(1, latest.length);
         _loadingBookStore = false;
       });
+      // 有栏目缓存的默认栏目，后台静默刷新替换，保证与「最新」一样新鲜。
+      final groupedFresh = _groupCategorySections(_aggregatedCategories);
+      if (groupedFresh.isNotEmpty) {
+        final activeKey = (_selectedSectionKey != null &&
+                groupedFresh.any((s) => s.key == _selectedSectionKey))
+            ? _selectedSectionKey!
+            : groupedFresh.first.key;
+        if (_sectionCache[activeKey]?.isNotEmpty ?? false) {
+          unawaited(_refreshSectionBooks(activeKey));
+        }
+      }
       // 静默写回缓存，供下次启动秒出内容。
       final freshCache = _encodeDiscoveryCache(
         shelves: shelves,
@@ -258,12 +272,25 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
           'book': r.book.toJson(),
         };
       }).toList();
+      // 各栏目聚合书籍同样缓存，重启后秒出、后台刷新替换。
+      final sectionsJson = <String, List<Map<String, dynamic>>>{};
+      _sectionCache.forEach((key, books) {
+        if (books.isEmpty) return;
+        sectionsJson[key] = books.map((r) {
+          note(r.source);
+          return <String, dynamic>{
+            'sourceId': r.source.id,
+            'book': r.book.toJson(),
+          };
+        }).toList();
+      });
       return jsonEncode(<String, dynamic>{
         'version': 1,
         'sources': sources,
         'shelves': shelfJson,
         'categories': categoryJson,
         'latest': latestJson,
+        'sections': sectionsJson,
       });
     } catch (_) {
       return null;
@@ -335,6 +362,37 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       _shelves = shelves;
       _categories = categories;
       _latest = latest;
+
+      // 还原各栏目聚合书籍缓存（内存），并预填默认栏目的展示列表。
+      final rawSections = root['sections'];
+      if (rawSections is Map) {
+        _sectionCache.clear();
+        rawSections.forEach((key, list) {
+          final books = <SourcedBook>[];
+          if (list is List) {
+            for (final entry in list) {
+              if (entry is! Map<String, dynamic>) continue;
+              final source = sourceOf(entry['sourceId']);
+              final book = entry['book'];
+              if (source == null || book is! Map<String, dynamic>) continue;
+              try {
+                books.add(
+                  SourcedBook(source: source, book: BookSourceBook.fromJson(book)),
+                );
+              } catch (_) {}
+            }
+          }
+          if (books.isNotEmpty) _sectionCache['$key'] = books;
+        });
+      }
+      final grouped = _groupCategorySections(_aggregatedCategories);
+      if (grouped.isNotEmpty) {
+        final defaultCache = _sectionCache[grouped.first.key];
+        if (defaultCache != null && defaultCache.isNotEmpty) {
+          _selectedSectionKey = grouped.first.key;
+          _sectionBooks = defaultCache;
+        }
+      }
       return true;
     } catch (_) {
       return false;
@@ -554,7 +612,10 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     await _loadSectionBooks(key);
   }
 
-  /// 切换到指定栏目并聚合加载该栏目下各细分分类的书籍。
+  /// 切换到指定栏目并展示书籍。
+  ///
+  /// 流程：内存缓存命中 → 秒出旧数据 → 后台静默刷新替换缓存；
+  /// 未命中 → 显示加载态 → 拉取成功后写入内存与磁盘缓存。
   Future<void> _loadSectionBooks(String key) async {
     final sections = _groupCategorySections(_aggregatedCategories);
     if (sections.isEmpty) return;
@@ -562,6 +623,20 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       (s) => s.key == key,
       orElse: () => sections.first,
     );
+    final cached = _sectionCache[key];
+    if (cached != null && cached.isNotEmpty) {
+      // 命中缓存：避免闪烁，直接复用旧数据，再后台静默刷新替换。
+      final isSwitch = _selectedSectionKey != key || _sectionBooks.isEmpty;
+      if (isSwitch) {
+        setState(() {
+          _selectedSectionKey = key;
+          _sectionBooks = cached;
+          _loadingSectionBooks = false;
+        });
+      }
+      unawaited(_refreshSectionBooks(key));
+      return;
+    }
     setState(() {
       _selectedSectionKey = key;
       _loadingSectionBooks = true;
@@ -569,6 +644,8 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     try {
       final books = await _fetchSectionBooks(active);
       if (!mounted || _selectedSectionKey != key) return;
+      _sectionCache[key] = books;
+      _persistDiscoveryCache();
       setState(() {
         _sectionBooks = books;
         _loadingSectionBooks = false;
@@ -576,6 +653,43 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     } catch (_) {
       if (!mounted || _selectedSectionKey != key) return;
       setState(() => _loadingSectionBooks = false);
+    }
+  }
+
+  /// 后台静默刷新某个栏目：拉新数据替换缓存与当前展示（不显示加载态）。
+  Future<void> _refreshSectionBooks(String key) async {
+    final sections = _groupCategorySections(_aggregatedCategories);
+    if (sections.isEmpty) return;
+    final active = sections.firstWhere(
+      (s) => s.key == key,
+      orElse: () => sections.first,
+    );
+    try {
+      final books = await _fetchSectionBooks(active);
+      if (!mounted) return;
+      _sectionCache[key] = books;
+      _persistDiscoveryCache();
+      // 仍停留在该栏目，或当前无数据时，用新数据替换展示。
+      if (_selectedSectionKey == key || _sectionBooks.isEmpty) {
+        setState(() {
+          _sectionBooks = books;
+          _loadingSectionBooks = false;
+        });
+      }
+    } catch (_) {
+      // 刷新失败保留旧数据即可。
+    }
+  }
+
+  /// 把发现页（含已缓存的各栏目书籍）静默写回本地缓存。
+  void _persistDiscoveryCache() {
+    final freshCache = _encodeDiscoveryCache(
+      shelves: _shelves,
+      categories: _categories,
+      latest: _latest,
+    );
+    if (freshCache != null) {
+      unawaited(DiscoveryCacheService.instance.write(freshCache));
     }
   }
 
