@@ -985,11 +985,18 @@ class _GlassContainer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseTint = tint ??
-        (isDark
-            ? Colors.white.withValues(alpha: 0.08)
-            : Colors.white.withValues(alpha: 0.55));
+    // 玻璃已全局关闭时改为实色卡片，避免再以半透明白色营造毛玻璃观感。
+    final baseTint = GlassEffectConfig.shouldDisableBlur
+        ? (tint ?? scheme.surfaceContainerHigh)
+        : (tint ??
+              (isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.white.withValues(alpha: 0.55)));
+    final borderColor = GlassEffectConfig.shouldDisableBlur
+        ? scheme.outlineVariant
+        : Colors.white.withValues(alpha: isDark ? 0.12 : 0.4);
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
       child: BackdropFilter(
@@ -999,12 +1006,7 @@ class _GlassContainer extends StatelessWidget {
           decoration: BoxDecoration(
             color: baseTint,
             borderRadius: BorderRadius.circular(radius),
-            border: Border.all(
-              color: Colors.white.withValues(
-                alpha: isDark ? 0.12 : 0.4,
-              ),
-              width: 0.8,
-            ),
+            border: Border.all(color: borderColor, width: 0.8),
           ),
           child: child,
         ),

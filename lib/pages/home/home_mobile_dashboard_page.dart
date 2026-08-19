@@ -353,18 +353,8 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                   parent: AlwaysScrollableScrollPhysics(),
                 ),
                 slivers: [
-                  SliverPersistentHeader(
-                    pinned: false,
-                    delegate: _HeroHeaderDelegate(
-                      greeting: _greetingForTime(DateTime.now()),
-                      bookCount: _recentBooks.length,
-                      todayMinutes: _todayMinutes,
-                      topInset: mediaQuery.padding.top,
-                    ),
-                  ),
                   SliverList(
                     delegate: SliverChildListDelegate([
-                      const SizedBox(height: 12),
                       _buildMaxWidthBox(
                         maxWidth: maxWidth,
                         child: Padding(
@@ -404,7 +394,7 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                           padding: EdgeInsets.symmetric(
                             horizontal: metrics.horizontalPadding,
                           ),
-                          child: _buildQuickActions(),
+                          child: _buildWeeklyMiniStats(),
                         ),
                       ),
                       const SizedBox(height: 26),
@@ -434,16 +424,6 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                       _buildMaxWidthBox(
                         maxWidth: maxWidth,
                         child: _buildRecentBooksCarousel(carouselBooks),
-                      ),
-                      const SizedBox(height: 26),
-                      _buildMaxWidthBox(
-                        maxWidth: maxWidth,
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: metrics.horizontalPadding,
-                          ),
-                          child: _buildWeeklyMiniStats(),
-                        ),
                       ),
                       SizedBox(height: metrics.contentBottomPadding + 16),
                     ]),
@@ -877,75 +857,6 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
     );
   }
 
-  Widget _buildQuickActions() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildQuickActionButton(
-            icon: Icons.explore_rounded,
-            label: context.l10n.discover,
-            onTap: _navigateToDiscover,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _buildQuickActionButton(
-            icon: Icons.dns_rounded,
-            label: context.l10n.bookSources,
-            onTap: _navigateToBookSources,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildQuickActionButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    final palette = _palette;
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          height: 64,
-          decoration: BoxDecoration(
-            color: _glassBackgroundColor(),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: _glassBorderColor(), width: 1),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  color: scheme.primary.withValues(alpha: 0.14),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(icon, color: scheme.primary, size: 18),
-              ),
-              const SizedBox(height: 5),
-              Text(
-                label,
-                style: TextStyle(
-                  color: palette.primaryTextColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildRecentBooksCarousel(List<Book> books) {
     if (books.isEmpty) {
       final palette = _palette;
@@ -1296,14 +1207,6 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
     );
   }
 
-  Future<void> _navigateToBookSources() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => const BookSourceManagementPage(),
-      ),
-    );
-  }
-
   Widget _buildBookCover(
     Book book, {
     required double width,
@@ -1344,160 +1247,5 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
         child: cover,
       ),
     );
-  }
-}
-
-class _HeroHeaderDelegate extends SliverPersistentHeaderDelegate {
-  _HeroHeaderDelegate({
-    required this.greeting,
-    required this.bookCount,
-    required this.todayMinutes,
-    required this.topInset,
-  });
-
-  final String greeting;
-  final int bookCount;
-  final int todayMinutes;
-  final double topInset;
-
-  @override
-  double get minExtent => 180;
-
-  @override
-  double get maxExtent => 200;
-
-  @override
-  Widget build(
-    BuildContext context,
-    double shrinkOffset,
-    bool overlapsContent,
-  ) {
-    final scheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final warmStart = Color.alphaBlend(
-      scheme.primary.withValues(alpha: isDark ? 0.26 : 0.13),
-      scheme.surface,
-    );
-    final warmEnd = Color.alphaBlend(
-      scheme.primary.withValues(alpha: isDark ? 0.10 : 0.05),
-      scheme.surface,
-    );
-    return ClipRRect(
-      borderRadius: const BorderRadius.only(
-        bottomLeft: Radius.circular(24),
-        bottomRight: Radius.circular(24),
-      ),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [warmStart, warmEnd],
-          ),
-        ),
-        child: Padding(
-          padding: EdgeInsets.only(
-            top: topInset + 20,
-            left: 20,
-            right: 20,
-            bottom: 24,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Text(
-                    '米读',
-                    style: TextStyle(
-                      color: scheme.onSurface,
-                      fontSize: 26,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(6, 4, 12, 4),
-                    decoration: BoxDecoration(
-                      color: scheme.surface.withValues(
-                        alpha: isDark ? 0.5 : 0.85,
-                      ),
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircleAvatar(
-                          radius: 15,
-                          backgroundColor: scheme.primary.withValues(
-                            alpha: 0.16,
-                          ),
-                          child: Icon(
-                            Icons.person_rounded,
-                            size: 18,
-                            color: scheme.primary,
-                          ),
-                        ),
-                        const SizedBox(width: 7),
-                        Text(
-                          '书友',
-                          style: TextStyle(
-                            color: scheme.onSurface,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: Text(
-                      greeting,
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  _buildHeroBadge(context, '📖 $bookCount本'),
-                  const SizedBox(width: 12),
-                  _buildHeroBadge(context, '⏱ $todayMinutes分'),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeroBadge(BuildContext context, String text) {
-    final scheme = Theme.of(context).colorScheme;
-    return Text(
-      text,
-      style: TextStyle(
-        color: scheme.onSurface.withValues(alpha: 0.6),
-        fontSize: 13,
-        fontWeight: FontWeight.w600,
-      ),
-    );
-  }
-
-  @override
-  bool shouldRebuild(covariant _HeroHeaderDelegate oldDelegate) {
-    return greeting != oldDelegate.greeting ||
-        bookCount != oldDelegate.bookCount ||
-        todayMinutes != oldDelegate.todayMinutes ||
-        topInset != oldDelegate.topInset;
   }
 }

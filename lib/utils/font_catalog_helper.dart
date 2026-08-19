@@ -88,8 +88,53 @@ class FontCatalog {
     displayName: 'System',
   );
 
-  static const List<FontOption> appFonts = <FontOption>[];
-  static const List<FontOption> readerFonts = <FontOption>[];
+  /// iOS 系统自带可用的 CJK 字体选项，作为 App / 阅读器可选字体。
+  /// 通过 `fontFamily` 直接引用系统字体族，无需打包字体文件，自签/巨魔安装也可用。
+  static const List<FontOption> appFonts = <FontOption>[
+    FontOption(
+      id: 'ios_pingfang',
+      family: 'PingFang SC',
+      tone: FontTone.sansSerif,
+      displayName: '苹方 PingFang',
+    ),
+    FontOption(
+      id: 'ios_songti',
+      family: 'Songti SC',
+      tone: FontTone.serif,
+      displayName: '宋体 Songti',
+    ),
+    FontOption(
+      id: 'ios_kaiti',
+      family: 'Kaiti SC',
+      tone: FontTone.serif,
+      displayName: '楷体 Kaiti',
+    ),
+    FontOption(
+      id: 'ios_heiti',
+      family: 'Heiti SC',
+      tone: FontTone.sansSerif,
+      displayName: '黑体 Heiti',
+    ),
+    FontOption(
+      id: 'ios_yuanti',
+      family: 'Yuanti SC',
+      tone: FontTone.sansSerif,
+      displayName: '圆体 Yuanti',
+    ),
+    FontOption(
+      id: 'ios_hiragino',
+      family: 'Hiragino Sans GB',
+      tone: FontTone.sansSerif,
+      displayName: '冬青黑 Hiragino',
+    ),
+    FontOption(
+      id: 'ios_stsong',
+      family: 'STSong',
+      tone: FontTone.serif,
+      displayName: '华文宋体 STSong',
+    ),
+  ];
+  static const List<FontOption> readerFonts = appFonts;
 
   /// Instrument Sans 字体 ID。
   static const String instrumentSansId = 'instrument_sans';

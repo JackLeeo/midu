@@ -9,7 +9,7 @@ class BookSourceNetworkPolicy {
   const BookSourceNetworkPolicy({
     BookSourceAddressLookup? lookup,
     this.allowPrivateNetwork = false,
-    this.allowSyntheticDns = false,
+    this.allowSyntheticDns = true,
   }) : _lookup = lookup ?? InternetAddress.lookup;
 
   final BookSourceAddressLookup _lookup;

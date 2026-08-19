@@ -887,7 +887,12 @@ class _MiduAppState extends State<MiduApp> with WidgetsBindingObserver {
     String? appFontFamily,
     AppUiStyle uiStyle,
   ) {
-    final base = MiduAppTheme.light;
+    // 强调色是配色的唯一来源：用 AppTheme 的 lightColorScheme 派生主题，
+    // 这样切换强调色后 primary/container/onXxx 会同步变化。
+    final base = MiduAppTheme.fromColorScheme(
+      appTheme.lightColorScheme,
+      dark: false,
+    );
     if (appFontFamily == null || appFontFamily.isEmpty) return base;
     return base.copyWith(
       textTheme: base.textTheme.apply(fontFamily: appFontFamily),
@@ -900,7 +905,10 @@ class _MiduAppState extends State<MiduApp> with WidgetsBindingObserver {
     String? appFontFamily,
     AppUiStyle uiStyle,
   ) {
-    final base = MiduAppTheme.dark;
+    final base = MiduAppTheme.fromColorScheme(
+      appTheme.darkColorScheme,
+      dark: true,
+    );
     if (appFontFamily == null || appFontFamily.isEmpty) return base;
     return base.copyWith(
       textTheme: base.textTheme.apply(fontFamily: appFontFamily),

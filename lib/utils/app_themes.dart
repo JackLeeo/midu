@@ -15,6 +15,16 @@ class MiduAppTheme {
   static ThemeData get light => _light ??= _buildLight();
   static ThemeData get dark => _dark ??= _buildDark();
 
+  /// 基于外部传入的 ColorScheme 构建主题（强调色即品牌色，由它生成完整色板）。
+  /// 用户切换强调色时，用 AppTheme.lightColorScheme / darkColorScheme 走这里，
+  /// 保证 primary/secondary/container/onXxx 等全部跟随强调色变化。
+  static ThemeData fromColorScheme(
+    ColorScheme scheme, {
+    required bool dark,
+  }) {
+    return _base(scheme: scheme, dark: dark);
+  }
+
   static ColorScheme _lightScheme() => ColorScheme.fromSeed(
         seedColor: MiduColors.brand,
         brightness: Brightness.light,

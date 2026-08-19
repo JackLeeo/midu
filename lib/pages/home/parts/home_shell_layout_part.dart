@@ -468,15 +468,8 @@ extension _HomeShellLayoutPart on _HomeShellPageState {
     Widget? trailing;
 
     if (currentPage is HomeDashboardPage) {
-      final settingsIndex = _navigationItems.indexWhere(
-        (item) => item.page is SettingsPage,
-      );
-      if (settingsIndex >= 0) {
-        trailing = _buildTopBarActionButton(
-          icon: Icons.settings_outlined,
-          onTap: () => _switchToTab(settingsIndex),
-        );
-      }
+      // 首页顶部不叠加任何操作按钮。
+      trailing = null;
     } else if (currentPage is LibraryPage) {
       final selection = _libraryController.selection.value;
       if (selection.isActive) {

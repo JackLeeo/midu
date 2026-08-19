@@ -4848,7 +4848,9 @@ class _BookSourceSwitchSheetState extends State<_BookSourceSwitchSheet> {
                 sigmaY: MiduGlassSigma.sheet,
               ),
               child: Container(
-                color: dark ? const Color(0xF0150A33) : const Color(0xF5FAF8FF),
+                color: GlassEffectConfig.shouldDisableBlur
+                    ? (dark ? const Color(0xFF150A33) : const Color(0xFFFFFAF8))
+                    : (dark ? const Color(0xF0150A33) : const Color(0xF5FAF8FF)),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [

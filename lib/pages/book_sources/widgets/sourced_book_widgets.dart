@@ -397,6 +397,15 @@ class _SourcedBookDetailsSheetState extends State<_SourcedBookDetailsSheet> {
 
   BookSourceBook get _book => widget.result.book;
 
+  /// 详情从书源拉取后，简介往往由多条 `<p>`/`<br>` 段落组合而成，前后塞满
+  /// 换行与空白。这里把连续空白折叠为单个空格，并去掉首尾，避免弹窗里出现
+  /// 一整片难看的空行/空格（主流书城简介都是流畅的行距而非把换行当字符）。
+  String _normalizeIntroWhitespace(String description) {
+    return description
+        .replaceAll(RegExp(r'[ \t\r\n]+'), ' ')
+        .trim();
+  }
+
   @override
   void dispose() {
     _downloadController?.removeListener(_handleDownloadUpdate);
@@ -604,9 +613,12 @@ class _SourcedBookDetailsSheetState extends State<_SourcedBookDetailsSheet> {
           child: SingleChildScrollView(
             key: const Key('bookSourceDetailsScroll'),
             padding: const EdgeInsets.only(bottom: 4),
-            child: (_book.description ?? '').isEmpty
+            child: (_book.description ?? '').trim().isEmpty
                 ? const SizedBox.shrink()
-                : Text(_book.description ?? '', style: const TextStyle(height: 1.5)),
+                : Text(
+                    _normalizeIntroWhitespace(_book.description ?? ''),
+                    style: const TextStyle(height: 1.5),
+                  ),
           ),
         ),
         const SizedBox(height: 14),
