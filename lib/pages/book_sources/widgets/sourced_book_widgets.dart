@@ -18,7 +18,6 @@ import 'package:midu/utils/page_transitions.dart';
 import 'package:midu/utils/page_style_helper.dart';
 import 'package:midu/utils/ui_style.dart';
 import 'package:midu/widgets/generated_book_cover.dart';
-import 'package:midu/widgets/side_toast.dart';
 import 'package:midu/widgets/source_cover_image.dart';
 
 /// 一本来自具体书源的书。
@@ -269,10 +268,6 @@ class SourcedBookActions {
             SourcedBook(source: result.source, book: book),
             alternativeSources: alternativeSources,
           ),
-          onDownloadContinuesInBackground: () {
-            if (!context.mounted) return;
-            showSideToast(context, context.l10n.downloadRunningInBackground);
-          },
         ),
       ),
     );
@@ -304,7 +299,6 @@ class _SourcedBookDetailsLoader extends StatefulWidget {
     required this.client,
     required this.shelfService,
     required this.onRead,
-    required this.onDownloadContinuesInBackground,
     this.alternativeSources,
   });
 
@@ -312,7 +306,6 @@ class _SourcedBookDetailsLoader extends StatefulWidget {
   final BookSourceClient client;
   final BookSourceShelfService shelfService;
   final Future<void> Function(BookSourceBook book) onRead;
-  final VoidCallback onDownloadContinuesInBackground;
   final List<SourcedBookPointer>? alternativeSources;
 
   @override
@@ -371,7 +364,6 @@ class _SourcedBookDetailsLoaderState extends State<_SourcedBookDetailsLoader> {
       shelfService: widget.shelfService,
       alternativeSources: widget.alternativeSources,
       onRead: () => widget.onRead(result.book),
-      onDownloadContinuesInBackground: widget.onDownloadContinuesInBackground,
     );
   }
 }
@@ -384,7 +376,6 @@ enum _BookDetailsSheetStep {
   added,
   alreadyAdded,
   addFailed,
-  downloading,
 }
 
 class _SourcedBookDetailsSheet extends StatefulWidget {
@@ -393,14 +384,12 @@ class _SourcedBookDetailsSheet extends StatefulWidget {
     required this.result,
     required this.shelfService,
     required this.onRead,
-    required this.onDownloadContinuesInBackground,
     this.alternativeSources,
   });
 
   final SourcedBook result;
   final BookSourceShelfService shelfService;
   final Future<void> Function() onRead;
-  final VoidCallback onDownloadContinuesInBackground;
   final List<SourcedBookPointer>? alternativeSources;
 
   @override
@@ -414,7 +403,6 @@ class _SourcedBookDetailsSheetState extends State<_SourcedBookDetailsSheet> {
   DownloadTaskController? _downloadController;
   String? _downloadTaskId;
   bool _closingScheduled = false;
-  bool _closing = false;
 
   BookSourceBook get _book => widget.result.book;
 
@@ -430,13 +418,13 @@ class _SourcedBookDetailsSheetState extends State<_SourcedBookDetailsSheet> {
   @override
   void dispose() {
     _downloadController?.removeListener(_handleDownloadUpdate);
+    _removeDownloadOverlay();
     super.dispose();
   }
 
   Future<void> _openReader() async {
     if (_step != _BookDetailsSheetStep.details) return;
     setState(() => _step = _BookDetailsSheetStep.openingReader);
-    _closing = true;
     Navigator.of(context).pop();
     await Future<void>.delayed(const Duration(milliseconds: 60));
     await widget.onRead();
@@ -476,6 +464,8 @@ class _SourcedBookDetailsSheetState extends State<_SourcedBookDetailsSheet> {
     }
   }
 
+  /// 拉起后台缓存任务：不跳转到内嵌进度页，改为在详情页上方弹一个悬浮
+  /// 进度浮窗，缓存静默进行，完成后悬浮浮窗提示即可（进度条不再卡住）。
   void _startDownload() {
     final controller = context.read<DownloadTaskController>();
     _downloadController?.removeListener(_handleDownloadUpdate);
@@ -485,36 +475,165 @@ class _SourcedBookDetailsSheetState extends State<_SourcedBookDetailsSheet> {
       shelfService: widget.shelfService,
     );
     _downloadController = controller..addListener(_handleDownloadUpdate);
-    setState(() {
-      _downloadTaskId = taskId;
-      _step = _BookDetailsSheetStep.downloading;
-    });
+    setState(() => _downloadTaskId = taskId);
+    _showDownloadOverlay();
+    _handleDownloadUpdate();
   }
 
   void _handleDownloadUpdate() {
     if (!mounted) return;
     final task = _downloadController?.taskById(_downloadTaskId ?? '');
-    setState(() {});
-    if (!_closing && task?.state == DownloadTaskState.completed) {
-      _scheduleClose();
+    if (_downloadOverlay != null) {
+      _downloadOverlay!.markNeedsBuild();
     }
+    if (task != null && _isTerminalDownloadState(task.state)) {
+      _armDownloadOverlayDismiss();
+    }
+  }
+
+  static bool _isTerminalDownloadState(DownloadTaskState state) =>
+      state == DownloadTaskState.completed ||
+      state == DownloadTaskState.failed ||
+      state == DownloadTaskState.cancelled;
+
+  OverlayEntry? _downloadOverlay;
+  bool _downloadOverlayDismissArmed = false;
+
+  void _showDownloadOverlay() {
+    if (_downloadOverlay != null) {
+      _downloadOverlayDismissArmed = false;
+      return;
+    }
+    final overlay = Overlay.of(context, rootOverlay: true);
+    _downloadOverlayDismissArmed = false;
+    _downloadOverlay = OverlayEntry(builder: _buildDownloadFloating);
+    overlay.insert(_downloadOverlay!);
+  }
+
+  void _removeDownloadOverlay() {
+    _downloadOverlay?.remove();
+    _downloadOverlay = null;
+    _downloadOverlayDismissArmed = false;
+  }
+
+  void _armDownloadOverlayDismiss() {
+    if (_downloadOverlay == null || _downloadOverlayDismissArmed) return;
+    _downloadOverlayDismissArmed = true;
+    unawaited(
+      Future<void>.delayed(const Duration(milliseconds: 2000), () {
+        if (mounted) _removeDownloadOverlay();
+      }),
+    );
+  }
+
+  Widget _buildDownloadFloating(BuildContext overlayContext) {
+    final task = _downloadController?.taskById(_downloadTaskId ?? '');
+    final state = task?.state;
+    final scheme = Theme.of(overlayContext).colorScheme;
+    final isDone = state == DownloadTaskState.completed;
+    final isError = state == DownloadTaskState.failed;
+    final isCancelled = state == DownloadTaskState.cancelled;
+    final downloading =
+        state == DownloadTaskState.queued || state == DownloadTaskState.downloading;
+
+    final IconData icon;
+    final Color iconColor;
+    String message;
+    if (isDone) {
+      icon = Icons.check_circle_rounded;
+      iconColor = const Color(0xFF34C759);
+      message = '《${_book.title}》已缓存完成';
+    } else if (isError) {
+      icon = Icons.error_rounded;
+      iconColor = scheme.error;
+      message = '《${_book.title}》缓存失败';
+    } else if (isCancelled) {
+      icon = Icons.info_outline_rounded;
+      iconColor = scheme.primary;
+      message = '已取消缓存';
+    } else {
+      icon = Icons.file_download_rounded;
+      iconColor = scheme.primary;
+      message = '正在缓存《${_book.title}》';
+    }
+
+    return Positioned(
+      left: 16,
+      right: 16,
+      top: MediaQuery.paddingOf(overlayContext).top + 12,
+      child: IgnorePointer(
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            decoration: BoxDecoration(
+              color: scheme.surface.withValues(alpha: 0.98),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: scheme.outline.withValues(alpha: 0.35)),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x223A1F7A),
+                  blurRadius: 16,
+                  offset: Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                if (downloading && task?.progress == null)
+                  const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2.2),
+                  )
+                else
+                  Icon(icon, color: iconColor, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        message,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: scheme.onSurface,
+                        ),
+                      ),
+                      if (downloading && task?.progress != null) ...[
+                        const SizedBox(height: 6),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(99),
+                          child: LinearProgressIndicator(
+                            value: task!.progress,
+                            minHeight: 3,
+                            color: scheme.primary,
+                            backgroundColor: scheme.primary.withValues(alpha: 0.12),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _scheduleClose() {
     if (_closingScheduled) return;
     _closingScheduled = true;
-    _closing = true;
     unawaited(
       Future<void>.delayed(const Duration(milliseconds: 550), () {
         if (mounted) Navigator.of(context).pop();
       }),
     );
-  }
-
-  void _continueDownloadInBackground() {
-    _closing = true;
-    Navigator.of(context).pop();
-    widget.onDownloadContinuesInBackground();
   }
 
   @override
@@ -620,7 +739,6 @@ class _SourcedBookDetailsSheetState extends State<_SourcedBookDetailsSheet> {
         message: context.l10n.bookSourceAlreadyOnShelf,
       ),
       _BookDetailsSheetStep.addFailed => _buildAddFailed(context),
-      _BookDetailsSheetStep.downloading => _buildDownload(context),
     };
   }
 
@@ -646,40 +764,32 @@ class _SourcedBookDetailsSheetState extends State<_SourcedBookDetailsSheet> {
         Row(
           children: [
             Expanded(
-              child: SizedBox(
-                height: 52,
-                child: OutlinedButton.icon(
-                  key: const Key('bookSourceAddToShelfButton'),
-                  onPressed: () => setState(
-                    () => _step = _BookDetailsSheetStep.shelfOptions,
-                  ),
-                  icon: const Icon(Icons.add_to_photos_outlined),
-                  label: Text(context.l10n.bookSourceAddToShelf),
+              child: _DetailsActionButton(
+                key: const Key('bookSourceAddToShelfButton'),
+                icon: Icons.add_to_photos_outlined,
+                label: context.l10n.bookSourceAddToShelf,
+                onPressed: () => setState(
+                  () => _step = _BookDetailsSheetStep.shelfOptions,
                 ),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
-              child: SizedBox(
-                height: 52,
-                child: OutlinedButton.icon(
-                  key: const Key('bookSourceDownloadButton'),
-                  onPressed: _startDownload,
-                  icon: const Icon(Icons.download_for_offline_outlined),
-                  label: Text(context.l10n.fontDownload),
-                ),
+              child: _DetailsActionButton(
+                key: const Key('bookSourceDownloadButton'),
+                icon: Icons.download_for_offline_outlined,
+                label: context.l10n.fontDownload,
+                onPressed: _startDownload,
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
-              child: SizedBox(
-                height: 52,
-                child: FilledButton.icon(
-                  key: const Key('bookSourceReadButton'),
-                  onPressed: _openReader,
-                  icon: const Icon(Icons.menu_book_rounded),
-                  label: Text(context.l10n.reading),
-                ),
+              child: _DetailsActionButton(
+                key: const Key('bookSourceReadButton'),
+                filled: true,
+                icon: Icons.menu_book_rounded,
+                label: context.l10n.reading,
+                onPressed: _openReader,
               ),
             ),
           ],
@@ -782,82 +892,59 @@ class _SourcedBookDetailsSheetState extends State<_SourcedBookDetailsSheet> {
       ),
     );
   }
+}
 
-  Widget _buildDownload(BuildContext context) {
-    final task = _downloadController?.taskById(_downloadTaskId ?? '');
-    final state = task?.state;
-    final status = switch (state) {
-      DownloadTaskState.queued => context.l10n.downloadTaskQueued,
-      DownloadTaskState.downloading => context.l10n.downloadTaskDownloading,
-      DownloadTaskState.completed => context.l10n.bookSourceDownloadComplete,
-      DownloadTaskState.failed => context.l10n.bookSourceDownloadFailed(
-        '${task?.error ?? ''}',
-      ),
-      DownloadTaskState.cancelled => context.l10n.downloadTaskCancelled,
-      null => context.l10n.downloadTaskFailed,
-    };
-    final active =
-        state == DownloadTaskState.queued ||
-        state == DownloadTaskState.downloading;
+/// 详情页底部三键（加入书架/下载/阅读）的紧凑按钮：缩小图标与内边距，
+/// 标签用 FittedBox 单行缩放，避免列宽不足时“加入书架”折行成两行。
+class _DetailsActionButton extends StatelessWidget {
+  const _DetailsActionButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.filled = false,
+  });
 
-    return Padding(
-      key: const Key('bookSourceDownloadInline'),
-      padding: const EdgeInsets.symmetric(vertical: 18),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (state == DownloadTaskState.completed)
-            const Icon(Icons.check_circle_rounded, size: 42)
-          else
-            LinearProgressIndicator(
-              value: state == DownloadTaskState.failed ? 0 : task?.progress,
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget child = Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 20),
+        const SizedBox(width: 5),
+        Flexible(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              label,
+              maxLines: 1,
+              style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
             ),
-          const SizedBox(height: 14),
-          Text(status, textAlign: TextAlign.center),
-          if (task != null && task.total > 0) ...[
-            const SizedBox(height: 6),
-            Text(
-              context.l10n.bookSourceDownloadProgress(
-                task.completed,
-                task.total,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-          const SizedBox(height: 16),
-          if (active)
-            Row(
-              children: [
-                Expanded(
-                  child: TextButton(
-                    onPressed: () =>
-                        _downloadController?.cancelTask(_downloadTaskId ?? ''),
-                    child: Text(context.l10n.downloadTaskCancel),
-                  ),
-                ),
-                Expanded(
-                  child: FilledButton(
-                    key: const Key('bookSourceDownloadBackgroundButton'),
-                    onPressed: _continueDownloadInBackground,
-                    child: Text(context.l10n.downloadContinueInBackground),
-                  ),
-                ),
-              ],
-            )
-          else if (state == DownloadTaskState.failed)
-            FilledButton(
-              onPressed: _startDownload,
-              child: Text(context.l10n.retry),
-            )
-          else if (state == DownloadTaskState.cancelled)
-            TextButton(
-              onPressed: () =>
-                  setState(() => _step = _BookDetailsSheetStep.shelfOptions),
-              child: Text(context.l10n.back),
-            ),
-        ],
+          ),
+        ),
+      ],
+    );
+    final ButtonStyle style = ButtonStyle(
+      minimumSize: const WidgetStatePropertyAll(Size(0, 48)),
+      padding: const WidgetStatePropertyAll(
+        EdgeInsets.symmetric(horizontal: 8),
       ),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      visualDensity: VisualDensity.compact,
+      shape: WidgetStatePropertyAll(
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+    return SizedBox(
+      height: 48,
+      child: filled
+          ? FilledButton(style: style, onPressed: onPressed, child: child)
+          : OutlinedButton(style: style, onPressed: onPressed, child: child),
     );
   }
 }

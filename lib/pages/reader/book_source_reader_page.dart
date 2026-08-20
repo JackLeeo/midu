@@ -240,6 +240,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
   ReaderAloudHighlight? _readerAloudHighlight;
   bool _downloadingBook = false;
   double _downloadProgress = 0;
+  OverlayEntry? _downloadOverlay;
 
   ReaderThemePalette get _readerTheme =>
       _loadingCatalog && widget.initialTheme != null
@@ -444,6 +445,8 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _downloadOverlay?.remove();
+    _downloadOverlay = null;
     _openingLoaderTimer?.cancel();
     _openingContentReadyTimer?.cancel();
     _progressSaveTimer?.cancel();
@@ -2093,7 +2096,9 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     );
   }
 
-  /// 下载全书到本地（缓存离线阅读）。复用书架服务的下载逻辑，显示进度对话框。
+  /// 下载全书到本地（缓存离线阅读）。复用书架服务的下载逻辑，改为后台
+  /// 静默下载 + 顶部悬浮进度浮窗，完成后用浮窗/Toast 提示，不再用挡路的
+  /// 模态进度对话框（旧实现的对话框从不重建，进度条会一直卡在 0）。
   Future<void> _downloadCurrentBook() async {
     if (_chapters.isEmpty || _downloadingBook) return;
     _controlsTimer?.cancel();
@@ -2101,40 +2106,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       _downloadingBook = true;
       _downloadProgress = 0;
     });
-    var lastProgress = 0.0;
-    final progressDialog = showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          backgroundColor: _readerTheme.surface,
-          surfaceTintColor: Colors.transparent,
-          content: SizedBox(
-            width: 300,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const CircularProgressIndicator(),
-                const SizedBox(height: 18),
-                Text(
-                  '正在缓存《${_activeBook.title}》',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  lastProgress >= 1
-                      ? '完成'
-                      : '已下载 ${(lastProgress * 100).round()}%',
-                  style: const TextStyle(fontSize: 13),
-                ),
-                const SizedBox(height: 6),
-                LinearProgressIndicator(value: lastProgress.clamp(0.0, 1.0)),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+    _showDownloadOverlay();
     var succeeded = false;
     String? errorMessage;
     try {
@@ -2142,10 +2114,10 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
         source: _activeSource,
         book: _activeBook,
         onProgress: (completed, total) {
-          final fraction = total <= 0 ? 1.0 : completed / total;
-          lastProgress = fraction;
+          _downloadProgress = total <= 0 ? 1.0 : completed / total;
           if (!mounted) return;
-          // 使用全局 setState 更新快照；对话框由下方重开时读取最新值。
+          _downloadOverlay?.markNeedsBuild();
+          setState(() {});
         },
       );
       succeeded = true;
@@ -2153,7 +2125,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       errorMessage = error.toString();
     }
     if (!mounted) return;
-    Navigator.of(context).pop(); // 关闭进度对话框
+    _removeDownloadOverlay();
     setState(() {
       _downloadingBook = false;
       _downloadProgress = 0;
@@ -2171,6 +2143,92 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
         kind: SideToastKind.error,
       );
     }
+  }
+
+  void _showDownloadOverlay() {
+    _downloadOverlay?.remove();
+    _downloadOverlay = OverlayEntry(builder: _buildCachingFloating);
+    Overlay.of(context, rootOverlay: true).insert(_downloadOverlay!);
+  }
+
+  void _removeDownloadOverlay() {
+    _downloadOverlay?.remove();
+    _downloadOverlay = null;
+  }
+
+  Widget _buildCachingFloating(BuildContext overlayContext) {
+    final scheme = Theme.of(overlayContext).colorScheme;
+    return Positioned(
+      left: 16,
+      right: 16,
+      top: MediaQuery.paddingOf(overlayContext).top + 12,
+      child: IgnorePointer(
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            decoration: BoxDecoration(
+              color: scheme.surface.withValues(alpha: 0.98),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: scheme.outline.withValues(alpha: 0.35),
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x223A1F7A),
+                  blurRadius: 16,
+                  offset: Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                if (_downloadProgress <= 0)
+                  const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2.2),
+                  )
+                else
+                  Icon(Icons.file_download_rounded, color: scheme.primary, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '正在缓存《${_activeBook.title}》',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: scheme.onSurface,
+                        ),
+                      ),
+                      if (_downloadProgress > 0) ...[
+                        const SizedBox(height: 6),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(99),
+                          child: LinearProgressIndicator(
+                            value: _downloadProgress.clamp(0.0, 1.0),
+                            minHeight: 3,
+                            color: scheme.primary,
+                            backgroundColor: scheme.primary.withValues(
+                              alpha: 0.12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   // 换源：解析书架书的多源信息并打开换源面板。
