@@ -1114,9 +1114,6 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
             child: _buildSectionHeader(
               context.l10n.discoverCategories,
               Icons.category_rounded,
-              subtitle: _sectionBooks.isEmpty
-                  ? null
-                  : '共 $_sectionBooks.length 本书 · 聚合 $cats.length 个分类',
             ),
           ),
         ),
@@ -1142,7 +1139,17 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
           bottomPadding: bottomPadding,
         )
       else if (_sectionBooks.isNotEmpty)
-        _categoryBookListSliver(_sectionBooks, bottomPadding: bottomPadding)
+        // 横向封面书架（仅前 N 本）+「查看全部」入口，压缩高度避免遮挡下方「最新」版块。
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(0, 8, 0, bottomPadding),
+          sliver: SliverToBoxAdapter(
+            child: _CategoryBookShelf(
+              books: _sectionBooks,
+              onTapBook: (result) => _actions.showBookDetails(result),
+              onViewAll: _showSectionAllBooks,
+            ),
+          ),
+        )
       else if (_selectedSectionKey != null && !_loadingSectionBooks)
         _paddedSectionSliver(
           _centerSectionChild(
@@ -1162,25 +1169,90 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     ];
   }
 
-  /// 栏目聚合书籍列表：行式（封面缩略 + 标题 + 作者/来源），非网格卡片。
-  SliverList _categoryBookListSliver(
-    List<SourcedBook> books, {
-    required double bottomPadding,
-  }) {
-    return SliverList.builder(
-      itemCount: books.length,
-      itemBuilder: (context, index) {
-        final result = books[index];
-        return _centerSectionChild(
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 0),
-            child: _CategoryBookListRow(
-              result: result,
-              onTap: () => _actions.showBookDetails(result),
-            ),
+  /// 「查看全部」：以底部抽屉展示当前分类栏目的完整书籍列表。
+  void _showSectionAllBooks() {
+    final books = _sectionBooks;
+    if (books.isEmpty) return;
+    final sections = _groupCategorySections(_aggregatedCategories);
+    final activeKey = _selectedSectionKey ??
+        (sections.isEmpty ? null : sections.first.key);
+    final activeSection = sections.where((s) => s.key == activeKey).firstOrNull;
+    final sheetTitle = activeSection != null
+        ? '${activeSection.title} · ${books.length} 本书'
+        : '${books.length} 本书';
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.72,
+        minChildSize: 0.4,
+        maxChildSize: 0.94,
+        builder: (context, scrollController) => Container(
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: Theme.of(sheetContext).colorScheme.surfaceContainerLow,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           ),
-        );
-      },
+          child: Column(
+            children: [
+              const SizedBox(height: 10),
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Theme.of(sheetContext).colorScheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(
+                      sheetTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: Theme.of(sheetContext).colorScheme.onSurface,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () => Navigator.of(sheetContext).pop(),
+                  ),
+                  const SizedBox(width: 4),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Expanded(
+                child: ListView.separated(
+                  controller: scrollController,
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                  itemCount: books.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 2),
+                  itemBuilder: (context, index) {
+                    final result = books[index];
+                    return SourcedBookListTile(
+                      result: result,
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        _actions.showBookDetails(result);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -1817,113 +1889,87 @@ class _CategorySectionChip extends StatelessWidget {
   }
 }
 
-/// 栏目聚合书籍列表行：封面缩略 + 标题 + 作者/来源，行式展示（非网格卡片）。
-class _CategoryBookListRow extends StatelessWidget {
-  final SourcedBook result;
-  final VoidCallback onTap;
+/// 栏目书架：横向滚动的竖版封面卡片（前 [_maxShown] 本）+ 末尾「查看全部」入口。
+/// 压缩为单行书架，避免长列表遮挡下方「最新」版块。
+class _CategoryBookShelf extends StatelessWidget {
+  static const int _maxShown = 10;
 
-  const _CategoryBookListRow({required this.result, required this.onTap});
+  final List<SourcedBook> books;
+  final ValueChanged<SourcedBook> onTapBook;
+  final VoidCallback onViewAll;
+
+  const _CategoryBookShelf({
+    required this.books,
+    required this.onTapBook,
+    required this.onViewAll,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final shown = books.take(_maxShown).toList();
+    final hasMore = books.length > _maxShown;
     final scheme = Theme.of(context).colorScheme;
-    final dpr = MediaQuery.devicePixelRatioOf(context);
-    final book = result.book;
-    final fallback = SizedBox(
-      width: 50,
-      height: 75,
-      child: GeneratedBookCover(title: book.title, author: book.author),
+    return SizedBox(
+      height: 256,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: shown.length + (hasMore ? 1 : 0),
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, index) {
+          if (index >= shown.length) {
+            return _ViewAllTile(
+              count: books.length,
+              scheme: scheme,
+              onTap: onViewAll,
+            );
+          }
+          final result = shown[index];
+          return SourcedBookCard(
+            result: result,
+            onTap: () => onTapBook(result),
+          );
+        },
+      ),
     );
-    final thumb = ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: book.coverUrl == null
-          ? fallback
-          : SourceCoverImage(
-              url: book.coverUrl!,
-              width: 50,
-              height: 75,
-              fit: BoxFit.cover,
-              cacheWidth: (60 * dpr).round(),
-              fallback: fallback,
-            ),
-    );
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: scheme.outlineVariant.withValues(alpha: 0.4),
-              width: 0.6,
-            ),
-          ),
-        ),
-        child: Row(
-          children: [
-            thumb,
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    book.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14.5,
-                      color: scheme.onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    [
-                      if (book.author.isNotEmpty) book.author,
-                      result.source.name,
-                    ].join(' · '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: scheme.onSurfaceVariant,
-                      fontSize: 12,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  if (book.description != null &&
-                      book.description!.isNotEmpty)
-                    Text(
-                      book.description!,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: scheme.onSurfaceVariant,
-                        fontSize: 11.5,
-                        height: 1.3,
-                      ),
-                    )
-                  else
-                    Text(
-                      result.source.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: scheme.outline,
-                        fontSize: 11.5,
-                      ),
-                    ),
-                ],
+  }
+}
+
+/// 书架末尾的「查看全部」瓦片：点击展开当前分类的完整书籍列表。
+class _ViewAllTile extends StatelessWidget {
+  final int count;
+  final ColorScheme scheme;
+  final VoidCallback onTap;
+
+  const _ViewAllTile({
+    required this.count,
+    required this.scheme,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 76,
+      child: Material(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(14),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.grid_view_rounded, size: 22, color: scheme.primary),
+              const SizedBox(height: 6),
+              const Text('查看全部', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+              const SizedBox(height: 2),
+              Text(
+                '$count 本',
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 11),
               ),
-            ),
-            const SizedBox(width: 8),
-            Icon(
-              Icons.chevron_right_rounded,
-              size: 18,
-              color: scheme.outlineVariant,
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
