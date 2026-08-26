@@ -262,6 +262,7 @@ class LegadoRuntime {
             ? response.body.substring(0, 120)
             : response.body,
       });
+      var addedThisHop = 0;
       for (final context in contexts) {
         final title = await _value(document, context, rule, 'chapterName');
         // 单章 URL 解析异常（末页占位链接 href="javascript:void(0)" 等多页目录
@@ -273,6 +274,7 @@ class LegadoRuntime {
           continue;
         }
         if (title.isEmpty || url.isEmpty || !seenChapters.add(url)) continue;
+        addedThisHop++;
         if (chapters.length >= _maxChapters) {
           throw const BookSourceProtocolException(
             'Compatible source chapter catalog exceeds the supported limit.',
@@ -282,6 +284,9 @@ class LegadoRuntime {
           BookSourceChapter(id: url, title: title, order: chapters.length),
         );
       }
+      // 空翻页保护：本页未解析出任何新章节（末页占位/分页规则失效）且目录已有
+      // 内容时提前终止，避免无进展地翻满 _maxPageHops 制造无谓请求与卡顿。
+      if (addedThisHop == 0 && chapters.isNotEmpty) break;
       try {
         nextUrl = await _url(document, null, rule, 'nextTocUrl');
         final nextUri = Uri.tryParse(nextUrl);
@@ -310,28 +315,51 @@ class LegadoRuntime {
   /// 「第123章」= 123、「第2章」= 2、「第一百二十三章」= 123、「第四千五百六十二章」= 4562。
   /// 无法识别时返回 null。
   static int? _extractChapterOrdinal(String title) {
-    // 1) 阿拉伯数字：优先「第N章/节」，退而取首个连续数字串。
+    // 1) 阿拉伯数字：优先「第N章/节」，退而取「像序号」的数字串。
     final arabic = _arabicChapter.firstMatch(title);
     if (arabic != null && arabic.group(1) != null) {
       final v = int.tryParse(arabic.group(1)!);
       if (v != null) return v;
     } else {
       final any = _arabicAny.firstMatch(title);
-      if (any != null) {
+      if (any != null && _looksLikeOrdinal(title, any.start)) {
         final v = int.tryParse(any.group(0)!);
         if (v != null) return v;
       }
     }
-    // 2) 中文数字：优先「第X章/节/回/话」，退而取首个连续中文数字串。
-    final chinese = _chineseChapter.firstMatch(title) ?? _chineseAny.firstMatch(title);
-    if (chinese != null) {
-      // 命中了「第X章」时小组 1 是「X」；否则整个匹配就是中文数字串。
-      final token = chinese.groupCount >= 1 && chinese.group(1) != null
-          ? chinese.group(1)!
-          : chinese.group(0)!;
+    // 2) 中文数字：优先「第X章/节/回/话」，退而取「像序号」的中文数字串。
+    final ch = _chineseChapter.firstMatch(title);
+    if (ch != null && ch.group(1) != null) {
+      final token = ch.group(1)!;
+      if (token.isNotEmpty) return _chineseToArabic(token);
+    }
+    final anyCn = _chineseAny.firstMatch(title);
+    if (anyCn != null && _looksLikeOrdinal(title, anyCn.start)) {
+      final token = anyCn.group(0)!;
       if (token.isNotEmpty) return _chineseToArabic(token);
     }
     return null;
+  }
+
+  /// 宽松回退（无「第X章」前缀的裸数字串）是否为「像章节序号」的位置：
+  /// 必须位于标题开头，或紧跟在「第」/空白/括号/点号/分隔符之后。
+  /// 避免把正文词语中夹带的数字误判为章号（如「关于一点细节」里的「一」、
+  /// 「第104章里的1」等），这正是 zzs5 公告标题导致目录错乱的根因。
+  static bool _looksLikeOrdinal(String title, int start) {
+    if (start <= 0) return true;
+    final prev = title[start - 1];
+    return prev == '第' ||
+        prev == ' ' ||
+        prev == '\u3000' ||
+        prev == '(' ||
+        prev == '（' ||
+        prev == '[' ||
+        prev == '【' ||
+        prev == '.' ||
+        prev == '。' ||
+        prev == '、' ||
+        prev == '·' ||
+        prev == ':';
   }
 
   static final RegExp _arabicChapter = RegExp(r'第(\d+)(?:章|节|回|话)?');
@@ -434,7 +462,56 @@ class LegadoRuntime {
       final prefixAdjusted = _reorderPrefixByOrdinal(prefix, rp);
       return _renumber([...raw.sublist(k), ...prefixAdjusted]);
     }
+
+    // 3) 「公告/最新章节预览块」与正文全表混合（猪猪书网 zzs5 章节页内嵌目录
+    //    常见：[公告, 第34章, 第35章, …, 最新章, …, 第33章]）。此时相邻可比较
+    //    对既非整表正序也非整表倒序，且顶部存在无序号项（公告）。按章节序号
+    //    稳定升序重排（无序号项视为最小排最前，保持站点「公告置顶」的呈现），
+    //    使目录恢复为 [公告, 第33章, 第34章, …, 第N章] 的单调顺序。
+    // 复用第 1 条已统计的 comparablePairs/decreasingPairs（整表相邻可比较对与
+    // 递减对），不重复遍历。
+    var topHasNoOrdinal = false;
+    final topLimit = math.min(10, n);
+    for (var i = 0; i < topLimit; i++) {
+      if (ord[i] == null) {
+        topHasNoOrdinal = true;
+        break;
+      }
+    }
+    // 触发条件：非纯倒序（纯倒序已被第 1 条整体反转处理）且顶部存在公告类
+    // 无序号项；此时无论「仅尾部回跳」（如上例最后一章第33章）还是「公告+最新
+    // 预览+全表混排」，都按序号稳定升序恢复。纯升序源排序后顺序不变（_isSameOrder
+    // 命中即返回原表），因此不会误伤普通目录。
+    if (comparablePairs >= 6 &&
+        topHasNoOrdinal &&
+        !(decreasingPairs * 10 >= comparablePairs * 6) && // 非整表倒序
+        decreasingPairs > 0) {
+      final indexed = <(int?, BookSourceChapter, int)>[];
+      for (var i = 0; i < n; i++) {
+        indexed.add((ord[i], raw[i], i));
+      }
+      indexed.sort((x, y) {
+        final ax = x.$1;
+        final ay = y.$1;
+        if (ax == null && ay == null) return x.$3.compareTo(y.$3);
+        if (ax == null) return -1;
+        if (ay == null) return 1;
+        final c = ax.compareTo(ay);
+        if (c != 0) return c;
+        return x.$3.compareTo(y.$3);
+      });
+      final sorted = indexed.map((e) => e.$2).toList();
+      if (!_isSameOrder(raw, sorted)) return _renumber(sorted);
+    }
     return raw;
+  }
+
+  static bool _isSameOrder(List<BookSourceChapter> a, List<BookSourceChapter> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id) return false;
+    }
+    return true;
   }
 
   /// 顶部块 [0..k) 是否只含「前置位」的低序号/无序号内容而没有任何后置章号（>2）。
