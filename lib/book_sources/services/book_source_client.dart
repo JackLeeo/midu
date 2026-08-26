@@ -341,11 +341,12 @@ class BookSourceClient {
 
   Future<BookSourceBook> getBook(
     RegisteredBookSource source,
-    String bookId,
-  ) async {
+    String bookId, {
+    BookSourceBook? seedBook,
+  }) async {
     if (source.sourceProtocol == BookSourceProtocolKind.legado) {
       await _ensureAdditionalProtocolsEnabled();
-      return _legadoFor(source).getBook(source, bookId);
+      return _legadoFor(source).getBook(source, bookId, seedBook: seedBook);
     }
     final uri = _apiUri(
       source.apiBaseUrl,

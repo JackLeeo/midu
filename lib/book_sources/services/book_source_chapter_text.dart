@@ -42,7 +42,30 @@ String readableBookSourceChapterText(
       : _extractPlainTextParagraphs(content.content);
 
   final cleaned = removeRepeatedSourcePageMarkers(paragraphs);
-  return _removeRepeatedLeadingChapterTitle(cleaned, chapterTitles).join('\n');
+  // 米读：把连续空行压成最多一个空行，并去掉首尾空行。部分书源正文里嵌了大量
+  // 空 <p>/<br> 或多余换行（如书满屋单章 500+ 行空白），plain 路径下 splitReaderTextLines
+  // 原样保留这些空行，导致阅读时出现大量空白段。这里统一折叠，不影响单个空行语义。
+  final collapsed = _collapseBlankLines(cleaned);
+  return _removeRepeatedLeadingChapterTitle(collapsed, chapterTitles).join('\n');
+}
+
+/// 折叠连续空行：非空行原样保留；空行只在两个非空行之间出现一次，且首尾空行剔除。
+List<String> _collapseBlankLines(List<String> lines) {
+  final out = <String>[];
+  var pendingBlank = false;
+  for (final line in lines) {
+    if (line.trim().isEmpty) {
+      if (!pendingBlank && out.isNotEmpty) {
+        out.add('');
+        pendingBlank = true;
+      }
+      continue;
+    }
+    pendingBlank = false;
+    out.add(line);
+  }
+  if (out.isNotEmpty && out.last.isEmpty) out.removeLast();
+  return out;
 }
 
 /// Normalizes chapters whose parsing cost is large enough to disturb reader

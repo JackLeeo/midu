@@ -26,6 +26,7 @@ import 'package:pointycastle/block/modes/cbc.dart';
 import 'package:pointycastle/block/modes/ecb.dart';
 import 'package:pointycastle/padded_block_cipher/padded_block_cipher_impl.dart';
 import 'package:pointycastle/paddings/pkcs7.dart';
+import 'package:meta/meta.dart';
 
 import 'legado_ajax_rewrite.dart';
 
@@ -150,9 +151,7 @@ class LegadoFjsSandbox implements LegadoJsSandbox, AjaxFetcherSink {
   }) async {
     if (!_inited) await init();
     final engine = _engine!;
-    // java.ajax / java.connect 预处理：把字面量调用先取回响应再给 JS（见 [_ajaxFetcher]）。
-    final code = await _rewriteAjaxCalls(_stripJsTag(rawCode));
-    if (code.trim().isEmpty) return '';
+    final stripped = transpileTemplateLiterals(_stripJsTag(rawCode));
 
     if (docHtml != null) {
       _currentHtml = docHtml;
@@ -160,6 +159,20 @@ class LegadoFjsSandbox implements LegadoJsSandbox, AjaxFetcherSink {
       _domCache = html_parser.parse(docHtml);
     }
     await _syncDocumentBindings(engine);
+
+    // 先注入一个「暂定 result」（取左侧提取结果，否则取当前文档 HTML/JSON 文本），
+    // 使动态 java.ajax(expr) 的参数求值（依赖 result / JSON.parse 的表达式）能拿到值。
+    final provisionalResult = (extraGlobals['result'] is String &&
+            (extraGlobals['result'] as String).isNotEmpty)
+        ? extraGlobals['result'] as String
+        : docHtml ?? '';
+    if (provisionalResult.isNotEmpty) {
+      await _safeEval(engine, 'result = ${jsonEncode(provisionalResult)};');
+    }
+    // java.ajax / java.connect 预处理：把调用先取回响应再给 JS（见 [_rewriteAjaxCalls]）。
+    // 动态第一参数（如 JSON.parse(result).data.xxx）由内部 [_ajaxArgResolver] 求值出 URL。
+    final code = await _rewriteAjaxCalls(stripped);
+    if (code.trim().isEmpty) return '';
 
     // 设置全局额外变量（例如 search keyword、page；result/finalResult 是
     // 特殊寄存器，稍后注入，避免被注册表重置覆盖）
@@ -195,7 +208,7 @@ class LegadoFjsSandbox implements LegadoJsSandbox, AjaxFetcherSink {
       'typeof finalResult !== "undefined" && finalResult !== null ? String(finalResult) : ""',
     );
     if (fr != null && '$fr'.isNotEmpty) return '$fr';
-    final cs = completion is JsValue ? _js2string(completion) : '';
+    final cs = _completionString(completion);
     if (cs.isNotEmpty) return cs;
     final rr = await _safeEval(
       engine,
@@ -303,6 +316,9 @@ class LegadoFjsSandbox implements LegadoJsSandbox, AjaxFetcherSink {
         return _s(_currentHtml);
       case 'doc_baseuri':
         return _s(_currentBaseUri?.toString() ?? '');
+      case 'jsoup_query':
+        // 在「传入的 HTML 字符串」上做 CSS 查询（用于 org.Jsoup.parse(html).select）
+        return _s(jsonEncode(_jsoupQuery(_argS(args, 0), _argS(args, 1), _argS(args, 2))));
       default:
         return _s('');
     }
@@ -331,6 +347,38 @@ class LegadoFjsSandbox implements LegadoJsSandbox, AjaxFetcherSink {
       if (typeof atob === 'undefined') { atob = function(s){ return __dart('atob', s); }; }
       if (typeof btoa === 'undefined') { btoa = function(s){ return __dart('btoa', s); }; }
 
+      // 当前处理上下文（章节/条目 JSON，供 java.getString('$.field') 解析）：
+      // contextJson 全局由规则引擎按每次 eval 注入（字符串时为 JSON 文本）。
+      var __ctx = function(){
+        if (typeof contextJson === 'undefined' || contextJson == null) return null;
+        if (typeof contextJson === 'object') return contextJson;
+        try { return JSON.parse(contextJson); } catch(e){ return null; }
+      };
+      // 统一取值：key 以 $. 开头时按 JSONPath 从当前上下文解析；否则走变量缓存。
+      var __getStr = function(k, d){
+        var dflt = (d === undefined || d === null) ? '' : String(d);
+        if (typeof k === 'string' && k.length > 1 && k.charAt(0) === '$' &&
+            (k.charAt(1) === '.' || k.charAt(1) === '[')) {
+          var o = __ctx();
+          if (o == null) return dflt;
+          var parts = k.charAt(1) === '['
+              ? k.replace(/[\[]/g, '.').replace(/[\]]/g, '.')
+              : k.substring(1);
+          var pArr = parts.split('.');
+          var i;
+          for (i = 0; i < pArr.length; i++) {
+            var p = pArr[i].trim();
+            if (p === '') continue;
+            if (o == null) return dflt;
+            o = o[p];
+            if (o === undefined || o === null) return dflt;
+          }
+          return o === undefined || o === null ? dflt : String(o);
+        }
+        var s = __dart('source_get', k);
+        return (s === undefined || s === null || s === '') ? dflt : String(s);
+      };
+
       // java.*
       java = {};
       java.crypto = {
@@ -342,6 +390,11 @@ class LegadoFjsSandbox implements LegadoJsSandbox, AjaxFetcherSink {
         base64Decode:     function(s){ return __dart('atob', s == null ? '' : String(s)); },
         aesEncrypt:       function(s, k, iv, m, p, pad, out){ return __dart('aes_encrypt', s==null||s===undefined?'':String(s), k==null||k===undefined?'':String(k), iv==null||iv===undefined?'':String(iv), m==null||m===undefined?'':String(m), p==null||p===undefined?'':String(p), pad==null||pad===undefined?'':String(pad), out==null||out===undefined?'':String(out)); },
         aesDecrypt:       function(s, k, iv, m, p, pad, out){ return __dart('aes_decrypt', s==null||s===undefined?'':String(s), k==null||k===undefined?'':String(k), iv==null||iv===undefined?'':String(iv), m==null||m===undefined?'':String(m), p==null||p===undefined?'':String(p), pad==null||pad===undefined?'':String(pad), out==null||out===undefined?'':String(out)); },
+        // 米读：Legado 源常用 aesBase64Encode/Decode+ToString（如猫眼看书章节 URL 解密）。
+        // 参数序为 (data, key, mode, iv)——与 aesEncrypt/Decrypt 的 (data,key,iv,mode) 不同，
+        // 故此处显式对位：iv 送入第 3 参、mode 送入第 4 参；Decode 侧 data 为 base64/hex。
+        aesBase64DecodeToString: function(s, k, m, iv, p, pad){ return __dart('aes_decrypt', s==null||s===undefined?'':String(s), k==null||k===undefined?'':String(k), iv==null||iv===undefined?'':String(iv), m==null||m===undefined?'':String(m), p==null||p===undefined?'':String(p), pad==null||pad===undefined?'':String(pad), ''); },
+        aesBase64EncodeToString: function(s, k, m, iv, p, pad){ return __dart('aes_encrypt', s==null||s===undefined?'':String(s), k==null||k===undefined?'':String(k), iv==null||iv===undefined?'':String(iv), m==null||m===undefined?'':String(m), p==null||p===undefined?'':String(p), pad==null||pad===undefined?'':String(pad), 'base64'); },
         rc4Encrypt:       function(s, k){ return __dart('rc4', s, k, 'enc'); },
         rc4Decrypt:       function(s, k){ return __dart('rc4', s, k, 'dec'); }
       };
@@ -362,27 +415,128 @@ class LegadoFjsSandbox implements LegadoJsSandbox, AjaxFetcherSink {
       };
       // java.log 为副作用调用，返回空即可；put/get 复用 source 变量缓存，
       // 使依赖 java.put/java.get 跨请求存取的规则也能工作。
+      // 注意：Legado 中 java.put / source.put 均返回「刚存入的值」。部分源的
+      // 内联拼接依赖此返回值，如得间目录：&bid=" + java.put('bid', ...) 期望
+      // 返回所存的值；若返回空串会导致 URL 缺参。故这里必须返回存入的 v。
       java.log = function(){ return ''; };
-      java.put = function(k, v){ __dart('source_put', k, v == null ? '' : String(v)); return ''; };
-      java.get = function(k){ return __dart('source_get', k); };
-      java.getString = function(k, d){ var s = __dart('source_get', k); return (s === undefined || s === null || s === '') ? (d == null ? '' : String(d)) : String(s); };
+      java.put = function(k, v){ var sv = v == null ? '' : String(v); __dart('source_put', k, sv); return sv; };
+      java.get = function(k){ return __getStr(k); };
+      java.getString = function(k, d){ return __getStr(k, d); };
+
+      // 顶层 crypto 别名：Legado 引擎把加解密函数同时暴露在 java.* 顶层
+      // （如 java.md5Encode / java.base64Encode）。规则常用 java.md5Encode(...)。
+      java.md5Encode = java.crypto.md5Encode;
+      java.md5Encode16 = java.crypto.md5Encode16;
+      java.sha1Encode = java.crypto.sha1Encode;
+      java.sha256Encode = java.crypto.sha256Encode;
+      java.base64Encode = java.crypto.base64Encode;
+      java.base64Decode = java.crypto.base64Decode;
+      java.aesEncrypt = java.crypto.aesEncrypt;
+      java.aesDecrypt = java.crypto.aesDecrypt;
+      java.rc4Encrypt = java.crypto.rc4Encrypt;
+      java.rc4Decrypt = java.crypto.rc4Decrypt;
 
       // java.ajax / java.connect 无法在同步 bridge 里发网络请求，由 eval 前的
       // 预处理改写为内联响应；此处仅作未被改写场景的兜底（返回空串）。
       java.ajax = function(url, options){ return ''; };
       java.connect = function(url, options){ return ''; };
+      java.post = function(url, body, options){
+        // Legado 的 java.post 返回 Connection.Response，规则里常随后调用
+        // .body()/.text() 取响应体；未被改写时兜底为空串（返回对象避免 TypeError）。
+        return { body: function(){ return ''; }, text: function(){ return ''; },
+                 html: function(){ return ''; }, bodyAsBytes: function(){ return ''; } };
+      };
       java.http = function(){ return ''; };
 
       // source / cache
       source = {
-        put: function(k, v){ __dart('source_put', k, v == null ? '' : String(v)); },
-        get: function(k){ return __dart('source_get', k); },
-        getString: function(k, d){ var s = __dart('source_get', k); return (s === undefined || s === null || s === '') ? (d == null ? '' : String(d)) : String(s); },
-        putString: function(k, v){ __dart('source_put', k, v == null ? '' : String(v)); }
+        put: function(k, v){ var sv = v == null ? '' : String(v); __dart('source_put', k, sv); return sv; },
+        get: function(k){ return __getStr(k); },
+        getString: function(k, d){ return __getStr(k, d); },
+        putString: function(k, v){ var sv = v == null ? '' : String(v); __dart('source_put', k, sv); return sv; },
+        // Legado source.getKey()/setKey()：返回/设置书源 URL（bookSourceUrl）。
+        getKey: function(){ return __dart('doc_baseuri'); },
+        setKey: function(url){ return url == null ? '' : String(url); }
       };
       cache = {
-        put: function(k, v){ __dart('source_put', k, v == null ? '' : String(v)); },
-        get: function(k){ return __dart('source_get', k); }
+        put: function(k, v){ var sv = v == null ? '' : String(v); __dart('source_put', k, sv); return sv; },
+        get: function(k){ return __getStr(k); }
+      };
+
+      // 全局 __hydrate：把 Dart 端返回的节点 JSON 列表包装成 JS 节点对象数组。
+      // 供 document.querySelectorAll 与 org.Jsoup.parse(...).select(...) 共用。
+      var __hydrate = function(jsonStr) {
+        var list;
+        try { list = JSON.parse(jsonStr || '[]'); } catch(e) { list = []; }
+        if (!Array.isArray(list)) return [];
+        function wrap(n) {
+          if (!n || typeof n !== 'object') return null;
+          return {
+            innerHTML:    n.innerHTML  || '',
+            outerHTML:    n.outerHTML  || '',
+            html:         function(){ return n.innerHTML || ''; },
+            outerHtml:    function(){ return n.outerHTML || ''; },
+            text:         n.text || '',
+            textStr:      n.text || '',
+            ownText:      n.ownText || '',
+            data:         n.text || '',
+            className:    (n.attrs && n.attrs['class']) || '',
+            id:           (n.attrs && n.attrs['id'])    || '',
+            tagName:      n.tagName || '',
+            attr:         function(k){ return (n.attrs && n.attrs[k]) || ''; },
+            getAttribute: function(k){ return (n.attrs && n.attrs[k]) || ''; },
+            children:     Array.isArray(n.children) ? n.children.map(wrap) : [],
+            parent:       function(){ return null; },
+            parents:      function(){ return []; },
+            remove:       function(){ return []; },
+            get:          function(i){ return (i == null) ? this : (wrap(n.children && n.children[i]) || null); }
+          };
+        }
+        return list.map(wrap).filter(function(x){ return x != null; });
+      };
+
+      // 把一个节点数组包装成 org.jsoup 的 Elements 对象（可链式 .attr/.text/...）。
+      var __jsoupSelect = function(nodes){
+        var arr = nodes || [];
+        arr.attr      = function(k){ return arr.length ? (arr[0].attr ? arr[0].attr(k) : '') : ''; };
+        arr.text      = function(){ return arr.map(function(n){ return n.text || ''; }).join(' ').trim(); };
+        arr.textStr   = function(){ return arr.text(); };
+        arr.eachText  = function(){ return arr.map(function(n){ return n.text || ''; }); };
+        arr.eachAttr  = function(k){ return arr.map(function(n){ return n.attr ? n.attr(k) : ''; }); };
+        arr.html      = function(){ return arr.map(function(n){ return n.innerHTML || ''; }).join(''); };
+        arr.outerHtml = function(){ return arr.map(function(n){ return n.outerHTML || ''; }).join(''); };
+        arr.size      = function(){ return arr.length; };
+        arr.first     = function(){ return arr.length ? [arr[0]] : []; };
+        arr.last      = function(){ return arr.length ? [arr[arr.length - 1]] : []; };
+        arr.get       = function(i){ return i == null ? arr : (arr[i] || null); };
+        arr.eq        = function(i){ var n = arr[i]; return n ? [n] : []; };
+        arr.remove    = function(){ return arr; };
+        arr.addClass  = function(){ return arr; };
+        arr.val       = function(){ return arr.attr('value'); };
+        return arr;
+      };
+
+      // org.jsoup / org.Jsoup：许多书源用 Jsoup.parse(html).select(css) 解析任意
+      // 抓到的 HTML 片段（如拉去 CSRF token）。通过 bridge 在 Dart 端用 html 包
+      // 解析给定 HTML 并做 CSS 查询。
+      org = {
+        jsoup: {
+          Jsoup: {
+            parse: function(html){
+              var h = String(html == null ? '' : html);
+              return {
+                select: function(css){
+              var q = (typeof __dart === 'function') ? __dart('jsoup_query', h, String(css||''), 'all') : '';
+              return __jsoupSelect(__hydrate(q));
+            },
+                title: function(){ return ''; },
+                body: function(){ return { html: function(){ return h; } }; },
+                text: function(){ return ''; }
+              };
+            },
+            connect: function(){ return { get: function(){ return ''; }, timeout: function(){ return this; }, header: function(){ return this; }, ignoreContentType: function(){ return this; } }; }
+          }
+        }
       };
     ''');
   }
@@ -398,6 +552,9 @@ class LegadoFjsSandbox implements LegadoJsSandbox, AjaxFetcherSink {
       (function() {
         if (typeof document === 'undefined') document = {};
         document.baseURI = __dart('doc_baseuri');
+        // Legado 书源 JS 全局 baseUrl = 当前文档 URL。书源在 {{...}}/@js 中常直接
+        // 使用（如 {{baseUrl.match(/(\d+).$/)[1]}}、java.put("url", baseUrl)）。
+        baseUrl = __dart('doc_baseuri');
         document.body = { innerHTML: __dart('doc_html'), outerHTML: __dart('doc_html') };
         document.documentElement = document.body;
         document.innerHTML = document.body.innerHTML;
@@ -482,6 +639,18 @@ class LegadoFjsSandbox implements LegadoJsSandbox, AjaxFetcherSink {
     }
   }
 
+  /// 动态 [java.ajax] 第一参数求值：在已注入 `result`/`baseUrl` 等全局的引擎里
+  /// 求值表达式（如 `JSON.parse(result).data.chapter_list_link`），返回 URL 字符串。
+  /// 求值失败或结果为空返回 null（调用方会原样保留该调用，走 JS 兜底）。
+  Future<String?> _ajaxArgResolver(String expr) async {
+    final engine = _engine;
+    if (engine == null) return null;
+    final r = await _safeEval(engine, 'String($expr)');
+    if (r == null) return null;
+    final s = '$r'.trim();
+    return s.isEmpty ? null : s;
+  }
+
   static String _js2string(JsValue v) {
     try {
       if (v is JsValue_String) return v.asString ?? '';
@@ -490,12 +659,36 @@ class LegadoFjsSandbox implements LegadoJsSandbox, AjaxFetcherSink {
       if (v is JsValue_Float || v is JsValue_Integer) {
         return (v.asFloat ?? v.asInteger ?? 0).toString();
       }
-      // object / array / unknown：通过 JS 序列化回字符串不可行，这里返回空
-      // 但我们实际上只传 string 作为 JSON，所以在 dispatch 里 object 会走 asString(JSON 字符串) 的分支
+      if (v is JsValue_Array || v is JsValue_Object) {
+        // 数组/对象：Dart 侧拥有完整的 value 结构，直接序列化为 JSON。
+        // 若在 dispatch 里（v 为 JsValue_Object 且内容是 "cmd" 桥接）不在此分支。
+        try {
+          return jsonEncode(v.value);
+        } catch (_) {
+          return v.asString ?? '';
+        }
+      }
+      // 其它（bigint / date / symbol / function 等）：透过 value 兜底
       return v.asString ?? '';
     } catch (_) {
       return '';
     }
+  }
+
+  /// 完成值 → 字符串：字符串类型原样提取；数组/对象序列化为 JSON 字符串。
+  /// JS 规则以 `list` 数组结尾（如中文书城 chapterList 的 `list.push(...)` 结构
+  /// 其完成值即章节对象数组），此前 asString 会退化成 "[object Object]，需要
+  /// 正确的 JSON 序列化才能被下游 jsonDecode 识别为章节列表。
+  static String _completionString(Object? completion) {
+    if (completion is! JsValue) return '';
+    if (completion is JsValue_Array || completion is JsValue_Object) {
+      try {
+        return jsonEncode(completion.value);
+      } catch (_) {
+        return '';
+      }
+    }
+    return _js2string(completion);
   }
 
   static String _argS(List<Object?> args, int i) {
@@ -548,13 +741,15 @@ class LegadoFjsSandbox implements LegadoJsSandbox, AjaxFetcherSink {
   // ========= java.ajax / java.connect 预处理改写（委托共用库） =========
 
   /// 把规则里的 `java.ajax('URL')` / `java.connect('URL', {options})` 字面量调用
-  /// 先取回响应，改写为内联字符串字面量后交给 JS 执行。实现见共用库
-  /// [rewriteAjaxCalls]（生产/测试沙箱复用同一份逻辑）。
+  /// 先取回响应，改写为内联字符串字面量后交给 JS 执行；动态第一参数（如
+  /// `JSON.parse(result).data.xxx`）通过 [_ajaxArgResolver] 先求值出 URL。实现见
+  /// 共用库 [rewriteAjaxCalls]（生产/测试沙箱复用同一份逻辑）。
   Future<String> _rewriteAjaxCalls(String code) {
     return rewriteAjaxCalls(
       code,
       baseUri: _currentBaseUri,
       fetcher: _ajaxFetcher,
+      evalArg: _ajaxArgResolver,
     );
   }
 
@@ -562,6 +757,18 @@ class LegadoFjsSandbox implements LegadoJsSandbox, AjaxFetcherSink {
 
   /// Legado 源 AES 加密，支持 ECB/CBC、PKCS7/无填充；key/iv 自动识别 hex 或 utf8。
   /// 仅覆盖主流用法（ECB/CBC）；其它模式（CFB/OFB/CTR）回退空串（不劣于旧行为）。
+  /// 供单元测试直接验证 AES 解密（对齐 `java.aesBase64DecodeToString` 的
+  /// 参数序 (data, key, mode, iv)，返回解密后的 UTF-8 明文字符串）。
+  /// 不依赖 JS 引擎，仅执行底层 AES 逻辑。
+  @visibleForTesting
+  String aesBase64DecodeToString(
+    String data,
+    String key,
+    String mode,
+    String iv,
+  ) =>
+      _aes(data, key, iv, mode, false, '');
+
   String _aes(String data, String key, String iv, String modeStr, bool encrypt, String out) {
     try {
       final mode = _aesMode(modeStr);
@@ -681,6 +888,30 @@ class LegadoFjsSandbox implements LegadoJsSandbox, AjaxFetcherSink {
       return out.sublist(0, end);
     }
     return out;
+  }
+
+  /// 在「任意传入的 HTML 字符串」上做 CSS 查询（org.Jsoup.parse(html).select 用）。
+  /// 与 [_docQuery] 的区别：不依赖沙箱当前文档，而是解析传入的 HTML 片段。
+  List<Map<String, dynamic>> _jsoupQuery(String html, String selector, String mode) {
+    if (html.trim().isEmpty || selector.trim().isEmpty) return const [];
+    final dom.Document doc;
+    try {
+      doc = html_parser.parse(html);
+    } catch (_) {
+      return const [];
+    }
+    List<dom.Element> result;
+    try {
+      if (mode == 'first') {
+        final f = doc.querySelector(selector);
+        result = f == null ? const [] : [f];
+      } else {
+        result = doc.querySelectorAll(selector);
+      }
+    } catch (_) {
+      return const [];
+    }
+    return result.asMap().entries.map((e) => _nodeToMap(e.value, '/${e.key}')).toList(growable: false);
   }
 
   List<Map<String, dynamic>> _docQuery(String selector, String mode) {

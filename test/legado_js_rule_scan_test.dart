@@ -216,12 +216,14 @@ result='https://api.wan123x.com/read/getChapterDetail?book_id='+n+'&chapter_id={
     });
 
     test('java.crypto 桩不崩溃；java.log 无副作用', () async {
+      // 加密桩已升级为真实实现（书旗等源依赖）：md5Encode('abc') 应返回真实 MD5，
+      // 而非空串。同时验证 java.log 无副作用不影响完成值。
       final result = await engine.evaluateString(
         docFor(_searchHtml),
         null,
         r"@js:java.log('x'); finalResult = java.crypto.md5Encode('abc') || 'empty';",
       );
-      expect(result, 'empty');
+      expect(result, '900150983cd24fb0d6963f7d28e17f72');
     });
 
     test('document 桩：querySelector 返回 null 不崩溃', () async {

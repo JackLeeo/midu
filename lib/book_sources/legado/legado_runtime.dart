@@ -16,7 +16,10 @@ class LegadoRuntime {
   LegadoRuntime({
     LegadoTransport? transport,
     LegadoJsSandbox? sandbox,
-    this.enableAjaxBridge = false,
+    // 默认开启 java.ajax / java.connect 接入：走「eval 前改写 + 内联响应」，
+    // 同时支持字面量与动态第一参数（如 JSON.parse(result).data.xxx）。只对规则
+    // 实际含 java. 调用的源产生改写与一次预取，非 JS 源零开销。
+    this.enableAjaxBridge = true,
   }) : _transport = transport ?? LegadoHttpTransport(),
        _sandbox = sandbox ?? LegadoFjsSandbox();
 
@@ -36,10 +39,9 @@ class LegadoRuntime {
   };
 
   /// 是否给沙箱接入 java.ajax / java.connect 网络执行器。
-  /// 开启走「eval 前静态改写」，仅命中字面量调用（真实源多为动态调用，命中不了），
-  /// 且 fjs 同步桥语义无法复刻 Legado 的同步 java.ajax，收益有限、有额外开销。
-  /// 健康度对比显示开桥不升反略降，因此默认关闭（生产保持无桥基线）；诊断/对照
-  /// 测试可显式传 true 量化贡献。
+  /// 开启走「eval 前改写 + 内联响应」，支持字面量与动态第一参数两种 URL
+  /// （见 legado_ajax_rewrite.rewriteAjaxCalls），用于强 JS 源（灯读/得间/花生
+  /// 等「目录/正文依赖 java.ajax 补全」）的真实请求还原。
   final bool enableAjaxBridge;
 
   final LegadoTransport _transport;
@@ -142,9 +144,20 @@ class LegadoRuntime {
       'count': contexts.length,
     });
     final books = <BookSourceBook>[];
-    for (final context in contexts.take(_maxSearchItems)) {
-      final book = await _bookFromRules(document, context, rule);
+    final bookListRule = _requiredRule(rule, 'bookList');
+    if (contexts.isEmpty && !_isJsListRule(bookListRule)) {
+      // 单本兜底：部分站点的关键字搜索会直接 302 到书籍详情页（四五中文、
+      // 得间/花生等无搜索结果列表），此时 bookList 匹配为 0。改用详情规则把
+      // 当前响应解析为唯一一本书，避免「搜索空 → 进不了详情」的死路。
+      // 注意：bookList 为 <js> 生成（JSON 接口源，如菠萝漫画）时，空数组即「确
+      // 无结果」，不应走详情兜底，否则会把整页 JSON 当单本详情解析而报错。
+      final book = await _singleBookFromSearch(document, source);
       if (book != null) books.add(book);
+    } else if (contexts.isNotEmpty) {
+      for (final context in contexts.take(_maxSearchItems)) {
+        final book = await _bookFromRules(document, context, rule);
+        if (book != null) books.add(book);
+      }
     }
     logger.log('search', '搜索结果', details: {
       'source': source.name,
@@ -161,9 +174,11 @@ class LegadoRuntime {
 
   Future<BookSourceBook> getBook(
     RegisteredBookSource registered,
-    String bookId,
-  ) async {
+    String bookId, {
+    BookSourceBook? seedBook,
+  }) async {
     await _ensureSandbox();
+    _seedVarsFromBookId(bookId);
     final source = _source(registered);
     _ensureRunnable(source);
     final response = await _request(source, bookId);
@@ -173,18 +188,33 @@ class LegadoRuntime {
     final context = init.isEmpty
         ? null
         : (await _rules.evaluateList(document, null, init)).firstOrNull;
-    final title = await _value(document, context, rule, 'name');
+    var title = await _value(document, context, rule, 'name');
+    // 米读：Legado 语义——ruleBookInfo.name 为空时回退到搜索结果的信息。
+    // 部分源详情规则未写 name/author（如天地/圣墟/宜搜仅含 tocUrl 或以 @js 取书名），
+    // 若不继承搜索点位则详情永远取不到书名。
+    var author = await _value(document, context, rule, 'author');
+    var intro = await _value(document, context, rule, 'intro');
+    var coverUrl = await _uriValue(document, context, rule, 'coverUrl');
+    // 以 search 结果字段兜底细节页缺失的元信息。
+    if (title.isEmpty && seedBook != null && seedBook.title.isNotEmpty) {
+      title = seedBook.title;
+    }
     if (title.isEmpty) {
       throw const BookSourceProtocolException(
         'Compatible source did not return a book title.',
       );
     }
+    if (seedBook != null) {
+      if (author.isEmpty) author = seedBook.author;
+      if (intro.isEmpty) intro = seedBook.description ?? '';
+      coverUrl ??= seedBook.coverUrl;
+    }
     return BookSourceBook(
       id: response.finalUri.toString(),
       title: title,
-      author: await _value(document, context, rule, 'author'),
-      description: await _value(document, context, rule, 'intro'),
-      coverUrl: await _uriValue(document, context, rule, 'coverUrl'),
+      author: author,
+      description: intro,
+      coverUrl: coverUrl,
       categories: _splitCategories(await _value(document, context, rule, 'kind')),
       status: _nullable(await _value(document, context, rule, 'status')),
       latestChapter: _nullable(await _value(document, context, rule, 'lastChapter')),
@@ -199,6 +229,7 @@ class LegadoRuntime {
     bool normalizeChapterOrder = true,
   }) async {
     await _ensureSandbox();
+    _seedVarsFromBookId(bookId);
     final source = _source(registered);
     _ensureRunnable(source);
     final tocUrl = await _tocUrl(source, bookId);
@@ -210,6 +241,12 @@ class LegadoRuntime {
     for (var hop = 0; hop < _maxPageHops && nextUrl.isNotEmpty; hop++) {
       if (!seenPages.add(nextUrl)) break;
       final response = await _request(source, nextUrl);
+      DebugLogger.instance.log('toc', 'toc请求', details: {
+        'url': nextUrl,
+        'len': response.body.length,
+        'gid': _sandbox.getSourceVar('gid'),
+        'nid': _sandbox.getSourceVar('nid'),
+      });
       final document = LegadoRuleDocument.parse(
         response.body,
         response.finalUri,
@@ -219,9 +256,22 @@ class LegadoRuntime {
         null,
         _requiredRule(rule, 'chapterList'),
       );
+      DebugLogger.instance.log('toc', 'chapterList 匹配数', details: {
+        'count': contexts.length,
+        'bodyHead': response.body.length > 120
+            ? response.body.substring(0, 120)
+            : response.body,
+      });
       for (final context in contexts) {
         final title = await _value(document, context, rule, 'chapterName');
-        final url = await _url(document, context, rule, 'chapterUrl');
+        // 单章 URL 解析异常（末页占位链接 href="javascript:void(0)" 等多页目录
+        // 源常见）只跳过该章，不让整份目录失败。
+        String url;
+        try {
+          url = await _url(document, context, rule, 'chapterUrl');
+        } on BookSourceProtocolException {
+          continue;
+        }
         if (title.isEmpty || url.isEmpty || !seenChapters.add(url)) continue;
         if (chapters.length >= _maxChapters) {
           throw const BookSourceProtocolException(
@@ -232,7 +282,17 @@ class LegadoRuntime {
           BookSourceChapter(id: url, title: title, order: chapters.length),
         );
       }
-      nextUrl = await _url(document, null, rule, 'nextTocUrl');
+      try {
+        nextUrl = await _url(document, null, rule, 'nextTocUrl');
+        final nextUri = Uri.tryParse(nextUrl);
+        if (nextUrl.isNotEmpty &&
+            (nextUri == null ||
+                (nextUri.scheme != 'http' && nextUri.scheme != 'https'))) {
+          nextUrl = ''; // 末页占位链接（javascript:... 等），视为没有下一页
+        }
+      } on BookSourceProtocolException {
+        nextUrl = '';
+      }
     }
     if (chapters.isEmpty) {
       throw const BookSourceProtocolException(
@@ -485,7 +545,22 @@ class LegadoRuntime {
           'replaceLength': content.length,
         });
         if (content.trim().isNotEmpty) parts.add(content.trim());
-        nextUrl = await _url(document, null, rule, 'nextContentUrl');
+        // nextContentUrl 分页是尽力而为：规则产出非法/不可解析的下一页 URL 时
+        // （如 JS 匹配失败退化成页面标题）、或解析抛 FormatException，应视为
+        // 「无下一页」停止分页，而不是把坏 URL 抛给用户（果文/群搜等源即属此类，
+        // 首页正文已成功提取）。
+        try {
+          nextUrl = await _url(document, null, rule, 'nextContentUrl');
+        } catch (_) {
+          nextUrl = '';
+        }
+        if (nextUrl.isNotEmpty) {
+          final parsed = Uri.tryParse(nextUrl);
+          if (parsed == null ||
+              !(parsed.isAbsolute && (parsed.scheme == 'http' || parsed.scheme == 'https'))) {
+            nextUrl = '';
+          }
+        }
       } catch (e, st) {
         logger.logError('content', '章节加载失败 (hop=$hop)', e, st);
         rethrow;
@@ -518,6 +593,7 @@ class LegadoRuntime {
   Future<String> _tocUrl(LegadoBookSource source, String bookId) async {
     final rule = source.rule('ruleBookInfo');
     final tocRule = _optionalRule(rule, 'tocUrl');
+    // tocUrl 未配置：目录页即详情页（bookId），与搜索/详情共用一条 URL。
     if (tocRule.isEmpty) return bookId;
     final response = await _request(source, bookId);
     final document = LegadoRuleDocument.parse(response.body, response.finalUri);
@@ -525,7 +601,44 @@ class LegadoRuntime {
     final context = init.isEmpty
         ? null
         : (await _rules.evaluateList(document, null, init)).firstOrNull;
-    return _rules.evaluateString(document, context, tocRule, resolveUrl: true);
+    final resolved = await _rules.evaluateString(
+      document,
+      context,
+      tocRule,
+      resolveUrl: true,
+    );
+    // 宽容：tocUrl 选择器在当前详情页匹配不到任何元素（如猪猪书网写
+    // `id.downlink@a.0@href` 但其目录直接内嵌在详情页 `div.list>dl>dd`）
+    // 时，回退到详情页自身（bookId）作为目录页，避免 nextUrl 为空导致
+    // getChapters 直接跳目录为空。
+    if (resolved.trim().isEmpty) return bookId;
+    return resolved;
+  }
+
+  /// 单本兜底：搜索响应未匹配到搜索列表（bookList==0）时，用详情规则把当前
+  /// 响应（可能已被 302 到书籍详情页）解析为唯一一本书。书名/书址取不到则弃。
+  Future<BookSourceBook?> _singleBookFromSearch(
+    LegadoRuleDocument document,
+    LegadoBookSource source,
+  ) async {
+    final infoRule = source.rule('ruleBookInfo');
+    final init = _optionalRule(infoRule, 'init');
+    final context = init.isEmpty
+        ? null
+        : (await _rules.evaluateList(document, null, init)).firstOrNull;
+    final title = await _value(document, context, infoRule, 'name');
+    if (title.isEmpty) return null;
+    // 详情页兜底：单本结果的书址就是当前响应最终地址（已完成 302 重定向）。
+    final url = document.baseUri.toString();
+    return BookSourceBook(
+      id: url,
+      title: title,
+      author: await _value(document, context, infoRule, 'author'),
+      description: await _value(document, context, infoRule, 'intro'),
+      coverUrl: await _uriValue(document, context, infoRule, 'coverUrl'),
+      categories: _splitCategories(await _value(document, context, infoRule, 'kind')),
+      latestChapter: _nullable(await _value(document, context, infoRule, 'lastChapter')),
+    );
   }
 
   Future<BookSourceBook?> _bookFromRules(
@@ -559,6 +672,7 @@ class LegadoRuntime {
     final processedTemplate = await _preprocessJsInString(
       template,
       variables: variables,
+      baseUri: source.baseUri,
     );
     final rawHeaders = _sourceHeaders(source);
     final processedHeaders = <String, String>{};
@@ -569,17 +683,82 @@ class LegadoRuntime {
       processedHeaders[entry.key] = await _preprocessJsInString(
         entry.value,
         variables: variables,
+        baseUri: source.baseUri,
       );
     }
-    return _transport.send(
-      LegadoRequestTemplate.parse(
+    // ===== 米读：浏览器安全验证挑战自动重试 =====
+    // 部分书源（爱下网书等）在详情/目录/章节页先返回一个「正在验证浏览器」页面，
+    // 内含 `token`，脚本里 `location.pathname + "?challenge=" + token` 跳转放行。
+    // 合法的 token 可直接回传 `?challenge=` 通过；该挑战不含需要真实 JS 执行的
+    // 认证逻辑，故在此自动求解，不再把裸挑战页当正文抛给用户。
+    LegadoRequestTemplate? requestTemplate;
+    var attempt = 0;
+    while (true) {
+      requestTemplate ??= LegadoRequestTemplate.parse(
         _expandSourceVars(processedTemplate),
         baseUri: source.baseUri,
         variables: variables,
         sourceHeaders: _expandHeaderVars(processedHeaders),
-      ),
-    );
+      );
+      final response = await _transport.send(requestTemplate!);
+      final token = _extractChallengeToken(response.body);
+      // 无挑战、或已重试次数用尽（避免循环），直接返回。
+      if (token == null || attempt >= 2) return response;
+      final finalUri = response.finalUri;
+      if (!finalUri.hasAuthority) return response;
+      // 重新构造模板：把 challenge token 拼到最终 URL 的查询参数上重发。
+      final solvedUrl = finalUri.replace(
+        queryParameters: {
+          ...finalUri.queryParameters,
+          'challenge': token,
+        },
+      );
+      requestTemplate = LegadoRequestTemplate(
+        url: solvedUrl,
+        method: requestTemplate!.method,
+        headers: requestTemplate!.headers,
+        charset: requestTemplate!.charset,
+        body: requestTemplate!.body,
+      );
+      attempt++;
+    }
   }
+
+  /// 从「正在验证浏览器」挑战页中提取 token（`let token = "..."`）。非挑战页
+  /// 返回 null。兼容带 `?challenge=` 已放行页（不重复求解）。
+  static String? _extractChallengeToken(String body) {
+    if (body.isEmpty) return null;
+    // 快速否定：不含验证标记直接返回。
+    if (!body.contains('正在验证浏览器') &&
+        !body.contains('安全验证') &&
+        !body.contains('location')) {
+      return null;
+    }
+    final m = RegExp(
+      r'''let\s+token\s*=\s*["']([A-Za-z0-9+/=_\-\.:~%]+)["']''',
+    ).firstMatch(body);
+    return m?.group(1);
+  }
+
+  /// 把 bookId（通常为搜索/详情拼出的完整 URL）的查询参数灌入来源变量，
+  /// 供后续规则里的 @get:{name} / {{name}} 使用（宜搜等源的 tocUrl 依赖
+  /// gid/nid 这类来自详情 URL 的参数）。仅补缺，不覆盖已有的显式 @put 值。
+  void _seedVarsFromBookId(String bookId) {
+    final uri = Uri.tryParse(bookId);
+    if (uri == null || !uri.hasQuery) {
+      DebugLogger.instance.log('seed', 'seedVars noQuery', details: {'bookId': bookId});
+      return;
+    }
+    uri.queryParameters.forEach((k, v) {
+      if (!_isSimpleVarName(k)) return;
+      if (_sandbox.getSourceVar(k) == null) _sandbox.putSourceVar(k, v);
+    });
+    DebugLogger.instance.log('seed', 'seedVars from bookId',
+        details: {'bookId': bookId, 'keys': uri.queryParameters.keys.toList()});
+  }
+
+  static bool _isSimpleVarName(String s) =>
+      RegExp(r'^[a-zA-Z_][a-zA-Z0-9_]*$').hasMatch(s);
 
   /// 把 URL 模板中的 {{varName}}（@put 规则或 JS source.put 存入的变量）展开。
   /// 纯变量名才展开；JSON 路径（{{$.x}}）与查询变量（{{key}}/{{page}}）保持原样。
@@ -606,6 +785,7 @@ class LegadoRuntime {
   Future<String> _preprocessJsInString(
     String value, {
     Map<String, String> variables = const {},
+    Uri? baseUri,
   }) async {
     if (value.isEmpty) return value;
     final lower = value.toLowerCase();
@@ -618,30 +798,63 @@ class LegadoRuntime {
       // 结果为空的场景（强 JS 依赖源里 java.ajax/java.connect + org.jsoup 无法
       // 执行，evalJs 返回空）应判为「搜索无结果」，而非把带 @js: 的原文漏进 URL
       // 解析抛误导性的 FormatException。内嵌片段（@js: 只是其中一段）保留原文。
+      // 注入 baseUri（供 source.getKey()/baseUrl）与 key/page 变量（供 ${key}
+      // 等模板字符串），否则果文/群搜等纯 JS searchUrl 会因取不到 token/key 而
+      // 生成空请求 URL。
       if (isPureJs) {
         try {
-          final r = await _sandbox.evalJs(value);
+          final r = await _sandbox.evalJs(
+            value,
+            baseUri: baseUri,
+            extraGlobals: Map<String, dynamic>.from(variables),
+          );
           return r.isEmpty ? '' : r;
         } catch (_) {
           return '';
         }
       }
       try {
-        final r = await _sandbox.evalJs(value);
+        final r = await _sandbox.evalJs(
+          value,
+          baseUri: baseUri,
+          extraGlobals: Map<String, dynamic>.from(variables),
+        );
         return r.isEmpty ? value : r;
       } catch (_) {
         return value;
       }
     }
     // 处理 {{...}} 内嵌 JS 表达式：仅当表达式中含 JS 调用/运算符时才交给 fjs。
-    // 纯变量（{{key}}、{{page}}）保持原样，由 LegadoRequestTemplate 展开。
+    // 纯变量（{{key}}、{{page}}）、JSON 路径（{{$.x}}）、引号字面量保持原样，
+    // 由 LegadoRequestTemplate / 规则引擎展开。识别范围覆盖豆书籍源常见的
+    // 算术表达式（企鹅阅读 searchUrl 的 {{page-1}}）与方法调用
+    // （{{baseUrl.replace(...)}}、{{source.get('k')}} 等）。
     if (!RegExp(r'\{\{[^{}]*\{\{').hasMatch(value) &&
-        RegExp(r'(\{\{[^{}]*\b(java\.|source\.|Date\.|Math\.|String\.|global)\b[^{}]*\}\})',
-                caseSensitive: false)
-            .hasMatch(value)) {
+        RegExp(r'\{\{\s*[^{}]+\s*\}\}')
+            .allMatches(value)
+            .any((m) => _isPlainJsTemplate(m.group(0)!))) {
       return _evalTemplateJsExpressions(value, variables);
     }
     return value;
+  }
+
+  /// `{{...}}` 是否为需要 JS 求值的表达式（而非纯变量 / JSON 路径 / 字面量）。
+  static bool _isPlainJsTemplate(String raw) {
+    final inner = raw.replaceAll(RegExp(r'^\s*\{\{|\}\}\s*$'), '').trim();
+    if (inner.isEmpty) return false;
+    // 纯变量：{{key}} / {{page}} / {{baseUrl}}
+    if (RegExp(r'^[a-zA-Z_][a-zA-Z0-9_]*$').hasMatch(inner)) return false;
+    // 引号字面量
+    if ((inner.startsWith('"') && inner.endsWith('"')) ||
+        (inner.startsWith("'") && inner.endsWith("'"))) {
+      return false;
+    }
+    // JSON 路径：{{$.x}} / ${...}
+    if (inner.startsWith(r'$')) return false;
+    // 纯数字字面量
+    if (RegExp(r'^\d+(\.\d+)?$').hasMatch(inner)) return false;
+    // 需要 JS 求值：含运算符或方法调用
+    return RegExp(r'[+\-*/%<>=!?:&|^~]|\w\.\w').hasMatch(inner);
   }
 
   Future<String> _evalTemplateJsExpressions(
@@ -656,8 +869,10 @@ class LegadoRuntime {
       final expression = match.group(1)!;
       final trimmed = expression.trim();
       if (trimmed.isEmpty) continue;
-      // 纯变量/字面量不处理
+      // 纯变量 / JSON 路径 / 引号字面量 / 纯数字不处理
       if (RegExp(r'^[a-zA-Z_][a-zA-Z0-9_]*$').hasMatch(trimmed) ||
+          trimmed.startsWith(r'$') ||
+          RegExp(r'^\d+(\.\d+)?$').hasMatch(trimmed) ||
           ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
               (trimmed.startsWith("'") && trimmed.endsWith("'")))) {
         continue;
@@ -1033,7 +1248,15 @@ class LegadoRuntime {
     final lcSearch = searchUrl.toLowerCase();
     final isJsSearchUrl =
         lcSearch.startsWith('@js:') || lcSearch.startsWith('<js>');
-    if (!isJsSearchUrl) {
+    // 内联 {{...}} JS 模板（如 {{java.connect(source.getKey()).raw().request()
+    // .url()}}modules/...，读趣/爱看/书趣阁等源）同样需运行时 JS 求值才能得到
+    // 真实 URL：_preprocessJsInString 会把该块求值/剥离后交给 parse。静态预检
+    // 无法解析，直接跳过，与 @js:/<js> 同一逻辑，避免误抛「unsupported template
+    // expression」——否则 search 在 _request 之前就被 _ensureRunnable 拦下。
+    final hasInlineJsTemplate = RegExp(r'\{\{\s*[^{}]+\s*\}\}')
+        .allMatches(searchUrl)
+        .any((m) => _isPlainJsTemplate(m.group(0)!));
+    if (!isJsSearchUrl && !hasInlineJsTemplate) {
       LegadoRequestTemplate.parse(
         searchUrl,
         baseUri: source.baseUri,
@@ -1080,6 +1303,21 @@ class LegadoRuntime {
   ) async {
     final rule = _optionalRule(rules, key);
     if (rule.isEmpty) return '';
+    // 目录翻页的 nextTocUrl 若解析出非 HTTP 链接（如最后一页的
+    // `javascript:void(0)` 占位按钮，抖音小说/多页目录源常见），应视为「没有
+    // 下一页」而停止翻页，而不是抛「non-HTTP URL」把整个目录判失败。
+    if (key == 'nextTocUrl') {
+      try {
+        return _rules.evaluateString(
+          document,
+          context,
+          rule,
+          resolveUrl: true,
+        );
+      } on BookSourceProtocolException {
+        return '';
+      }
+    }
     return _rules.evaluateString(document, context, rule, resolveUrl: true);
   }
 
@@ -1107,6 +1345,15 @@ String _requiredRule(Map<String, dynamic> rules, String key) {
 String _optionalRule(Map<String, dynamic> rules, String key) {
   final value = rules[key];
   return value is String ? value.trim() : '';
+}
+
+/// 列表规则是否为 <js> / @js: 生成（JSON 接口源返回结果数组）。这类源的空列表
+/// 表意是「确无结果」，不应触发「单本 302 兜底」。
+bool _isJsListRule(String rule) {
+  final lower = rule.toLowerCase();
+  return lower.startsWith('<js>') ||
+      lower.startsWith('@js:') ||
+      lower.contains('</js>');
 }
 
 String? _nullable(String value) => value.trim().isEmpty ? null : value.trim();

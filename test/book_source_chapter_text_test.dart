@@ -159,4 +159,18 @@ void main() {
 
     expect(readableBookSourceChapterText(content), '第一章的故事从这里开始。\n第二段');
   });
+
+  test('collapses runs of consecutive blank lines to a single blank line', () {
+    // Regression: 书满屋等源正文嵌入大量空 <p>/<br>，plain 路径保留大量连续空行。
+    // 折叠为最多一个空行，并去掉首尾空行；单个空行语义保持不变。
+    const content = BookSourceChapterContent(
+      bookId: 'book',
+      chapterId: 'chapter',
+      title: 'Chapter',
+      content: '\n\n\n第一段\n\n\n\n\n第二段\n\n\n',
+      contentType: 'text/plain',
+    );
+
+    expect(readableBookSourceChapterText(content), '第一段\n\n第二段');
+  });
 }

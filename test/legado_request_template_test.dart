@@ -9,6 +9,19 @@ void main() {
   final base = Uri.parse('https://www.example.com/');
 
   group('变量展开（字符集感知）', () {
+    test('注入内置 baseUrl/sourceUrl：选项块内 {{baseUrl}} 可展开（品如漫画形态）', () {
+      final req = LegadoRequestTemplate.parse(
+        '/s,{"method":"post","body":"k={{key}}",'
+            '"headers":{"Referer":"{{baseUrl}}/","X-Requested-With":"XMLHttpRequest"}}',
+        baseUri: Uri.parse('https://m.rumanhua.com'),
+        variables: const {'key': '斗破苍穹', 'page': '1'},
+      );
+      expect(req.method, LegadoRequestMethod.post);
+      expect(req.body, startsWith('k=%E6%96%97')); // 斗破 按 UTF-8 百分号编码
+      expect(req.headers['Referer'], 'https://m.rumanhua.com/');
+      // 不应再因 {{baseUrl}} 未解析而抛「unsupported template expression」
+    });
+
     test('UTF-8 站点：{{key}} 按 UTF-8 百分号编码', () {
       final req = LegadoRequestTemplate.parse(
         '/search?q={{key}}',
@@ -33,6 +46,17 @@ void main() {
       final decoded = gbk_bytes.decode(_percentDecode(req.body!));
       expect(decoded, 's=斗破苍穹&type=articlename');
       expect(req.headers['Content-Type'], contains('gbk'));
+    });
+
+    test('选项块容忍 `, {` 空格：逗号与左花括号间有空白仍能识别为选项（书趣阁形态）', () {
+      final req = LegadoRequestTemplate.parse(
+        'search.php, {\n"method": "post",\n"body": "searchkey={{key}}"\n}',
+        baseUri: base,
+        variables: const {'key': '斗破苍穹', 'page': '1'},
+      );
+      expect(req.method, LegadoRequestMethod.post);
+      expect(req.url.toString(), 'https://www.example.com/search.php');
+      expect(req.body, contains('searchkey=%E6%96%97%E7%A0%B4%E8%8B%8D%E7%A9%B9'));
     });
 
     test('分页追加语法：page=1 移除 <,xxx>，page=2 保留内部内容', () {
@@ -61,6 +85,17 @@ void main() {
       );
       expect(req.method, LegadoRequestMethod.post);
       expect(req.body, 'searchkey=%E6%96%97%E7%A0%B4%E8%8B%8D%E7%A9%B9');
+    });
+
+    test('JSON 对象 body 中未加引号的 {{key}} 展开为 JSON 字符串字面量（番薯 API 形态）', () {
+      final req = LegadoRequestTemplate.parse(
+        '/v1/search/do_search,{"method":"POST","body":{"keyword":{{key}},"page_index":{{page}},"page_size":20}}',
+        baseUri: base,
+        variables: const {'key': '斗破苍穹', 'page': '1'},
+      );
+      expect(req.method, LegadoRequestMethod.post);
+      expect(req.body, '{"keyword":"斗破苍穹","page_index":1,"page_size":20}');
+      expect(req.headers['Content-Type'], contains('application/json'));
     });
 
     test('未提供的变量保持 {{...}} 原样并抛 unsupported template', () {

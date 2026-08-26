@@ -3653,7 +3653,7 @@ abstract class AppLocalizations {
   /// No description provided for @additionalSourcesPreview.
   ///
   /// In en, this message translates to:
-  /// **'{supported} available, {partial} partially supported, {unsupported} not supported'**
+  /// **'{supported} usable ({partial} need JS enhancement), {unsupported} not supported'**
   String additionalSourcesPreview(int supported, int partial, int unsupported);
 
   /// No description provided for @additionalSourcesAvailable.

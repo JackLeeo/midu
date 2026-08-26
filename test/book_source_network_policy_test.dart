@@ -76,7 +76,7 @@ void main() {
     },
   );
 
-  test('rejects unsafe redirects and HTTPS downgrades', () {
+  test('rejects unsafe redirects (non-http schemes), allows https→http downgrade', () {
     expect(
       () => BookSourceNetworkPolicy.redirectTarget(
         Uri.parse('https://source.example/api'),
@@ -84,12 +84,13 @@ void main() {
       ),
       throwsA(isA<BookSourceProtocolException>()),
     );
+    // 品如漫画等源 POST 搜索后会 https→http 降级重定向返回正文，放行跟随。
     expect(
-      () => BookSourceNetworkPolicy.redirectTarget(
+      BookSourceNetworkPolicy.redirectTarget(
         Uri.parse('https://source.example/api'),
         'http://source.example/api',
       ),
-      throwsA(isA<BookSourceProtocolException>()),
+      Uri.parse('http://source.example/api'),
     );
   });
 }

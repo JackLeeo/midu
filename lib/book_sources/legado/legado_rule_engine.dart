@@ -5,6 +5,7 @@ import 'package:html/parser.dart' as html_parser;
 
 import '../protocol/book_source_protocol.dart';
 import 'legado_fjs_sandbox.dart';
+import 'legado_xpath.dart';
 
 class LegadoRuleDocument {
   LegadoRuleDocument._({required this.value, required this.baseUri, this.rawBody = ''});
@@ -128,6 +129,34 @@ class LegadoRuleEngine {
     if (jsMarker != null) {
       final left = rule.substring(0, jsMarker.index).trim();
       final jsPart = rule.substring(jsMarker.index).trim();
+      // 规则整体以 <js>…</js> 开头（左半为空）、其后紧跟独立选择器：
+      //   "tocUrl": "<js>...list={turl:url}</js>$.turl"
+      // 先执行 JS 取完成值，再对完成值应用尾部选择器。与下方 left 非空时的
+      // 复合规则语义一致（Legado 对 ruleString 的 JS 块后选择器支持）。
+      final leadingJsEnd = left.isEmpty ? _findCloseJsTag(jsPart) : null;
+      if (leadingJsEnd != null &&
+          jsPart.substring(leadingJsEnd).trim().isNotEmpty) {
+        final jsBlock = jsPart.substring(0, leadingJsEnd).trim();
+        final tail = jsPart.substring(leadingJsEnd).trim();
+        final jsCode = jsBlock.contains('{{')
+            ? await _interpolateJs(jsBlock, context ?? document.value, document)
+            : jsBlock;
+        final jsResult = await _runJsRule(
+          document,
+          context,
+          jsCode,
+          listMode: false,
+        );
+        if (jsResult == null || jsResult.isEmpty) return '';
+        final completion = _stringValue(jsResult.first);
+        if (completion.isEmpty) return '';
+        final subDoc = LegadoRuleDocument.parse(completion, document.baseUri);
+        var tailValue = await evaluateString(subDoc, null, tail);
+        if (resolveUrl && tailValue.isNotEmpty) {
+          tailValue = _resolveUrlString(document, tailValue);
+        }
+        return tailValue.trim();
+      }
       if (left.isNotEmpty) {
         final leftResult = await evaluateString(
           document,
@@ -135,6 +164,34 @@ class LegadoRuleEngine {
           left,
           resolveUrl: false,
         );
+        // 米读：中段 <js>…</js> 块后若再跟独立选择器（如
+        //   "content": "$.data.current.link||$.data.chapter_link\n<js>java.ajax(result)</js>\n$.chapter_info.body"
+        // ），先执行 JS 取完成值，再对完成值应用尾部选择器。与 _evaluateSingle 的
+        // 复合规则语义保持一致，确保正文等文案规则能正确落到尾部选择器。
+        final jsEnd = _findCloseJsTag(jsPart);
+        if (jsEnd != null && jsPart.substring(jsEnd).trim().isNotEmpty) {
+          final jsBlock = jsPart.substring(0, jsEnd).trim();
+          final tail = jsPart.substring(jsEnd).trim();
+          final jsCode = jsBlock.contains('{{')
+              ? await _interpolateJs(jsBlock, context ?? document.value, document)
+              : jsBlock;
+          final jsResult = await _runJsRule(
+            document,
+            context,
+            jsCode,
+            listMode: false,
+            result: leftResult,
+          );
+          if (jsResult == null || jsResult.isEmpty) return '';
+          final completion = _stringValue(jsResult.first);
+          if (completion.isEmpty) return '';
+          final subDoc = LegadoRuleDocument.parse(completion, document.baseUri);
+          var tailValue = await evaluateString(subDoc, null, tail);
+          if (resolveUrl && tailValue.isNotEmpty) {
+            tailValue = _resolveUrlString(document, tailValue);
+          }
+          return tailValue.trim();
+        }
         final jsBody = _stripJsTag(jsPart).trim();
         // @js:##pattern##replacement 形式：仅对 result 做正则替换（无需 JS）
         if (jsBody.startsWith('##')) {
@@ -240,6 +297,50 @@ class LegadoRuleEngine {
   /// 提取结果已是完整绝对 URL（带 scheme）或协议相对 URL（// 开头）时直接返回，
   /// 避免被调用方二次 resolve 产生重复路径拼接。
   String _resolveUrlString(LegadoRuleDocument document, String value) {
+    // 分离尾随 `,{...}` 请求选项块（如品如漫画 chapterUrl: href##$##,{'webView': true}，
+    // 四零二零 nextContentUrl / 涩果等源也会在 URL 后追加 JSON 选项）。只对 URL 部分
+    // resolve，选项块原样保留，供请求层 parseRequestTemplate 二次解析。
+    final optStart = _requestOptionsStart(value);
+    var urlPart = (optStart >= 0 ? value.substring(0, optStart) : value).trim();
+    // 夺值结果只剩选项块而无 URL 基座（品如漫画目录里空 href 的 <a> 经
+    // `##$##,{...}` 变成 `,{'webView': true}`）时返回空串，由调用方按
+    // 「url.isEmpty → 跳过该章」处理，而不是抛 URL 解析异常。
+    // 另：多行 href 经 multiLine `$` 规则会在每一行行尾各贴一个 `,{...}` 选项块
+    // （品如漫画），剥最后一个后 base 仍残留前一个；因此循环剥掉全部尾随选项块。
+    while (_requestOptionsStart(urlPart) >= 0) {
+      urlPart = urlPart.substring(0, _requestOptionsStart(urlPart)).trim();
+    }
+    if (urlPart.isEmpty) return '';
+    final resolved = _resolveUrlCore(document, urlPart);
+    if (optStart < 0) return resolved;
+    final optionsText = value.substring(optStart + 1);
+    return '$resolved, $optionsText'.trimRight();
+  }
+
+  /// 在 URL 字符串里定位尾随请求选项块 `,{...}` 的逗号起始下标；无则返回 -1。
+  /// 语义与 legado_request.dart 的 `_findOptionsStart` 一致，避免把 URL 内合法
+  /// 花括号误判为选项块。
+  int _requestOptionsStart(String input) {
+    var idx = input.length - 1;
+    while (idx >= 0) {
+      final openBrace = input.lastIndexOf('{', idx);
+      if (openBrace < 0) return -1;
+      var cursor = openBrace - 1;
+      while (cursor >= 0 &&
+          (input[cursor] == ' ' ||
+              input[cursor] == '\t' ||
+              input[cursor] == '\r' ||
+              input[cursor] == '\n')) {
+        cursor--;
+      }
+      if (cursor >= 0 && input[cursor] == ',') return cursor;
+      idx = openBrace - 1;
+    }
+    return -1;
+  }
+
+  /// 仅对单个 URL 片段做绝对化解析（不含请求选项块）。
+  String _resolveUrlCore(LegadoRuleDocument document, String value) {
     if (value.startsWith('http://') ||
         value.startsWith('https://') ||
         value.startsWith('//')) {
@@ -250,13 +351,46 @@ class LegadoRuleEngine {
       }
       return value;
     }
-    final uri = document.baseUri.resolve(value);
+    // 容错：夺值结果若不是纯 URL（红叶书斋的 chapterUrl 返回 JS 数组
+    // `["https://..."]`、U C 小说 返回 `{"turl":"..."}` 对象等），先尝试
+    // 提取其中内嵌的 http(s) URL，避免后续 baseUri.resolve 抛「Scheme not
+    // starting」的 FormatException。仍是纯相对路径时再正常 resolve。
+    final embedded = _extractEmbeddedUrl(value);
+    if (embedded != null) return embedded;
+    Uri uri;
+    try {
+      uri = document.baseUri.resolve(value);
+    } on FormatException {
+      // value 含非法字符（如整段 HTML/JSON 输出但无 URL）时给出更明确的提示，
+      // 而不是把难以排查的 Dart 原文抛给调用方。
+      throw BookSourceProtocolException(
+        'Legado rule produced an invalid URL value: $value',
+      );
+    }
     if (uri.scheme != 'http' && uri.scheme != 'https') {
       throw const BookSourceProtocolException(
         'Legado rule produced a non-HTTP URL.',
       );
     }
     return uri.toString();
+  }
+
+  /// 从可能包裹在 JSON 数组/对象/引号/JS 输出中的文本里，提取首个绝对 http(s)
+  /// URL；若文本本身就是纯 URL 或不含 URL，返回 null 交由调用方走常规逻辑。
+  String? _extractEmbeddedUrl(String value) {
+    // 已在方法开头处理纯 http(s) 开头；这里仅当文本其它位置“夹着”URL 时才提取，
+    // 避免把纯相对路径误判。左边界用非字母数字，避免把已属正常路径的片段误截。
+    final match = RegExp(
+      r'(?<![\w])https?://[^\s"<>\\\]}]+',
+    ).firstMatch(value);
+    if (match == null) return null;
+    final url = match.group(0)!.replaceAll(RegExp(r'[\s"<>]+$'), '');
+    if (url.isEmpty) return null;
+    final uri = Uri.tryParse(url);
+    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+      return null;
+    }
+    return url;
   }
 
   /// 先处理 @put / @get 操作符，返回清理后的选择器与（可选）字面量结果。
@@ -286,6 +420,21 @@ class LegadoRuleEngine {
     cleaned = cleaned.replaceAllMapped(RegExp(r'@get:\{([^{}]*)\}'), (match) {
       return _storeGet(match.group(1)!.trim());
     });
+    // 规则整体是一条绝对 URL（含 @get:{gid} 的 tocUrl/bookUrl 等），变量替换后
+    // 直接作为字面量返回，避免被当选择器解析（如 `_evaluateAlternatives` 对它做
+    // CSS/JSON 提取）导致空结果。
+    final trimmedClean = cleaned.trimLeft();
+    if (trimmedClean.startsWith('http://') || trimmedClean.startsWith('https://')) {
+      // 字面量内若仍含 {{...}}/单花括号插值（如爱下网书 chapterUrl：
+      //   @get:{url}p{{$.ordernum}}.html
+      // ），必须先对 {{$.ordernum}} 按上下文求值，否则未替换的 {{...}} 会残留
+      // 进 chapterId，后续请求解析抛「unsupported template expression」。
+      var literal = cleaned;
+      if (literal.contains('{{') || _singleBraceTemplate.hasMatch(literal)) {
+        literal = await _interpolate(literal, context, document);
+      }
+      return _ProcessedOps(selector: '', literal: literal, isPure: true);
+    }
     // 规则原本全部是 @put/@get 操作符 → 结果即替换后的字面量
     // （含纯 @put 的 init 规则，此时 literal 为空、isPure=true，避免回落选择器解析）
     if (selector.contains('@') &&
@@ -311,17 +460,15 @@ class LegadoRuleEngine {
         segment.trim().startsWith('##') ? segment.trim() : '##${segment.trim()}',
       );
       if (transformed.pattern == null) continue;
+      // 宽容：个别替换段正则以当前语法无法构造（转义/边界写法差异）时，跳过该段
+      // 而非让整章正文失败（零零小说/七七书库等源）。其余段落照常应用。
+      RegExp pattern;
       try {
-        result = _replaceRegex(
-          result,
-          RegExp(transformed.pattern!, multiLine: true),
-          transformed.replacement,
-        );
+        pattern = RegExp(transformed.pattern!, multiLine: true);
       } on FormatException {
-        throw const BookSourceProtocolException(
-          'Legado replacement contains an invalid regular expression.',
-        );
+        continue;
       }
+      result = _replaceRegex(result, pattern, transformed.replacement);
     }
     return result;
   }
@@ -413,6 +560,24 @@ class LegadoRuleEngine {
     // 米读：@js / <js> 规则直接进入 JS 沙箱
     final lower = normalized.toLowerCase();
     if (lower.startsWith('@js:') || lower.startsWith('<js>')) {
+      // 米读：<js>...</js> 块后若紧接独立选择器（如
+      //   "chapterList": "<js>java.ajax(...)</js>\n$.chapter_list"
+      //   "content":    "<js>java.ajax(...)</js>\n$.info"
+      // 先执行 JS 拿到完成值（常为 JSON 字符串），再对完成值应用尾部选择器。
+      final jsEnd = _findCloseJsTag(normalized);
+      if (jsEnd != null && normalized.substring(jsEnd).trim().isNotEmpty) {
+        final jsBlock = normalized.substring(0, jsEnd).trim();
+        final tail = normalized.substring(jsEnd).trim();
+        final jsCode = jsBlock.contains('{{')
+            ? await _interpolateJs(jsBlock, context ?? document.value, document)
+            : jsBlock;
+        final jsResult = await _runJsRule(document, context, jsCode, listMode: false);
+        if (jsResult == null || jsResult.isEmpty) return const [];
+        final completion = _stringValue(jsResult.first);
+        if (completion.isEmpty) return const [];
+        final subDoc = LegadoRuleDocument.parse(completion, document.baseUri);
+        return _evaluateAlternatives(subDoc, null, tail, listMode: listMode);
+      }
       // 米读：Legado 先插值 {{...}} 再执行 JS（如 "@js:...bookId: {{$..bookId}}..."）
       final jsCode = normalized.contains('{{')
           ? await _interpolateJs(normalized, context ?? document.value, document)
@@ -437,6 +602,29 @@ class LegadoRuleEngine {
           listMode: listMode,
         );
         final leftResult = leftValues.map(_stringValue).join('\n');
+        // 中段 <js>…</js> 块后若再跟独立选择器（如
+        //   "content": "$.data.current.link\n<js>java.ajax(result)</js>\n$.chapter_info.body"
+        // ），先执行 JS 取完成值，再对完成值应用尾部选择器。
+        final jsEnd = _findCloseJsTag(jsPart);
+        if (jsEnd != null && jsPart.substring(jsEnd).trim().isNotEmpty) {
+          final jsBlock = jsPart.substring(0, jsEnd).trim();
+          final tail = jsPart.substring(jsEnd).trim();
+          final jsCode = jsBlock.contains('{{')
+              ? await _interpolateJs(jsBlock, context ?? document.value, document)
+              : jsBlock;
+          final jsResult = await _runJsRule(
+            document,
+            context,
+            jsCode,
+            listMode: false,
+            result: leftResult,
+          );
+          if (jsResult == null || jsResult.isEmpty) return const [];
+          final completion = _stringValue(jsResult.first);
+          if (completion.isEmpty) return const [];
+          final subDoc = LegadoRuleDocument.parse(completion, document.baseUri);
+          return _evaluateAlternatives(subDoc, null, tail, listMode: listMode);
+        }
         final jsBody = _stripJsTag(jsPart).trim();
         // @js:##pattern##replacement 形式：仅对 result 做正则替换（无需 JS）
         if (jsBody.startsWith('##')) {
@@ -465,20 +653,27 @@ class LegadoRuleEngine {
           listMode: listMode,
           result: leftResult,
         );
-        if (jsResult != null) return jsResult;
+        // 米读：中段 <js> 块仅作副作用（java.put 写变量）且完成值原样透传
+        // （如 chapterList: "$.data[...].volumeList<js>java.put('a',...);...result</js>"）
+        // 时，应保留左侧 selector 的逐元素列表，而不是把 join 后的单串当整体 context。
+        if (jsResult != null) {
+          if (jsResult.length == 1 &&
+              _stringValue(jsResult.first) == leftResult) {
+            return leftValues;
+          }
+          return jsResult;
+        }
         return const [];
       }
     }
-    // 米读：XPath 规则 —— 先通过 fjs polyfill 模拟
+    // 米读：XPath 规则 —— 原生求值（无需 JS bridge）。支持 @xpath: 前缀或 // 开头的
+    // 绝对路径（四零二零 等源的目录 `//div[5]/div/div[3]/div[2]/ul/li`）；可带
+    // `##regex` 变换与尾随 @js: 后缀。结果对目录类（listMode）返回 Element 集。
     if (lower.startsWith('@xpath:') || normalized.trimLeft().startsWith('//')) {
       final xpathRule = lower.startsWith('@xpath:')
-          ? normalized.substring(7)
-          : normalized;
-      final jsRule =
-          '@js:finalResult = (typeof bridge === "function") ? String(bridge(JSON.stringify({__cmd:"doc_xpath", args:[${jsonEncode(xpathRule)}]})) || "") : "";';
-      final jsResult = await _runJsRule(document, context, jsRule, listMode: listMode);
-      if (jsResult != null) return jsResult;
-      return const [];
+          ? normalized.substring(7).trimLeft()
+          : normalized.trimLeft();
+      return _evaluateXPath(document, context, xpathRule, listMode: listMode);
     }
     if (normalized.toLowerCase().startsWith('@css:')) {
       normalized = normalized.substring(5).trimLeft();
@@ -518,6 +713,63 @@ class LegadoRuleEngine {
     return _htmlRule(nodes, normalized, listMode: listMode);
   }
 
+  /// 原生 XPath 规则求值。支持 `##regex` 变换与尾随 `@js:` 后缀（后者截断后不执行）。
+  Future<List<Object?>> _evaluateXPath(
+    LegadoRuleDocument document,
+    Object? context,
+    String rule, {
+    required bool listMode,
+  }) async {
+    // 尾随 @js: 后缀（如 "//pre/text()@js:result.replace(...)"）：截断仅取 XPath 部分
+    //（该后缀多为正文/介绍的正则润色，不影响目录提取；留空则不润色但仍有值）。
+    var body = rule;
+    final jsMarker = _jsMarkerIndex(body);
+    if (jsMarker != null) body = body.substring(0, jsMarker.index);
+    // ## 正则变换分割（顶层，避开 [@attr=="a##b"] 等括号内内容）
+    var patternStr = '';
+    String? replacement;
+    final parts = _splitTopLevel(body, '##');
+    if (parts.length > 1) {
+      body = parts[0].trim();
+      if (body.startsWith('//')) {
+        patternStr = parts[1];
+        replacement = parts.length > 2 ? parts[2] : '';
+      } else {
+        // 形如 "//*[@id=..]/text()##\_.*"：若切在谓词值内含 ##（罕见）则回退整串解析
+        patternStr = parts[1];
+        replacement = parts.length > 2 ? parts[2] : '';
+      }
+    }
+
+    final value = document.value;
+    if (value is! Document && value is! Element) return const [];
+    final results = LegadoXPath.evaluate(value as Node, body);
+    if (results.isEmpty && patternStr.isEmpty) return const [];
+
+    // 应用 ## 正则变换（对字符串结果）
+    if (patternStr.isNotEmpty) {
+      RegExp? re;
+      try {
+        re = RegExp(patternStr, multiLine: true);
+      } on FormatException {
+        re = null;
+      }
+      if (re != null) {
+        final transformed = <Object?>[];
+        for (final r in results) {
+          if (r is Element) {
+            transformed.add(r);
+          } else {
+            final s = '$r';
+            transformed.add(s.replaceAll(re, replacement ?? ''));
+          }
+        }
+        return transformed;
+      }
+    }
+    return results.cast<Object?>();
+  }
+
   Future<List<Object?>?> _runJsRule(
     LegadoRuleDocument document,
     Object? context,
@@ -535,10 +787,25 @@ class LegadoRuleEngine {
               ? context.outerHtml
               : jsonEncode(context))
           : null;
+      // 供 JS 内 `java.getString('$.field')` / `get('$.field')` 解析 JSON 字段：
+      //   - 上下文是 JSON（章节/条目 Map/List）时取当前上下文 JSON；
+      //   - 顶层 JS 规则（context 为 null，API 源）时取整页文档 JSON。
+      String? contextJson;
+      if (context is Map || context is List) {
+        contextJson = jsonEncode(context);
+      } else if (context == null && document.rawBody.isNotEmpty) {
+        contextJson = document.rawBody;
+      }
       final globals = <String, dynamic>{
         'contextHtml': ?ctxValue,
+        if (contextJson != null) 'contextJson': contextJson,
         // 中段 @js: 规则：左侧提取结果作为 result 注入（JS 内可直接读 result）
         if (result.isNotEmpty) 'result': result,
+        // 纯 @js: 顶层规则（如 chapterList 的 `JSON.parse(result).list`）：Legado
+        // 语义下 result 初始为当前文档文本。context 为 null 时未被注入，把 docHtml
+        // 作为 result 交给 JS，避免 JSON.parse("") 求值失败导致目录/列表为空。
+        if (result.isEmpty && _jsReadsResult(rule) && document.rawBody.isNotEmpty)
+          'result': document.rawBody,
       };
       final str = await s.evalJs(
         rule,
@@ -562,6 +829,20 @@ class LegadoRuleEngine {
     } catch (_) {
       return null;
     }
+  }
+
+  /// 判定一段 JS 规则是否引用了顶层 `result` 变量（此时才需要注入文档文本作为
+  /// 其初值）。仅当规则主体真的用 result 参与运算/解析时注入，避免给每段 JS
+  /// 都灌入整页 HTML 造成多余开销。
+  static bool _jsReadsResult(String rule) {
+    final body = _stripJsTag(rule);
+    // result 作为空白/独立引用（如 JSON.parse(result)、result.replace(..)）才算；
+    // 纯声明的 `var result = ...` 或被 @js:finalResult= 覆盖的不算。
+    final bodyNoDecl = body.replaceFirst(
+      RegExp(r'\b(?:var|let|const)\s+result\s*='),
+      '',
+    );
+    return RegExp(r'\bresult\b').hasMatch(bodyNoDecl);
   }
 
   List<Object?> _htmlRule(
@@ -1098,6 +1379,12 @@ class LegadoRuleEngine {
     return s;
   }
 
+  /// 定位 `</js>` 闭合标记的结束下标；未闭合（整条规则即 JS）时返回 null。
+  static int? _findCloseJsTag(String raw) {
+    final match = RegExp(r'</js>', caseSensitive: false).firstMatch(raw);
+    return match?.end;
+  }
+
   /// 求值 {{...}} / {...} 内的插值表达式，支持 `||` 回退（{{$.a||$.b}}）。支持：
   /// - @htmlRule（@@ 作用于整页，@ 作用于当前上下文），含 ## 正则转换
   /// - $.jsonPath，含 ## 正则转换
@@ -1165,6 +1452,9 @@ class LegadoRuleEngine {
     }
     // 米读：纯变量名（{{bid}} 等）优先查 @put 变量存储
     if (RegExp(r'^[a-zA-Z_][a-zA-Z0-9_]*$').hasMatch(expression)) {
+      if (expression == 'baseUrl' && doc.baseUri != null && doc.baseUri!.host.isNotEmpty) {
+        return doc.baseUri.toString();
+      }
       final stored = _storeGet(expression);
       if (stored.isNotEmpty) return stored;
     }
@@ -1201,9 +1491,24 @@ class LegadoRuleEngine {
   ) async {
     final s = sandbox;
     if (s == null) return '';
+    // 优先作为单个表达式求值（@js:finalResult = (<expr>);）。
+    // 但大量真实书源的 {{...}} 是三语句序列（如爱下网书 tocUrl：
+    //   {{java.put("url",baseUrl);
+    //     "https://.../clist/"}}
+    // ），语句序列套进分组括号是非法 JS，会求值失败。故失败/空结果时回退为
+    // 语句脚本执行（@js: <expr>），借用沙箱的 finalResult→完成值→result 兜底，
+    // 返回序列最后一条语句的值。
     try {
       final r = await s.evalJs(
         '@js:finalResult = ($expression);',
+        docHtml: doc.rawBody,
+        baseUri: doc.baseUri,
+      );
+      if (r.trim().isNotEmpty) return r.trim();
+    } catch (_) {}
+    try {
+      final r = await s.evalJs(
+        '@js: $expression',
         docHtml: doc.rawBody,
         baseUri: doc.baseUri,
       );

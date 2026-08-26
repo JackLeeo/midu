@@ -118,7 +118,7 @@ class LegadoSourceVerifier {
         final match = result.items.firstWhere(
           (book) => book.id.trim().isNotEmpty && book.title.trim().isNotEmpty,
         );
-        final book = await _runtime.getBook(registered, match.id);
+        final book = await _runtime.getBook(registered, match.id, seedBook: match);
         final chapters = await _runtime.getChapters(registered, book.id);
         if (chapters.isEmpty) continue;
         final content = await _runtime.getChapterContent(

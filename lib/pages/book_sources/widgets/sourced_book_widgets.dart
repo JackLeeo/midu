@@ -327,6 +327,7 @@ class _SourcedBookDetailsLoaderState extends State<_SourcedBookDetailsLoader> {
       final book = await widget.client.getBook(
         widget.result.source,
         widget.result.book.id,
+        seedBook: widget.result.book,
       );
       if (mounted) setState(() => _book = book);
       // 后台预热：详情展示期间提前拉取目录与首章，缓存命中后点击“阅读”

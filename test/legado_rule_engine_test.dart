@@ -37,6 +37,9 @@ const _html = '''
     <p>萧炎，斗气大陆萧家之子。</p>
     <p>他缓缓抬起头，目光坚毅。</p>
   </div>
+  <div class="jsArr">["https://m.hongyebookzhai.com/wapbook125951_2"]</div>
+  <div class="jsObj">{"turl":"https://ocean.shuqireader.com/api/bcspub/qswebapi/book/12345"}</div>
+  <div class="jsOpt">https://www.pinru.com/c/12345.html,{'webView': true}</div>
 </body>
 </html>
 ''';
@@ -198,6 +201,42 @@ void main() {
     test('相对 URL 基于文档 baseUri resolve', () async {
       final rel = await string('class.s2@a@href', resolveUrl: true);
       expect(rel, 'https://books.example.com/book/1.html');
+    });
+
+    test('JSON 数组包裹的 URL 被提取（红叶书斋 chapterUrl 形态）', () async {
+      final wrapped = await string('class.jsArr@text', resolveUrl: true);
+      expect(wrapped, 'https://m.hongyebookzhai.com/wapbook125951_2');
+    });
+
+    test('JSON 对象中的 URL 字段被提取（U C 小说 turl 形态）', () async {
+      final wrapped = await string('class.jsObj@text', resolveUrl: true);
+      expect(
+        wrapped,
+        'https://ocean.shuqireader.com/api/bcspub/qswebapi/book/12345',
+      );
+    });
+
+    test('URL 尾随请求选项块 ,{...} 被分离（品如漫画 chapterUrl 形态）', () async {
+      final wrapped = await string('class.jsOpt@text', resolveUrl: true);
+      expect(
+        wrapped,
+        "https://www.pinru.com/c/12345.html, {'webView': true}",
+      );
+    });
+
+    test('仅含选项块的无 URL 值返回空串不抛异常（品如漫画 href 为空形态）', () async {
+      final doc = LegadoRuleDocument.parse(
+        '<html><body><ul><li><a href="">空链接</a></li></ul></body></html>',
+        Uri.parse('https://m.rumanhua.com/dir/'),
+      );
+      final url = await engine.evaluateString(
+        doc,
+        null,
+        r'a@href##$##,{' + "'webView': true" + '}',
+        resolveUrl: true,
+      );
+      // 不应抛「invalid URL value」；空 href → 返回空串，由上层跳过该章
+      expect(url, '');
     });
   });
 
@@ -576,6 +615,100 @@ void main() {
       );
       final items = await engine.evaluateList(doc, null, 'tbody@tr!1:2');
       expect(items.map(_asText), ['a']);
+    });
+  });
+
+  group('XPath 规则（目录类 noChapters）', () {
+    // 对齐四零二零 toc 形态：//div[5]/div/div[3]/div[2]/ul/li（含位置谓词）
+    final xpDoc = LegadoRuleDocument.parse(
+      '''
+      <html><body>
+        <div id="chapter">
+          <div class="spacer"><span>占位</span></div>
+          <div class="section">
+            <ul id="list">
+              <li><a href="/c/1.html">第一章 会当凌绝顶</a></li>
+              <li><a href="/c/2.html">第二章 一览众山小</a></li>
+              <li><a href="/c/3.html">第三章 踏破山河</a></li>
+            </ul>
+          </div>
+        </div>
+      </body></html>
+      ''',
+      Uri.parse('https://silings.example.com/'),
+    );
+
+    test('绝对路径 + 位置谓词 //div[@id="chapter"]/div[2]/ul/li 提取目录', () async {
+      final items = await engine.evaluateList(
+        xpDoc,
+        null,
+        r'//div[@id="chapter"]/div[2]/ul/li',
+      );
+      expect(items, hasLength(3));
+      expect(_asText(items.first), contains('第一章'));
+      expect(_asText(items.last), contains('第三章'));
+    });
+
+    test('属性谓词 //tr[@class] / [@attr="val"]', () async {
+      final doc = LegadoRuleDocument.parse(
+        '''
+        <table><tbody>
+          <tr><td class="last">第一章</td></tr>
+          <tr><td class="last">第二章</td></tr>
+        </tbody></table>
+        ''',
+        Uri.parse('https://books.example.com/'),
+      );
+      final lasts = await engine.evaluateList(doc, null, '//td[@class="last"]');
+      expect(lasts.map(_asText), ['第一章', '第二章']);
+      // contains 谓词
+      final c = await engine.evaluateList(doc, null, r'//td[contains(@class,"last")]');
+      expect(c, hasLength(2));
+    });
+
+    test('位置谓词 //li[1] 取首个 / [last()] 取末尾', () async {
+      final first = await engine.evaluateList(xpDoc, null, r'//li[1]');
+      expect(first, hasLength(1));
+      expect(_asText(first.first), contains('第一章'));
+      final last = await engine.evaluateList(xpDoc, null, r'//li[last()]');
+      expect(last, hasLength(1));
+      expect(_asText(last.first), contains('第三章'));
+    });
+
+    test('末段 text() 返回直接文本', () async {
+      final texts = await engine.evaluateList(
+        xpDoc,
+        null,
+        r'//ul[@id="list"]/li/a/text()',
+      );
+      expect(texts.map((e) => '$e'),
+          ['第一章 会当凌绝顶', '第二章 一览众山小', '第三章 踏破山河']);
+    });
+
+    test('末段 @href 返回属性字符串', () async {
+      final hrefs = await engine.evaluateList(xpDoc, null, r'//ul[@id="list"]/li/a/@href');
+      expect(hrefs.map((e) => '$e').toList(),
+          ['/c/1.html', '/c/2.html', '/c/3.html']);
+    });
+
+    test('// 后代匹配所有 <a>', () async {
+      final anchors = await engine.evaluateList(xpDoc, null, '//a');
+      expect(anchors, hasLength(3));
+    });
+
+    test('含尾随 ## 的 XPath 规则仍能提取（## 由上层按文本结果变换）', () async {
+      // evaluateString 路径：对 text() 结果做首字符剔除式 ## 变换
+      final titles = await engine.evaluateString(
+        xpDoc,
+        null,
+        r'//ul[@id="list"]/li/a/text()##^第[一二三四五六七八九十]+章\s*##',
+      );
+      expect(titles, contains('会当凌绝顶'));
+    });
+
+    test('未知 XPath 返回空（不抛异常）', () async {
+      final none = await engine.evaluateList(xpDoc, null, '//div[@id="not-exist"]');
+      expect(none, isEmpty);
     });
   });
 }

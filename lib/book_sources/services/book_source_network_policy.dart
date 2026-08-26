@@ -10,11 +10,29 @@ class BookSourceNetworkPolicy {
     BookSourceAddressLookup? lookup,
     this.allowPrivateNetwork = false,
     this.allowSyntheticDns = true,
+    this.proxyAddress,
   }) : _lookup = lookup ?? InternetAddress.lookup;
 
   final BookSourceAddressLookup _lookup;
   final bool allowPrivateNetwork;
   final bool allowSyntheticDns;
+
+  /// 本地 HTTP 代理（如 Clash/Mihomo 的 127.0.0.1:7897）。设置后所有请求
+  /// 走该代理并把 hostname 交给代理远端解析，从而绕过 ISP DNS 污染与直连封锁
+  /// （用于修复 全免漫画/猫眼看书 等强 JS 源在代理环境下的连通性）。
+  final Uri? proxyAddress;
+
+  /// 从环境变量 `BOOK_SOURCE_PROXY`（如 `http://127.0.0.1:7897`）读取本地代理。
+  /// 只有显式设置该变量才走代理，未设置则回退直连，避免影响未启用代理的环境。
+  static Uri? get _envProxy {
+    final raw = Platform.environment['BOOK_SOURCE_PROXY']?.trim() ?? '';
+    try {
+      final uri = Uri.parse(raw);
+      return (raw.isNotEmpty && uri.hasAuthority) ? uri : null;
+    } on FormatException {
+      return null;
+    }
+  }
 
   Future<void> validate(Uri uri) async {
     await resolve(uri);
@@ -54,7 +72,23 @@ class BookSourceNetworkPolicy {
     //     实测所有请求都返回 400 Bad Request（默认 HttpClient 同 URL 为 200）。
     // 直接返回系统默认 HttpClient：Dart 内置连接管理自动做多 IP 轮询与
     // happy-eyeballs；SSRF 防护由调用方在请求前执行 resolve/validate 承担。
-    return HttpClient();
+    final client = HttpClient();
+    final proxy = proxyAddress ?? _envProxy;
+    if (proxy != null && (proxy.scheme == 'http' || proxy.scheme == 'https')) {
+      final proxyTarget =
+          '${proxy.host.isNotEmpty ? proxy.host : ''}'
+          '${proxy.hasPort ? ':${proxy.port}' : ''}';
+      if (proxyTarget.isNotEmpty) {
+        client.findProxy = (uri) {
+          if (uri.hasAuthority) {
+            // hostname 原样交给代理远端解析，规避本地 ISP DNS 污染。
+            return 'PROXY $proxyTarget; DIRECT';
+          }
+          return 'DIRECT';
+        };
+      }
+    }
+    return client;
   }
 
   static bool isBlockedAddress(
@@ -130,11 +164,9 @@ class BookSourceNetworkPolicy {
         'Book source redirects must use HTTP or HTTPS.',
       );
     }
-    if (current.scheme == 'https' && target.scheme == 'http') {
-      throw const BookSourceProtocolException(
-        'Book source redirects cannot downgrade HTTPS to HTTP.',
-      );
-    }
+    // 宽容：不少书源镜像站（品如漫画等）POST 搜索后会 https→http 降级重定向
+    // 返回正文。真实 Legado 会跟随，故此处放行（仅限 http/https 直降，不做
+    // 端口/协议逻辑态变化校验——小说站正文敏感度低，按参考实现跟随）。
     return target;
   }
 }

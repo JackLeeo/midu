@@ -1928,7 +1928,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String additionalSourcesPreview(int supported, int partial, int unsupported) {
-    return '可使用 $supported 个，部分支持 $partial 个，暂不支持 $unsupported 个';
+    return '可使用 $supported 个（其中 $partial 个带 JS 增强），暂不支持 $unsupported 个';
   }
 
   @override

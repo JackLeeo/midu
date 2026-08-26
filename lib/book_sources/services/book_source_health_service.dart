@@ -154,7 +154,9 @@ class BookSourceHealthChecker {
       // Stage 2: book detail
       BookSourceBook detail;
       try {
-        detail = await client.getBook(source, match.id).timeout(stageTimeout);
+        detail = await client
+            .getBook(source, match.id, seedBook: match)
+            .timeout(stageTimeout);
       } catch (e) {
         return _fail(source, sw, HealthCheckStage.detail, '书籍详情：${_errMsg(e)}');
       }
