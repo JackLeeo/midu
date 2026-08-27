@@ -254,6 +254,7 @@ class BookSourceChapterContent {
     required this.title,
     required this.content,
     required this.contentType,
+    this.imageUrls = const [],
   });
 
   factory BookSourceChapterContent.fromJson(Map<String, dynamic> json) {
@@ -263,6 +264,7 @@ class BookSourceChapterContent {
       title: json['title'] as String? ?? '',
       content: _requireString(json, 'content'),
       contentType: json['contentType'] as String? ?? 'text/plain',
+      imageUrls: _stringList(json['imageUrls']),
     );
   }
 
@@ -272,12 +274,20 @@ class BookSourceChapterContent {
   final String content;
   final String contentType;
 
+  /// 章节正文为漫画图片列表时非空，每个元素是单页图片的完整 URL。
+  /// 为空表示该章是纯文本正文，走常规文本排版渲染。
+  final List<String> imageUrls;
+
+  /// 是否为「漫画章节」：正文就是一张张图片，用图片翻页器渲染。
+  bool get isImageChapter => imageUrls.isNotEmpty;
+
   Map<String, dynamic> toJson() => {
     'bookId': bookId,
     'chapterId': chapterId,
     'title': title,
     'content': content,
     'contentType': contentType,
+    if (imageUrls.isNotEmpty) 'imageUrls': imageUrls,
   };
 }
 
@@ -470,6 +480,15 @@ String _requireString(Map<String, dynamic> json, String key) {
     throw BookSourceProtocolException('Missing required field: $key');
   }
   return value;
+}
+
+/// 把 JSON 里的数组字段安全地归一成字符串列表；缺失/非数组返回空列表。
+List<String> _stringList(Object? value) {
+  if (value is! List) return const [];
+  return value
+      .whereType<String>()
+      .where((s) => s.trim().isNotEmpty)
+      .toList(growable: false);
 }
 
 Uri? _optionalUri(Object? value) {

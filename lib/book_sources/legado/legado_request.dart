@@ -337,6 +337,9 @@ class LegadoResponse {
 
 abstract interface class LegadoTransport {
   Future<LegadoResponse> send(LegadoRequestTemplate request);
+
+  /// 返回请求最终响应的原始字节（适用于图片等二进制资源）。
+  Future<Uint8List> sendBytes(LegadoRequestTemplate request);
 }
 
 class LegadoHttpTransport implements LegadoTransport {
@@ -409,6 +412,23 @@ class LegadoHttpTransport implements LegadoTransport {
 
   @override
   Future<LegadoResponse> send(LegadoRequestTemplate request) async {
+    final raw = await _requestBytesInner(request);
+    return LegadoResponse(
+      body: _decode(raw.bytes, request.charset, raw.headers),
+      finalUri: raw.finalUri,
+    );
+  }
+
+  @override
+  Future<Uint8List> sendBytes(LegadoRequestTemplate request) async {
+    return (await _requestBytesInner(request)).bytes;
+  }
+
+  /// 带重定向与会话 Cookie 的原始字节请求：`send` 在它之上解码成文本，
+  /// `sendBytes` 直接返回二进制（漫画图片等）。
+  Future<_RawLegadoResponse> _requestBytesInner(
+    LegadoRequestTemplate request,
+  ) async {
     var current = request.url;
     for (var redirects = 0; redirects <= 5; redirects++) {
       await _networkPolicy.validate(current);
@@ -427,7 +447,8 @@ class LegadoHttpTransport implements LegadoTransport {
               ? Uint8List.fromList(_encode(request.body ?? '', request.charset))
               : null,
           options: Options(
-            method: request.method == LegadoRequestMethod.post ? 'POST' : 'GET',
+            method:
+                request.method == LegadoRequestMethod.post ? 'POST' : 'GET',
             headers: headers,
             responseType: ResponseType.bytes,
             followRedirects: false,
@@ -450,8 +471,9 @@ class LegadoHttpTransport implements LegadoTransport {
               'Legado response exceeds $maxResponseBytes bytes.',
             );
           }
-          return LegadoResponse(
-            body: _decode(bytes, request.charset, response.headers),
+          return _RawLegadoResponse(
+            bytes: Uint8List.fromList(bytes),
+            headers: response.headers,
             finalUri: current,
           );
         }
@@ -479,6 +501,19 @@ class LegadoHttpTransport implements LegadoTransport {
     }
     throw const BookSourceProtocolException('Legado source request failed.');
   }
+}
+
+/// 原始字节请求的结果：最终 URL、响应头与原始字节。
+class _RawLegadoResponse {
+  const _RawLegadoResponse({
+    required this.bytes,
+    required this.headers,
+    required this.finalUri,
+  });
+
+  final Uint8List bytes;
+  final Headers headers;
+  final Uri finalUri;
 }
 
 const _supportedCharsets = {'utf-8', 'utf8', 'gbk', 'gb2312', 'gb18030'};

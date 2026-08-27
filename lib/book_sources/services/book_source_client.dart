@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
@@ -604,6 +605,19 @@ class BookSourceClient {
         'Chapter response does not match the requested resource.',
       );
     }
+  }
+
+  /// 拉取漫画单页图片原始字节（仅 Legado 源走独立 runtime，非 Legado 返回空，
+  /// 由阅读器决定是否可用）。
+  Future<Uint8List> fetchImageBytes(
+    RegisteredBookSource source,
+    String url,
+  ) async {
+    if (source.sourceProtocol != BookSourceProtocolKind.legado) {
+      return Uint8List(0);
+    }
+    await _ensureAdditionalProtocolsEnabled();
+    return _legadoFor(source).fetchImageBytes(source, url);
   }
 
   Future<void> prefetchChapterContent(

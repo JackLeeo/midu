@@ -861,10 +861,12 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     final unique = byName.values.toList(growable: false);
     const int parallelism = 3;
     const int maxCategories = 12;
+    const int maxBooksPerSection = 20;
     final seen = <String>{};
     final merged = <SourcedBook>[];
     final take = math.min(unique.length, maxCategories);
     for (var start = 0; start < take; start += parallelism) {
+      if (merged.length >= maxBooksPerSection) break;
       final end = math.min(start + parallelism, take);
       final chunk = unique.sublist(start, end);
       final batches = await Future.wait(chunk.map(_fetchCategoryAcrossSources));
@@ -872,12 +874,15 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       for (final batch in batches) {
         for (final r in batch) {
           final title = r.book.title.trim();
-          if (title.isNotEmpty && seen.add(title)) newItems.add(r);
+          if (title.isNotEmpty && seen.add(title)) {
+            newItems.add(r);
+            if (newItems.length + merged.length >= maxBooksPerSection) break;
+          }
         }
       }
       merged.addAll(newItems);
       if (onBatch != null && newItems.isNotEmpty) onBatch(newItems);
-      if (!mounted) break;
+      if (!mounted || merged.length >= maxBooksPerSection) break;
     }
     return merged;
   }
@@ -1148,12 +1153,15 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
 
     // 分类频道 → 最新/热榜 → 书源书架
     if (_categories.isNotEmpty) {
-      slivers.addAll(_buildCategorySlivers(bottomPadding));
+      slivers.addAll(_buildCategorySlivers());
     }
     if (latest.isNotEmpty) {
-      slivers.addAll(_buildLatestSectionSlivers(latest, bottomPadding));
+      slivers.addAll(_buildLatestSectionSlivers(latest));
     }
-    slivers.addAll(_buildShelfSlivers(shelves, bottomPadding));
+    slivers.addAll(_buildShelfSlivers(shelves));
+    // 页面底部安全留白统一放在 feed 最末段，避免它在分类/最新等非末节里出现，
+    // 造成版块之间割裂的大空档。
+    slivers.add(SliverToBoxAdapter(child: SizedBox(height: bottomPadding)));
     return slivers;
   }
 
@@ -1209,7 +1217,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     );
   }
 
-  List<Widget> _buildCategorySlivers(double bottomPadding) {
+  List<Widget> _buildCategorySlivers() {
     final cats = _aggregatedCategories;
     if (cats.isEmpty) return const [SliverToBoxAdapter(child: SizedBox.shrink())];
     final sections = _groupCategorySections(cats);
@@ -1248,12 +1256,12 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
             child: Center(child: CircularProgressIndicator()),
           ),
           topPadding: 16,
-          bottomPadding: bottomPadding,
+          bottomPadding: 24,
         )
       else if (_sectionBooks.isNotEmpty)
         // 横向封面书架（仅前 N 本）+「查看全部」入口，压缩高度避免遮挡下方「最新」版块。
         SliverPadding(
-          padding: EdgeInsets.fromLTRB(0, 8, 0, bottomPadding),
+          padding: const EdgeInsets.fromLTRB(0, 8, 0, 14),
           sliver: SliverToBoxAdapter(
             child: _CategoryBookShelf(
               books: _sectionBooks,
@@ -1276,7 +1284,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
               ),
             ),
           ),
-          bottomPadding: bottomPadding,
+          bottomPadding: 24,
         ),
     ];
   }
@@ -1399,10 +1407,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     );
   }
 
-  List<Widget> _buildLatestSectionSlivers(
-    List<SourcedBook> latest,
-    double bottomPadding,
-  ) {
+  List<Widget> _buildLatestSectionSlivers(List<SourcedBook> latest) {
     final shown = _latestVisibleCount.clamp(0, latest.length);
     final remain = latest.length - shown;
     return [
@@ -1487,15 +1492,12 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
             ),
           ),
           topPadding: 8,
-          bottomPadding: bottomPadding,
+          bottomPadding: 24,
         ),
     ];
   }
 
-  List<Widget> _buildShelfSlivers(
-    List<_DiscoveryShelf> shelves,
-    double bottomPadding,
-  ) {
+  List<Widget> _buildShelfSlivers(List<_DiscoveryShelf> shelves) {
     if (shelves.isEmpty) return const [];
     return [
       SliverToBoxAdapter(
@@ -1510,7 +1512,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         ),
       ),
       SliverPadding(
-        padding: EdgeInsets.fromLTRB(16, 12, 16, bottomPadding),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
         sliver: SliverList.builder(
           itemCount: shelves.length,
           itemBuilder: (context, index) =>
@@ -2004,7 +2006,7 @@ class _CategorySectionChip extends StatelessWidget {
 /// 栏目书架：横向滚动的竖版封面卡片（前 [_maxShown] 本）+ 末尾「查看全部」入口。
 /// 压缩为单行书架，避免长列表遮挡下方「最新」版块。
 class _CategoryBookShelf extends StatelessWidget {
-  static const int _maxShown = 10;
+  static const int _maxShown = 20;
 
   final List<SourcedBook> books;
   final ValueChanged<SourcedBook> onTapBook;

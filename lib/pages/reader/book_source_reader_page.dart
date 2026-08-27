@@ -57,6 +57,7 @@ import 'package:midu/utils/localization_extension.dart';
 import 'package:midu/utils/midu_theme.dart';
 import 'package:midu/utils/reader_themes.dart';
 import 'package:midu/utils/system_ui_helper.dart';
+import 'package:midu/pages/reader/network_comic_viewer.dart';
 import 'package:midu/widgets/reader_annotated_text_page.dart';
 import 'package:midu/widgets/reader_aloud_panel.dart';
 import 'package:midu/widgets/reader_control_chrome.dart';
@@ -2921,6 +2922,26 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     }
 
     final content = _content!;
+    // 漫画章节：正文是图片列表（imageUrls 非空），不走文本排版/分页，直接渲染
+    // 网络漫画翻页视图。翻到最后一页继续翻则进入下一章。
+    if (content.isImageChapter && content.imageUrls.isNotEmpty) {
+      return NetworkComicViewer(
+        imageUrls: content.imageUrls,
+        initialPage: _pageIndex,
+        background: _readerTheme.brightness == Brightness.dark
+            ? _readerTheme.background
+            : const Color(0xFF111111),
+        loadPage: (index) => _client.fetchImageBytes(
+          _activeSource,
+          content.imageUrls[index],
+        ),
+        onEndReached: _chapterIndex + 1 < _chapters.length
+            ? () => unawaited(
+                _loadChapter(_chapterIndex + 1, restoreProgress: 0),
+              )
+            : null,
+      );
+    }
     if (_pageMode == BookSourcePageMode.verticalScroll) {
       return LayoutBuilder(
         builder: (context, constraints) {

@@ -1,6 +1,9 @@
 // LegadoRuntime 全链路端到端测试：用 mock transport 模拟真实书源页面，
 // 验证 search → getBook → getChapters → getChapterContent 完整链路，
 // 特别是正文（ruleContent.content）能否被正确提取。
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:midu/book_sources/legado/legado_book_source.dart';
@@ -33,6 +36,12 @@ class _FixtureTransport implements LegadoTransport {
       body = '<html><body>404</body></html>';
     }
     return LegadoResponse(body: body, finalUri: request.url);
+  }
+
+  @override
+  Future<Uint8List> sendBytes(LegadoRequestTemplate request) async {
+    final resp = await send(request);
+    return Uint8List.fromList(utf8.encode(resp.body));
   }
 
   static const _searchPage = '''

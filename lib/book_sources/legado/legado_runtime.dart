@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
@@ -658,13 +659,84 @@ class LegadoRuntime {
       'parts': parts.length,
       'totalLength': parts.join('\n\n').length,
     });
+    final joined = parts.join('\n\n');
+    final imageUrls = _extractContentImageUrls(joined);
+    // 漫画正文：图片列表即为章节内容，不入库为文本；标记 type/image 供阅读器渲染。
     return BookSourceChapterContent(
       bookId: bookId,
       chapterId: chapterId,
       title: '',
-      content: parts.join('\n\n'),
-      contentType: 'text/html',
+      content: imageUrls.isEmpty ? joined : imageUrls.join('\n'),
+      contentType: imageUrls.isEmpty ? 'text/html' : 'application/x-imagelist',
+      imageUrls: imageUrls,
     );
+  }
+
+  /// 拉取漫画单页图片的原始字节。图片 URL 已是解析后的绝对地址，这里走请求层
+  /// （浏览器头 + 源自定义头 + 自适应解码无关的原始字节）返回二进制，供阅读器
+  /// 图片翻页渲染。失败抛出可读异常。
+  Future<Uint8List> fetchImageBytes(
+    RegisteredBookSource registered,
+    String url,
+  ) async {
+    final source = _source(registered);
+    _ensureRunnable(source);
+    // 图片加载只备一套通用来源头：浏览器级默认头覆盖 + 源自定义头，
+    // 多数图站按 Referer/UA 决定是否 403，这两者已足够。
+    final headers = <String, String>{..._defaultBrowserHeaders};
+    headers.addAll(_sourceHeaders(source));
+    final template = LegadoRequestTemplate(
+      url: Uri.parse(url),
+      method: LegadoRequestMethod.get,
+      headers: headers,
+      charset: 'utf-8',
+    );
+    try {
+      return await _transport.sendBytes(template);
+    } catch (e) {
+      throw BookSourceProtocolException('漫画图片加载失败：$e');
+    }
+  }
+
+  /// 从章节内容里推测正文是否为漫画图片列表。
+  static List<String> _extractContentImageUrls(String content) {
+    if (content.trim().isEmpty) return const [];
+    final trimmed = content.trim();
+    // 先用 JSON 形态探测：{images:[…]} 或纯数组。
+    try {
+      final decoded = jsonDecode(trimmed);
+      if (decoded is Map && decoded['images'] is List) {
+        return _listOfStrings(decoded['images']);
+      }
+      if (decoded is List) {
+        return _listOfStrings(decoded);
+      }
+    } catch (_) {
+      // 不是 JSON，落到下方按 URL 形态解析。
+    }
+    // 非 JSON：整段按空白拆分成若干 URL，要求每段都是合法绝对 http(s) 地址。
+    final tokens = trimmed.split(RegExp(r'[\s,，]+')).where((s) => s.isNotEmpty);
+    final urls = tokens.toList(growable: false);
+    if (urls.isEmpty) return const [];
+    for (final token in urls) {
+      final uri = Uri.tryParse(token);
+      if (uri == null ||
+          !(uri.isAbsolute &&
+              (uri.scheme == 'http' || uri.scheme == 'https'))) {
+        return const [];
+      }
+    }
+    return urls;
+  }
+
+  /// 把 JSON 列表安全归一成非空字符串列表。
+  static List<String> _listOfStrings(Object? value) {
+    if (value is! List) return const [];
+    return value
+        .whereType<String>()
+        .where((s) => s.trim().isNotEmpty)
+        .map((s) => s.trim())
+        .toList(growable: false);
   }
 
   Future<String> _tocUrl(LegadoBookSource source, String bookId) async {
