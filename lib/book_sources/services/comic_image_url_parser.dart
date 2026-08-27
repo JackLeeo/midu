@@ -23,10 +23,13 @@ List<String> extractContentImageUrls(
   final jsonUrls = _imageUrlsFromJson(trimmed);
   if (jsonUrls.isNotEmpty) return jsonUrls;
   // 2) HTML <img> 形态：src 允许双引号、单引号、完全无引号（部分漫画源的
-  //    规则直接拼 '<img src='+url+'>'，无引号）。相对路径由 baseUrl 补全。
+  //    规则直接拼 '<img src='+url+'>'，无引号）。无引号分支允许含空格——
+  //    部分漫画源图片 URL 直接带未编码空格（如 kaimanhua 章节图
+  //    '/comic/Y/ 妖者为王/…'），严格按空白截断会取到半个 URL。
+  //    相对路径由 baseUrl 补全。
   final imgUrls = <String>[];
   final imgRe = RegExp(
-    r"""<img\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))""",
+    r"""<img\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^"'>]+))""",
     caseSensitive: false,
   );
   for (final match in imgRe.allMatches(trimmed)) {
@@ -66,7 +69,10 @@ List<String> extractContentImageUrls(
 }
 
 /// 把单个图片地址归一为可下载的绝对 http(s) URL，无法识别返回 null。
-/// 支持：绝对 http(s)、相对路径（用 [baseUrl] 拼接）、常见尾部杂质清理。
+/// 支持：绝对 http(s)、相对路径（用 [baseUrl] 拼接）、常见尾部杂质清理，
+/// 以及把未编码空格规范为 %20（部分漫画源的图片 URL 直接含空格，如
+/// kaimanhua 章节图 '/comic/Y/ 妖者为王/…'；不编码时下游 Uri.parse
+/// 抛 FormatException）。
 String? resolveChapterImage(String rawSrc, String? baseUrl) {
   var src = rawSrc.trim();
   if (src.isEmpty || src.startsWith('data:')) return null;
@@ -75,6 +81,8 @@ String? resolveChapterImage(String rawSrc, String? baseUrl) {
       .replaceAll('&amp;', '&')
       .replaceAll(RegExp(r'[>;)\]},]+$'), '')
       .trim();
+  // 空格是 URI 非法字符，需编码为 %20 才能被 Uri.parse / 图片加载器接受。
+  src = src.replaceAll(' ', '%20');
   final uri = Uri.tryParse(src);
   if (uri != null &&
       uri.isAbsolute &&

@@ -18,6 +18,24 @@ void main() {
       );
     });
 
+    test('无引号 <img> 且 URL 含未编码空格（kaimanhua 章节图形态）', () {
+      const content =
+          '\n<img src=https://hw-chapter2.kaimanhua.com/comic/Y/ 妖者为王/1.jpg>\n'
+          '<img src=https://hw-chapter2.kaimanhua.com/comic/Y/ 妖者为王/2.jpg>\n'
+          '<img src=https://hw-chapter2.kaimanhua.com/comic/Y/ 妖者为王/3.jpg>';
+      final urls = extractContentImageUrls(content);
+      expect(urls, hasLength(3));
+      for (final url in urls) {
+        // 空格必须编码为 %20、中文路径被规范化，且不再含裸空格，
+        // 否则下游 Uri.parse 抛 FormatException、图片加载失败。
+        expect(url.contains(' '), isFalse);
+        expect(url.startsWith('https://hw-chapter2.kaimanhua.com/comic/Y/%20'),
+            isTrue);
+        expect(url.endsWith('.jpg'), isTrue);
+      }
+      expect(urls.first, contains('%E5%A6%96'));
+    });
+
     test('带引号 <img>（品如漫画 .main_img@html 形态）', () {
       const content =
           '<img src="/uploads/page1.jpg" class="main_img"/>\n'
