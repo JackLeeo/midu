@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import '../../utils/debug_logger.dart';
 import '../models/registered_book_source.dart';
 import '../protocol/book_source_protocol.dart';
+import '../services/comic_image_url_parser.dart';
 import 'legado_book_source.dart';
 import 'legado_ajax_rewrite.dart';
 import 'legado_fjs_sandbox.dart';
@@ -583,6 +584,9 @@ class LegadoRuntime {
     final parts = <String>[];
     final seenPages = <String>{};
     var nextUrl = chapterId;
+    // 章节目录/正文页的最终请求 URL：漫画源正文为相对路径 `<img>` 时，
+    // 用它做图片地址拼接基准。
+    String? chapterBaseUrl;
     for (var hop = 0; hop < _maxPageHops && nextUrl.isNotEmpty; hop++) {
       if (!seenPages.add(nextUrl)) break;
       logger.log('content', '请求章节页面 (hop=$hop)', details: {
@@ -597,6 +601,7 @@ class LegadoRuntime {
                 '章节内容请求超时（15秒）。',
               ),
         );
+        chapterBaseUrl = response.finalUri.toString();
         logger.log('content', '章节页面响应', details: {
           'source': source.name,
           'bodyLength': response.body.length,
@@ -660,7 +665,7 @@ class LegadoRuntime {
       'totalLength': parts.join('\n\n').length,
     });
     final joined = parts.join('\n\n');
-    final imageUrls = _extractContentImageUrls(joined);
+    final imageUrls = _extractContentImageUrls(joined, baseUrl: chapterBaseUrl);
     // 漫画正文：图片列表即为章节内容，不入库为文本；标记 type/image 供阅读器渲染。
     return BookSourceChapterContent(
       bookId: bookId,
@@ -699,65 +704,18 @@ class LegadoRuntime {
   }
 
   /// 从章节内容里推测正文是否为漫画图片列表。
-  static List<String> _extractContentImageUrls(String content) {
-    if (content.trim().isEmpty) return const [];
-    final trimmed = content.trim();
-    // 先用 JSON 形态探测：{images:[…]} 或纯数组。
-    try {
-      final decoded = jsonDecode(trimmed);
-      if (decoded is Map && decoded['images'] is List) {
-        return _listOfStrings(decoded['images']);
-      }
-      if (decoded is List) {
-        return _listOfStrings(decoded);
-      }
-    } catch (_) {
-      // 不是 JSON，落到下方按 HTML img / URL 列表解析。
-    }
-    // HTML 形态：正文是 <img src="…"> 的漫画站（部分源正文即图片标签）。
-    final imgUrls = <String>[];
-    final imgRe = RegExp(
-      "<img\\b[^>]*\\bsrc\\s*=\\s*[\"']([^\"']+)[\"']",
-      caseSensitive: false,
-    );
-    for (final match in imgRe.allMatches(trimmed)) {
-      final src = match.group(1)?.trim() ?? '';
-      if (src.isEmpty) continue;
-      final uri = Uri.tryParse(src);
-      if (uri != null &&
-          uri.isAbsolute &&
-          (uri.scheme == 'http' || uri.scheme == 'https')) {
-        imgUrls.add(src);
-      }
-    }
-    if (imgUrls.isNotEmpty) {
-      // 有 <img> 且能提取出绝对图片地址：判定为漫画正文。
-      return imgUrls;
-    }
-    // 非 JSON/非 img：整段按空白拆分成若干 URL，要求每段都是合法绝对 http(s)。
-    final tokens = trimmed.split(RegExp(r'[\s,，]+')).where((s) => s.isNotEmpty);
-    final urls = tokens.toList(growable: false);
-    if (urls.isEmpty) return const [];
-    for (final token in urls) {
-      final uri = Uri.tryParse(token);
-      if (uri == null ||
-          !(uri.isAbsolute &&
-              (uri.scheme == 'http' || uri.scheme == 'https'))) {
-        return const [];
-      }
-    }
-    return urls;
-  }
-
-  /// 把 JSON 列表安全归一成非空字符串列表。
-  static List<String> _listOfStrings(Object? value) {
-    if (value is! List) return const [];
-    return value
-        .whereType<String>()
-        .where((s) => s.trim().isNotEmpty)
-        .map((s) => s.trim())
-        .toList(growable: false);
-  }
+  ///
+  /// 依次尝试：JSON 图片数组 → HTML `<img>`（src 带双引号/单引号/无引号三种
+  /// 形态，相对路径用 [baseUrl] 拼成绝对地址）→ Markdown 图片语法 →
+  /// 纯 URL 列表。全部无法识别返回空，正文按普通文本处理。
+  ///
+  /// [baseUrl] 通常传章节请求的最终 URL：漫画源的正文常为相对路径 `<img>`，
+  /// 需要用章节目录/章节页地址补全为可下载的绝对图片地址。
+  static List<String> _extractContentImageUrls(
+    String content, {
+    String? baseUrl,
+  }) =>
+      extractContentImageUrls(content, baseUrl: baseUrl);
 
   Future<String> _tocUrl(LegadoBookSource source, String bookId) async {
     final rule = source.rule('ruleBookInfo');
