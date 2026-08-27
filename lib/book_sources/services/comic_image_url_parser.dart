@@ -52,20 +52,25 @@ List<String> extractContentImageUrls(
     if (resolved != null) markdownUrls.add(resolved);
   }
   if (markdownUrls.isNotEmpty) return markdownUrls;
-  // 4) 非 JSON/非 img：整段按空白拆分成若干 URL。仅凭"每段都是合法绝对
-  //    http(s)"不足以判定漫画——小说源可能把正文文本以 URL 形式返回。要求每段
-  //    地址还必须"看起来像图片"（路径以常见图片扩展名结尾），避免正文 URL
-  //    文本误入漫画翻页渲染。
-  final tokens =
-      trimmed.split(RegExp(r'[\s,，]+')).where((s) => s.isNotEmpty).toList();
-  if (tokens.isEmpty) return const [];
-  final urls = <String>[];
-  for (final token in tokens) {
-    final resolved = resolveChapterImage(token, baseUrl);
-    if (resolved == null || !isImageLikeUrl(resolved)) return const [];
-    urls.add(resolved);
+  // 4) 通用 URL 扫描：正文常被包裹成「数组形态文本」——真实漫画源把图片列表
+  //    toString 成 '[url1, url2, …]'（如 kaimanhua 的 ruleContent 对
+  //    chapter_img_list 数组取 result 后未按预期拼 img 标签）。这里直接收集
+  //    正文里所有 http(s) URL 子串（允许 URL 内含未编码空格，直到逗号/右
+  //    括号/右花括号/右尖括号才截断），规范化后仅保留「看起来像图片」的地址。
+  //    图片 URL 数量 ≥2 才判定漫画：防止小说正文里的零星链接误判。
+  final scanned = <String>[];
+  // 停止集：逗号/右括号/右花括号/右尖括号/换行回车——换行分隔的 URL 列表
+  // 若被连成单串会导致 Uri.parse 失败；空格（未编码）则允许并稍后编码为 %20。
+  final urlRe = RegExp(r"https?://[^,\]}>\n\r]*", caseSensitive: false);
+  for (final match in urlRe.allMatches(trimmed)) {
+    final resolved = resolveChapterImage(match.group(0) ?? '', baseUrl);
+    if (resolved != null && isImageLikeUrl(resolved)) scanned.add(resolved);
   }
-  return urls;
+  final unique = <String>[];
+  for (final url in scanned) {
+    if (!unique.contains(url)) unique.add(url);
+  }
+  return unique;
 }
 
 /// 把单个图片地址归一为可下载的绝对 http(s) URL，无法识别返回 null。

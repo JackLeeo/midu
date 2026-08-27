@@ -82,6 +82,37 @@ void main() {
       );
     });
 
+    test('数组形态文本（kaimanhua chapter_img_list toString 形态）', () {
+      const content =
+          '[https://hw-chapter2.kaimanhua.com/comic/Y/%E5%A6%96%E8%80%85%E4%B8%BA%E7%8E%8B/%E5%BA%8F%E7%AB%A0F1_84761/1.jpg-kmh.low.webp?auth_key=1787836247-abc,'
+          'https://hw-chapter2.kaimanhua.com/comic/Y/%E5%A6%96%E8%80%85%E4%B8%BA%E7%8E%8B/%E5%BA%8F%E7%AB%A0F1_84761/2.jpg-kmh.low.webp?auth_key=1787836247-def,'
+          'https://hw-chapter2.kaimanhua.com/comic/Y/%E5%A6%96%E8%80%85%E4%B8%BA%E7%8E%8B/%E5%BA%8F%E7%AB%A0F1_84761/3.jpg-kmh.low.webp?auth_key=1787836247-ghi]';
+      final urls = extractContentImageUrls(content);
+      expect(urls, hasLength(3));
+      for (final url in urls) {
+        expect(url.contains(' '), isFalse);
+        expect(url.startsWith('https://hw-chapter2.kaimanhua.com/comic/Y/'),
+            isTrue);
+        // 带 auth_key 查询串：图片扩展名看解析后的 path。
+        expect(Uri.parse(url).path.endsWith('.webp'), isTrue);
+      }
+    });
+
+    test('数组形态文本且 URL 含未编码空格（kaimanhua 漫画名目录）', () {
+      const content =
+          '[https://hw-chapter2.kaimanhua.com/comic/Y/ 妖者为王/1.jpg,'
+          'https://hw-chapter2.kaimanhua.com/comic/Y/ 妖者为王/2.jpg,'
+          'https://hw-chapter2.kaimanhua.com/comic/Y/ 妖者为王/3.jpg]';
+      final urls = extractContentImageUrls(content);
+      expect(urls, hasLength(3));
+      for (final url in urls) {
+        expect(url.contains(' '), isFalse);
+        expect(url.contains('%20'), isTrue);
+        expect(url.contains('%E5%A6%96'), isTrue); // 妖
+        expect(url.endsWith('.jpg'), isTrue);
+      }
+    });
+
     test('纯 URL 列表（换行分隔）', () {
       const content = 'https://a.com/1.jpg\nhttps://a.com/2.jpg\nhttps://a.com/3.jpg';
       expect(

@@ -14,6 +14,7 @@ import 'package:midu/book_sources/protocol/book_source_protocol.dart';
 import 'package:midu/book_sources/services/book_source_client.dart';
 import 'package:midu/book_sources/services/book_source_aggregated_search.dart';
 import 'package:midu/book_sources/services/book_source_chapter_text.dart';
+import 'package:midu/book_sources/services/comic_image_url_parser.dart';
 import 'package:midu/book_sources/services/book_source_reading_progress.dart';
 import 'package:midu/book_sources/services/book_source_shelf_service.dart';
 import 'package:midu/book_sources/services/book_source_registry.dart';
@@ -1117,7 +1118,12 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
           _readableChapterText.remove(index);
           // 漫画章节：正文是图片列表，无需文本排版缓存；直接保留原始内容。
           // 非漫画章节才做文本排版渲染并缓存，供文本阅读器使用。
-          if (!content.isImageChapter) {
+          // 兜底：识别层未写入 imageUrls 但正文明显是图片列表（数组形态/
+          // HTML img/URL 列表）的章节同样跳过排版，避免被文本化处理。
+          final comicImageUrls = content.imageUrls.isNotEmpty
+              ? content.imageUrls
+              : extractContentImageUrls(content.content);
+          if (comicImageUrls.isEmpty) {
             try {
               final rendered = await readableBookSourceChapterTextAsync(
                 content,
@@ -2930,16 +2936,24 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     final content = _content!;
     // 漫画章节：正文是图片列表（imageUrls 非空），不走文本排版/分页，直接渲染
     // 网络漫画翻页视图。翻到最后一页继续翻则进入下一章。
-    if (content.isImageChapter && content.imageUrls.isNotEmpty) {
+    //
+    // 兜底判定：部分源的章节正文是「图片 URL 列表」但识别链路没写入 imageUrls
+    // （如规则把图片数组 toString 成 '[url1, url2…]'、或正文就是 HTML img 集合）。
+    // 若正文明显示图片列表，也按漫画渲染，避免被文本排版当成链接文本展示或
+    // 在链接化时抛 FormatException。
+    final comicImageUrls = content.imageUrls.isNotEmpty
+        ? content.imageUrls
+        : extractContentImageUrls(content.content);
+    if (comicImageUrls.isNotEmpty) {
       return NetworkComicViewer(
-        imageUrls: content.imageUrls,
+        imageUrls: comicImageUrls,
         initialPage: _pageIndex,
         background: _readerTheme.brightness == Brightness.dark
             ? _readerTheme.background
             : const Color(0xFF111111),
         loadPage: (index) => _client.fetchImageBytes(
           _activeSource,
-          content.imageUrls[index],
+          comicImageUrls[index],
         ),
         onEndReached: _chapterIndex + 1 < _chapters.length
             ? () => unawaited(
