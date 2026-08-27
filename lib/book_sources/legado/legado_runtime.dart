@@ -712,9 +712,29 @@ class LegadoRuntime {
         return _listOfStrings(decoded);
       }
     } catch (_) {
-      // 不是 JSON，落到下方按 URL 形态解析。
+      // 不是 JSON，落到下方按 HTML img / URL 列表解析。
     }
-    // 非 JSON：整段按空白拆分成若干 URL，要求每段都是合法绝对 http(s) 地址。
+    // HTML 形态：正文是 <img src="…"> 的漫画站（部分源正文即图片标签）。
+    final imgUrls = <String>[];
+    final imgRe = RegExp(
+      "<img\\b[^>]*\\bsrc\\s*=\\s*[\"']([^\"']+)[\"']",
+      caseSensitive: false,
+    );
+    for (final match in imgRe.allMatches(trimmed)) {
+      final src = match.group(1)?.trim() ?? '';
+      if (src.isEmpty) continue;
+      final uri = Uri.tryParse(src);
+      if (uri != null &&
+          uri.isAbsolute &&
+          (uri.scheme == 'http' || uri.scheme == 'https')) {
+        imgUrls.add(src);
+      }
+    }
+    if (imgUrls.isNotEmpty) {
+      // 有 <img> 且能提取出绝对图片地址：判定为漫画正文。
+      return imgUrls;
+    }
+    // 非 JSON/非 img：整段按空白拆分成若干 URL，要求每段都是合法绝对 http(s)。
     final tokens = trimmed.split(RegExp(r'[\s,，]+')).where((s) => s.isNotEmpty);
     final urls = tokens.toList(growable: false);
     if (urls.isEmpty) return const [];

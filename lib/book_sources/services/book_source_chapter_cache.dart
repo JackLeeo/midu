@@ -212,8 +212,10 @@ class BookSourceChapterCache {
       final decoded = jsonDecode(await file.readAsString());
       if (decoded is! Map) return null;
       return _CacheEntry(
-        BookSourceChapterContent.fromJson(
-          decoded.map((key, value) => MapEntry('$key', value)),
+        _recoverImageUrls(
+          BookSourceChapterContent.fromJson(
+            decoded.map((key, value) => MapEntry('$key', value)),
+          ),
         ),
         cachedAt,
       );
@@ -239,6 +241,7 @@ class BookSourceChapterCache {
           'title': content.title,
           'content': content.content,
           'contentType': content.contentType,
+          if (content.imageUrls.isNotEmpty) 'imageUrls': content.imageUrls,
         }),
         generation,
       );
@@ -397,6 +400,64 @@ class BookSourceChapterCache {
   Future<File> _catalogFileFor(String key) async {
     final root = await _rootDirectory();
     return File(path.join(root.path, 'catalogs', '${_hash(key)}.json'));
+  }
+
+  /// 兼容早期磁盘缓存：当时未写入 imageUrls，读回后漫画章节会退化成文本。
+  /// 若 contentType 是图片列表但 imageUrls 为空，从正文里重新解析图片 URL，
+  /// 使历史缓存仍能以漫画翻页视图渲染。
+  static BookSourceChapterContent _recoverImageUrls(
+    BookSourceChapterContent content,
+  ) {
+    if (content.imageUrls.isNotEmpty ||
+        content.contentType != 'application/x-imagelist') {
+      return content;
+    }
+    final urls = _imageUrlsFromContent(content.content);
+    if (urls.isEmpty) return content;
+    return BookSourceChapterContent(
+      bookId: content.bookId,
+      chapterId: content.chapterId,
+      title: content.title,
+      content: urls.join('\n'),
+      contentType: content.contentType,
+      imageUrls: urls,
+    );
+  }
+
+  /// 从正文文本提取图片 URL 列表：优先 JSON（{images:[…]}/纯数组），
+  /// 其次按空白拆分的绝对 http(s) URL 列表。无法识别返回空。
+  static List<String> _imageUrlsFromContent(String content) {
+    if (content.trim().isEmpty) return const [];
+    final trimmed = content.trim();
+    try {
+      final decoded = jsonDecode(trimmed);
+      if (decoded is Map && decoded['images'] is List) {
+        return decoded['images']
+            .whereType<String>()
+            .where((s) => s.trim().isNotEmpty)
+            .toList(growable: false);
+      }
+      if (decoded is List) {
+        return decoded
+            .whereType<String>()
+            .where((s) => s.trim().isNotEmpty)
+            .toList(growable: false);
+      }
+    } catch (_) {
+      // 不是 JSON，落到按 URL 形态解析。
+    }
+    final tokens =
+        trimmed.split(RegExp(r'[\s,，]+')).where((s) => s.isNotEmpty).toList();
+    if (tokens.isEmpty) return const [];
+    for (final token in tokens) {
+      final uri = Uri.tryParse(token);
+      if (uri == null ||
+          !(uri.isAbsolute &&
+              (uri.scheme == 'http' || uri.scheme == 'https'))) {
+        return const [];
+      }
+    }
+    return tokens;
   }
 
   String _key(

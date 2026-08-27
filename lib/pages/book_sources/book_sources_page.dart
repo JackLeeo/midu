@@ -138,7 +138,13 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   final Map<String, DateTime> _sectionFetchedAt = {};
 
   // 栏目缓存的新鲜窗口：窗口内命中缓存不重复拉取，直接使用。
-  static const Duration sectionCacheFreshness = Duration(minutes: 10);
+  // 后台自动刷新间隔至少 12 小时，避免频繁切换栏目/重新进入时反复发起网络请求。
+  static const Duration sectionCacheFreshness = Duration(hours: 12);
+
+  // 发现页全量后台刷新的节流窗口：距上次自动刷新不足 12 小时，后台预热与
+  // 栏目静默刷新直接跳过（手动下拉刷新不受限）。
+  static const Duration backgroundRefreshInterval = Duration(hours: 12);
+  DateTime? _lastBackgroundRefreshAt;
 
   // 最新榜单分页：默认展示一页，点击"下一页"再展开，避免无限下滑。
   static const int latestPageSize = 10;
@@ -208,6 +214,16 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       _selectedSourceId == null || source.id == _selectedSourceId;
 
   Future<void> _loadBookStore({bool force = false}) async {
+    // 后台自动刷新节流：非手动（force）且已有数据、且 12 小时内已自动刷新过则
+    // 直接跳过，避免每次页面可见/重新进入都重新拉全量聚合请求。手动下拉刷新、
+    // 以及数据被清空需要补拉（如源变更后的重载）不受此限制。
+    if (!force &&
+        _lastBackgroundRefreshAt != null &&
+        _hasAnyBookStore() &&
+        DateTime.now().difference(_lastBackgroundRefreshAt!) <
+            backgroundRefreshInterval) {
+      return;
+    }
     if (!force && !_loadingBookStore && _hasAnyBookStore()) return;
     setState(() {
       _loadingBookStore = true;
@@ -261,6 +277,8 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         }),
       ]);
       if (!mounted) return;
+      // 记录本次后台自动刷新时间，供 12 小时节流判定。
+      _lastBackgroundRefreshAt = DateTime.now();
       final shelves = results[0] as List<_DiscoveryShelf>;
       final categories = results[1] as List<_SourcedCategory>;
       final latest = results[2] as List<SourcedBook>;
@@ -824,8 +842,14 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   ///
   /// 仅在发现页打开中执行；页面不可见时跳过，避免离开页面后仍在后台
   /// 聚合拉取网络数据。用户切换栏目时页面必然可见，不受影响。
+  /// 距上次刷新不足 12 小时同样跳过，符合后台刷新节流。
   Future<void> _refreshSectionBooks(String key) async {
     if (!_isPageActive) return;
+    final lastFetched = _sectionFetchedAt[key];
+    if (lastFetched != null &&
+        DateTime.now().difference(lastFetched) < sectionCacheFreshness) {
+      return;
+    }
     final sections = _groupCategorySections(_aggregatedCategories);
     if (sections.isEmpty) return;
     final active = sections.firstWhere(

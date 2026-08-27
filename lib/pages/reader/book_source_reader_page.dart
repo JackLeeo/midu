@@ -1115,26 +1115,32 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
             return content;
           }
           _readableChapterText.remove(index);
-          try {
-            final rendered = await readableBookSourceChapterTextAsync(
-              content,
-              fallbackTitle: _chapters[index].title,
-            );
-            _readableChapterText[index] = rendered;
-            logger.log('reader', '_continuousContentFor:排版渲染完成', details: {
-              'index': index,
-              'renderedLength': rendered.length,
-            });
-          } catch (e) {
-            logger.log('reader', '_continuousContentFor:排版渲染异常', details: {
-              'index': index,
-              'error': e.runtimeType.toString(),
-              'message': e.toString().substring(
-                    0,
-                    e.toString().length > 500 ? 500 : e.toString().length,
-                  ),
-            });
-            rethrow;
+          // 漫画章节：正文是图片列表，无需文本排版缓存；直接保留原始内容。
+          // 非漫画章节才做文本排版渲染并缓存，供文本阅读器使用。
+          if (!content.isImageChapter) {
+            try {
+              final rendered = await readableBookSourceChapterTextAsync(
+                content,
+                fallbackTitle: _chapters[index].title,
+              );
+              _readableChapterText[index] = rendered;
+              logger.log('reader', '_continuousContentFor:排版渲染完成',
+                  details: {
+                    'index': index,
+                    'renderedLength': rendered.length,
+                  });
+            } catch (e) {
+              logger.log('reader', '_continuousContentFor:排版渲染异常',
+                  details: {
+                    'index': index,
+                    'error': e.runtimeType.toString(),
+                    'message': e.toString().substring(
+                          0,
+                          e.toString().length > 500 ? 500 : e.toString().length,
+                        ),
+                  });
+              rethrow;
+            }
           }
           if (_contentGeneration != generation) return content;
           while (_readableChapterText.length > _readableChapterTextLimit) {
