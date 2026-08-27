@@ -751,6 +751,11 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
           if (!mounted || _selectedSectionKey != key) return;
           setState(() {
             _sectionBooks = List.of(_sectionBooks)..addAll(items);
+            // 流式期间同样截断到 20 本，避免中间态膨胀。
+            const int maxBooksPerSection = 20;
+            if (_sectionBooks.length > maxBooksPerSection) {
+              _sectionBooks = _sectionBooks.take(maxBooksPerSection).toList();
+            }
             // 首批到达即切出"加载中"占位，展示已有内容并继续追加。
             _loadingSectionBooks = false;
           });
@@ -857,15 +862,14 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     }
   }
 
-  /// 聚合一个栏目里所有细分分类的书籍：跨来源、按书名去重，结果按批次交错混排。
-  /// 并发限制 3，避免分类多时一次性拉爆；'其他' 分类较多时只取前若干避免过载。
-  ///
-  /// 每个并发批次完成后就把新增去重结果通过 [onBatch] 回调出去，供发现页
-  /// 流式实时上屏，而不是等所有资源都返回后再一次性显示。
+  /// 聚合一个栏目里所有细分分类的书籍：与最新版块一致，收集所有「源+分类」
+  /// 对后一次性全发起请求，每个完成后流式回调 [onBatch] 实时上屏；最终跨来源
+  /// 交错混排并截断到 [maxBooksPerSection] 本，避免列表无限膨胀。
   Future<List<SourcedBook>> _fetchSectionBooks(
     _CategorySection section, {
     void Function(List<SourcedBook> items)? onBatch,
   }) async {
+    // 收集所有「源+分类」对（按分类名去重，最多 maxCategories 个子分类）。
     final byName = <String, _SourcedCategory>{};
     for (final c in section.cats) {
       final name = c.name.trim();
@@ -873,69 +877,63 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       byName.putIfAbsent(name, () => c);
     }
     final unique = byName.values.toList(growable: false);
-    const int parallelism = 3;
     const int maxCategories = 12;
     const int maxBooksPerSection = 20;
-    final seen = <String>{};
-    final merged = <SourcedBook>[];
     final take = math.min(unique.length, maxCategories);
-    for (var start = 0; start < take; start += parallelism) {
-      if (merged.length >= maxBooksPerSection) break;
-      final end = math.min(start + parallelism, take);
-      final chunk = unique.sublist(start, end);
-      final batches = await Future.wait(chunk.map(_fetchCategoryAcrossSources));
-      final newItems = <SourcedBook>[];
-      for (final batch in batches) {
-        for (final r in batch) {
-          final title = r.book.title.trim();
-          if (title.isNotEmpty && seen.add(title)) {
-            newItems.add(r);
-            if (newItems.length + merged.length >= maxBooksPerSection) break;
-          }
-        }
-      }
-      merged.addAll(newItems);
-      if (onBatch != null && newItems.isNotEmpty) onBatch(newItems);
-      if (!mounted || merged.length >= maxBooksPerSection) break;
-    }
-    return merged;
-  }
 
-  /// 分类按名称跨来源聚合：与"最新"板块一致，不区分来源，把每个提供该分类的
-  /// 书源结果合并穿插，而不是只返回某一书源的二级分类资源。
-  Future<List<SourcedBook>> _fetchCategoryAcrossSources(
-    _SourcedCategory category,
-  ) async {
-    final name = category.name.trim();
-    final candidates =
-        _categories.where((c) => c.name.trim() == name).toList(growable: false);
-    if (candidates.isEmpty) return const [];
-    final results = await Future.wait(
-      candidates.map((c) async {
-        try {
-          final page = await _client.getDiscovery(
-            c.source,
-            exploreUrlOverride: c.id,
-          );
-          final books = <SourcedBook>[];
-          for (final section in page.sections) {
-            for (final item in section.items) {
-              if (item.book != null) {
-                books.add(SourcedBook(source: c.source, book: item.book!));
-              }
+    // 展开成 (source, category) 对列表，供无界并发拉取。
+    final pairs = <(RegisteredBookSource, _SourcedCategory)>[];
+    for (var i = 0; i < take; i++) {
+      final cat = unique[i];
+      final name = cat.name.trim();
+      final candidates =
+          _categories.where((c) => c.name.trim() == name).toList(growable: false);
+      for (final c in candidates) {
+        pairs.add((c.source, c));
+      }
+    }
+    if (pairs.isEmpty) return const [];
+
+    // 与 _fetchLatest 一致：所有对同时发起，每个完成即流式回调上屏。
+    final futures = pairs.map((pair) async {
+      try {
+        final page = await _client.getDiscovery(
+          pair.$1,
+          exploreUrlOverride: pair.$2.id,
+        );
+        final books = <SourcedBook>[];
+        for (final section in page.sections) {
+          for (final item in section.items) {
+            if (item.book != null) {
+              books.add(SourcedBook(source: pair.$1, book: item.book!));
             }
           }
-          return (source: c.source, books: books);
-        } catch (_) {
-          return (source: c.source, books: const <SourcedBook>[]);
         }
-      }),
-    );
+        // 流式回调：每个对完成后立即把原始结果推给 UI，不等全部完成。
+        if (onBatch != null && books.isNotEmpty) onBatch(books);
+        return (source: pair.$1, books: books);
+      } catch (_) {
+        return (source: pair.$1, books: const <SourcedBook>[]);
+      }
+    });
+    final results = await Future.wait(futures);
+
+    // 全部完成后：跨来源交错混排（与最新版块一致），再按书名去重截断。
     final batches = results
-        .where((result) => result.books.isNotEmpty)
-        .map((result) => result.books)
+        .where((r) => r.books.isNotEmpty)
+        .map((r) => r.books)
         .toList(growable: false);
-    return BookSourcesPage.interleaveLatestBatches(batches);
+    final interleaved = BookSourcesPage.interleaveLatestBatches(batches);
+    final seen = <String>{};
+    final merged = <SourcedBook>[];
+    for (final r in interleaved) {
+      final title = r.book.title.trim();
+      if (title.isNotEmpty && seen.add(title)) {
+        merged.add(r);
+        if (merged.length >= maxBooksPerSection) break;
+      }
+    }
+    return merged;
   }
 
   void _openSearch() {
