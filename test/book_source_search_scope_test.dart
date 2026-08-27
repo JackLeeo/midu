@@ -32,6 +32,53 @@ void main() {
 
     expect(BookSourcesPage.searchTargets(sources, 'source-a'), isEmpty);
   });
+
+  test('mapConcurrent caps peak parallelism at the limit', () async {
+    var active = 0;
+    var peak = 0;
+    final task = (_) async {
+      active++;
+      if (active > peak) peak = active;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      active--;
+    };
+
+    await BookSourcesPage.mapConcurrent(
+      List<int>.generate(10, (i) => i),
+      3,
+      task,
+    );
+
+    // 同一时刻最多 3 个任务并行；结果全部跑完。
+    expect(peak, 3);
+  });
+
+  test('mapConcurrent runs every input exactly once and keeps order', () async {
+    final results = await BookSourcesPage.mapConcurrent(
+      List<int>.generate(10, (i) => i),
+      4,
+      (i) async {
+        await Future<void>.delayed(Duration(milliseconds: (10 - i)));
+        return i * 2;
+      },
+    );
+
+    expect(results, List<int>.generate(10, (i) => i * 2));
+  });
+
+  test('mapConcurrent errorValue covers per-item failures', () async {
+    final results = await BookSourcesPage.mapConcurrent(
+      List<int>.generate(5, (i) => i),
+      2,
+      (i) async {
+        if (i.isOdd) throw StateError('boom $i');
+        return i;
+      },
+      errorValue: (i, _) => -1,
+    );
+
+    expect(results, [0, -1, 2, -1, 4]);
+  });
 }
 
 RegisteredBookSource _source(String id, {required bool enabled}) {
