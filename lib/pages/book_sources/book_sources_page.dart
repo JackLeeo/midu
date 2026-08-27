@@ -33,6 +33,9 @@ class BookSourcesPage extends StatefulWidget {
 
   static const int maxLatestItemsPerSource = 12;
 
+  /// 最新版块聚合后保留的总量上限，避免源数量多时列表无限膨胀卡顿。
+  static const int maxLatestTotal = 20;
+
   const BookSourcesPage({super.key, this.client});
 
   @visibleForTesting
@@ -244,7 +247,16 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
           update({'categories'});
         }),
         _safelyFetchLatest(onBatch: (items) {
+          if (latestAcc.length >= BookSourcesPage.maxLatestTotal) return;
           latestAcc.addAll(items);
+          // 流式截断：与 _fetchLatest 的最终 take 保持一致，避免 onBatch 期间
+          // latestAcc 膨胀到上千条再一次性截断，降低中间状态内存与渲染压力。
+          if (latestAcc.length > BookSourcesPage.maxLatestTotal) {
+            latestAcc.removeRange(
+              BookSourcesPage.maxLatestTotal,
+              latestAcc.length,
+            );
+          }
           update({'latest'});
         }),
       ]);
@@ -253,8 +265,8 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       final categories = results[1] as List<_SourcedCategory>;
       final latest = results[2] as List<SourcedBook>;
       setState(() {
-        // 最新榜单仅展示第一页，其余按"下一页"逐步展开。
-        _latestVisibleCount = latest.isEmpty ? 0 : latestPageSize.clamp(1, latest.length);
+        // 最新榜单总量已截断到 maxLatestTotal，全部展示，不再分页展开。
+        _latestVisibleCount = latest.length;
         _loadingBookStore = false;
       });
       // 有栏目缓存的默认栏目，后台静默刷新替换，保证与「最新」一样新鲜。
@@ -645,7 +657,9 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       },
       onBatch: onBatch,
     );
-    return BookSourcesPage.interleaveLatestBatches(batches);
+    final interleaved = BookSourcesPage.interleaveLatestBatches(batches);
+    // 总量截断：源数量多时交错结果仍可能上千条，只保留前 maxLatestTotal 本。
+    return interleaved.take(BookSourcesPage.maxLatestTotal).toList(growable: false);
   }
 
   Future<List<List<T>>> _fetchSourceBatches<T>(
