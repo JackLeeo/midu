@@ -11,8 +11,10 @@ import 'package:midu/book_sources/protocol/book_source_protocol.dart';
 import 'package:midu/book_sources/services/book_source_client.dart';
 import 'package:midu/book_sources/services/book_source_registry.dart';
 import 'package:midu/book_sources/services/book_source_shelf_service.dart';
+import 'package:midu/models/home_navigation_destination.dart';
 import 'package:midu/pages/home/home_mobile_chrome.dart';
 import 'package:midu/pages/home/home_shell_page.dart';
+import 'package:midu/pages/home/widgets/home_page_wrappers.dart';
 import 'package:midu/utils/localization_extension.dart';
 import 'package:midu/utils/page_style_helper.dart';
 import 'package:midu/widgets/generated_book_cover.dart';
@@ -101,6 +103,16 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   bool _loadingSources = true;
   String? _selectedSourceId;
 
+  /// 发现页当前是否处于「打开中」状态（即底部导航选中了发现 tab）。
+  ///
+  /// 用于把加载/推送/预热等网络活动限制在页面可见时执行，避免切走后
+  /// 后台仍在无谓地聚合刷新、占用网络与主线程造成卡顿。
+  bool _isPageActive = false;
+
+  /// 页面尚不可见时收到待预热栏目标记；等到 [didChangeDependencies]
+  /// 观察到 active 后再补跑。
+  bool _pendingWarmUp = false;
+
   // 书城聚合数据：一次性拉取 推荐(书源书架) / 分类频道 / 最新榜单，
   // 渲染成单一滚动 feed（横幅轮播 + 分类条 + 排行榜 + 书源书架 + 最新更新）。
   List<_DiscoveryShelf> _shelves = const [];
@@ -135,6 +147,21 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     _client = widget.client ?? BookSourceClient.shared();
     _registrySubscription = _registry.changes.listen((_) => _reloadAll());
     unawaited(_loadSources());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 底部导航切页会重建 HomeTabFocusScope，这里据此同步「发现页是否打开中」。
+    final active = HomeTabFocusScope.maybeActiveOf(context);
+    final nowActive = active == HomeNavigationDestination.discover;
+    if (nowActive == _isPageActive) return;
+    _isPageActive = nowActive;
+    if (nowActive && _pendingWarmUp) {
+      _pendingWarmUp = false;
+      // 页面重新可见时，补跑尚未完成的栏目预热。
+      unawaited(_warmUpAllSections());
+    }
   }
 
   @override
@@ -193,20 +220,39 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         }
       } catch (_) {}
     }
+    // 流式聚合：三路各自在所有源返回后才做最终合并，但每个源一完成就通过
+    // onBatch 增量写入 state，让用户先看到先返回的内容，而不是等全部源完成。
+    final shelvesAcc = <_DiscoveryShelf>[];
+    final categoriesAcc = <_SourcedCategory>[];
+    final latestAcc = <SourcedBook>[];
+    void update(Set<String> changed) {
+      if (!mounted) return;
+      setState(() {
+        if (changed.contains('shelves')) _shelves = List.of(shelvesAcc);
+        if (changed.contains('categories')) _categories = List.of(categoriesAcc);
+        if (changed.contains('latest')) _latest = List.of(latestAcc);
+      });
+    }
     try {
       final results = await Future.wait<Object>([
-        _safelyFetchShelves(),
-        _safelyFetchCategories(),
-        _safelyFetchLatest(),
+        _safelyFetchShelves(onBatch: (items) {
+          shelvesAcc.addAll(items);
+          update({'shelves'});
+        }),
+        _safelyFetchCategories(onBatch: (items) {
+          categoriesAcc.addAll(items);
+          update({'categories'});
+        }),
+        _safelyFetchLatest(onBatch: (items) {
+          latestAcc.addAll(items);
+          update({'latest'});
+        }),
       ]);
       if (!mounted) return;
       final shelves = results[0] as List<_DiscoveryShelf>;
       final categories = results[1] as List<_SourcedCategory>;
       final latest = results[2] as List<SourcedBook>;
       setState(() {
-        _shelves = shelves;
-        _categories = categories;
-        _latest = latest;
         // 最新榜单仅展示第一页，其余按"下一页"逐步展开。
         _latestVisibleCount = latest.isEmpty ? 0 : latestPageSize.clamp(1, latest.length);
         _loadingBookStore = false;
@@ -456,141 +502,168 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     });
   }
 
-  Future<List<_DiscoveryShelf>> _safelyFetchShelves() async {
+  Future<List<_DiscoveryShelf>> _safelyFetchShelves({
+    void Function(List<_DiscoveryShelf> items)? onBatch,
+  }) async {
     try {
-      return await _fetchShelves();
+      return await _fetchShelves(onBatch: onBatch);
     } catch (_) {
       return const [];
     }
   }
 
-  Future<List<_SourcedCategory>> _safelyFetchCategories() async {
+  Future<List<_SourcedCategory>> _safelyFetchCategories({
+    void Function(List<_SourcedCategory> items)? onBatch,
+  }) async {
     try {
-      return await _fetchCategories();
+      return await _fetchCategories(onBatch: onBatch);
     } catch (_) {
       return const [];
     }
   }
 
-  Future<List<SourcedBook>> _safelyFetchLatest() async {
+  Future<List<SourcedBook>> _safelyFetchLatest({
+    void Function(List<SourcedBook> items)? onBatch,
+  }) async {
     try {
-      return await _fetchLatest();
+      return await _fetchLatest(onBatch: onBatch);
     } catch (_) {
       return const [];
     }
   }
 
-  Future<List<_DiscoveryShelf>> _fetchShelves() async {
-    final batches = await _fetchSourceBatches(_targets('discover'), (
-      source,
-    ) async {
-      final page = await _client.getDiscovery(source);
-      final shelves = <_DiscoveryShelf>[];
-      for (final section in page.sections) {
-        if (section.items.isEmpty) continue;
-        final isCategoryList = section.layout == 'categories' ||
-            section.items.every((item) => item.kind == 'category');
-        if (isCategoryList) {
-          // Legado 分类入口：每个分类作为一个空 shelf 展示标题
-          for (final item in section.items) {
-            if (item.kind != 'category') continue;
+  Future<List<_DiscoveryShelf>> _fetchShelves({
+    void Function(List<_DiscoveryShelf> items)? onBatch,
+  }) async {
+    final batches = await _fetchSourceBatches(
+      _targets('discover'),
+      (
+        source,
+      ) async {
+        final page = await _client.getDiscovery(source);
+        final shelves = <_DiscoveryShelf>[];
+        for (final section in page.sections) {
+          if (section.items.isEmpty) continue;
+          final isCategoryList = section.layout == 'categories' ||
+              section.items.every((item) => item.kind == 'category');
+          if (isCategoryList) {
+            // Legado 分类入口：每个分类作为一个空 shelf 展示标题
+            for (final item in section.items) {
+              if (item.kind != 'category') continue;
+              shelves.add(
+                _DiscoveryShelf(
+                  source: source,
+                  title: item.title.isEmpty ? section.title : item.title,
+                  items: const <BookSourceBook>[],
+                ),
+              );
+            }
+          } else {
             shelves.add(
               _DiscoveryShelf(
                 source: source,
-                title: item.title.isEmpty ? section.title : item.title,
-                items: const <BookSourceBook>[],
+                title: section.title,
+                items: section.items
+                    .map((item) => item.book)
+                    .whereType<BookSourceBook>()
+                    .toList(growable: false),
               ),
             );
           }
-        } else {
-          shelves.add(
-            _DiscoveryShelf(
-              source: source,
-              title: section.title,
-              items: section.items
-                  .map((item) => item.book)
-                  .whereType<BookSourceBook>()
-                  .toList(growable: false),
-            ),
-          );
         }
-      }
-      return shelves;
-    });
+        return shelves;
+      },
+      onBatch: onBatch,
+    );
     return batches.expand((items) => items).toList(growable: false);
   }
 
-  Future<List<_SourcedCategory>> _fetchCategories() async {
-    final batches = await _fetchSourceBatches(_targets('discover'), (
-      source,
-    ) async {
-      final page = await _client.getDiscovery(source);
-      final categories = <_SourcedCategory>[];
-      for (final section in page.sections) {
-        for (final item in section.items) {
-          if (item.kind != 'category') continue;
-          categories.add(
-            _SourcedCategory(
-              source: source,
-              id: item.targetUrl ?? '',
-              name: item.title.isEmpty ? section.title : item.title,
-            ),
-          );
-        }
-      }
-      return categories;
-    });
-    return batches.expand((items) => items).toList(growable: false);
-  }
-
-  Future<List<SourcedBook>> _fetchLatest() async {
-    final batches = await _fetchSourceBatches(_targets('discover'), (
-      source,
-    ) async {
-      final categoryPage = await _client.getDiscovery(source);
-      String? firstCategoryUrl;
-      for (final section in categoryPage.sections) {
-        for (final item in section.items) {
-          if (item.kind == 'category' &&
-              item.targetUrl != null &&
-              item.targetUrl!.isNotEmpty) {
-            firstCategoryUrl = item.targetUrl;
-            break;
-          }
-        }
-        if (firstCategoryUrl != null) break;
-      }
-      if (firstCategoryUrl == null) return const <SourcedBook>[];
-      final page = await _client.getDiscovery(
+  Future<List<_SourcedCategory>> _fetchCategories({
+    void Function(List<_SourcedCategory> items)? onBatch,
+  }) async {
+    final batches = await _fetchSourceBatches(
+      _targets('discover'),
+      (
         source,
-        exploreUrlOverride: firstCategoryUrl,
-      );
-      final books = <SourcedBook>[];
-      for (final section in page.sections) {
-        for (final item in section.items) {
-          if (item.book != null) {
-            books.add(SourcedBook(source: source, book: item.book!));
+      ) async {
+        final page = await _client.getDiscovery(source);
+        final categories = <_SourcedCategory>[];
+        for (final section in page.sections) {
+          for (final item in section.items) {
+            if (item.kind != 'category') continue;
+            categories.add(
+              _SourcedCategory(
+                source: source,
+                id: item.targetUrl ?? '',
+                name: item.title.isEmpty ? section.title : item.title,
+              ),
+            );
           }
         }
-      }
-      return books;
-    });
+        return categories;
+      },
+      onBatch: onBatch,
+    );
+    return batches.expand((items) => items).toList(growable: false);
+  }
+
+  Future<List<SourcedBook>> _fetchLatest({
+    void Function(List<SourcedBook> items)? onBatch,
+  }) async {
+    final batches = await _fetchSourceBatches(
+      _targets('discover'),
+      (
+        source,
+      ) async {
+        final categoryPage = await _client.getDiscovery(source);
+        String? firstCategoryUrl;
+        for (final section in categoryPage.sections) {
+          for (final item in section.items) {
+            if (item.kind == 'category' &&
+                item.targetUrl != null &&
+                item.targetUrl!.isNotEmpty) {
+              firstCategoryUrl = item.targetUrl;
+              break;
+            }
+          }
+          if (firstCategoryUrl != null) break;
+        }
+        if (firstCategoryUrl == null) return const <SourcedBook>[];
+        final page = await _client.getDiscovery(
+          source,
+          exploreUrlOverride: firstCategoryUrl,
+        );
+        final books = <SourcedBook>[];
+        for (final section in page.sections) {
+          for (final item in section.items) {
+            if (item.book != null) {
+              books.add(SourcedBook(source: source, book: item.book!));
+            }
+          }
+        }
+        return books;
+      },
+      onBatch: onBatch,
+    );
     return BookSourcesPage.interleaveLatestBatches(batches);
   }
 
   Future<List<List<T>>> _fetchSourceBatches<T>(
     List<RegisteredBookSource> sources,
-    Future<List<T>> Function(RegisteredBookSource source) fetch,
-  ) async {
-    final results = await Future.wait(
-      sources.map((source) async {
-        try {
-          return _SourceFetchResult<T>.success(source, await fetch(source));
-        } catch (error) {
-          return _SourceFetchResult<T>.failure(source, error);
-        }
-      }),
-    );
+    Future<List<T>> Function(RegisteredBookSource source) fetch, {
+    void Function(List<T> items)? onBatch,
+  }) async {
+    // 每个源完成后立即回调 onBatch，供发现页流式实时上屏（不必等全部源完成）。
+    final futures = sources.map((source) async {
+      try {
+        final items = await fetch(source);
+        if (onBatch != null && items.isNotEmpty) onBatch(items);
+        return _SourceFetchResult<T>.success(source, items);
+      } catch (error) {
+        return _SourceFetchResult<T>.failure(source, error);
+      }
+    });
+    final results = await Future.wait(futures);
     final batches = results
         .where((result) => result.error == null)
         .map((result) => result.items)
@@ -653,9 +726,22 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     setState(() {
       _selectedSectionKey = key;
       _loadingSectionBooks = true;
+      // 清空旧栏目数据，避免切换后残留上一栏目的书。
+      _sectionBooks = const [];
     });
     try {
-      final books = await _fetchSectionBooks(active);
+      // 流式加载：每返回一批分类结果就增量上屏，用户无需等所有资源归位才能看到内容。
+      final books = await _fetchSectionBooks(
+        active,
+        onBatch: (items) {
+          if (!mounted || _selectedSectionKey != key) return;
+          setState(() {
+            _sectionBooks = List.of(_sectionBooks)..addAll(items);
+            // 首批到达即切出"加载中"占位，展示已有内容并继续追加。
+            _loadingSectionBooks = false;
+          });
+        },
+      );
       if (!mounted || _selectedSectionKey != key) return;
       _sectionCache[key] = books;
       _sectionFetchedAt[key] = DateTime.now();
@@ -672,7 +758,14 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
 
   /// 后台静默预热所有尚未缓存的栏目，把它们的数据拉取并写入缓存，
   /// 用户切换栏目时可无感秒出（不需要再等待网络）。并发 2 个栏目并行。
+  ///
+  /// 仅在发现页处于打开中时执行；页面不可见时挂起，待 [didChangeDependencies]
+  /// 观察到回到前台再补跑，避免切走后仍在后台聚合占用网络与主线程。
   Future<void> _warmUpAllSections() async {
+    if (!_isPageActive) {
+      _pendingWarmUp = true;
+      return;
+    }
     final sections = _groupCategorySections(_aggregatedCategories);
     if (sections.isEmpty) return;
     // 只补还没缓存的栏目；已命中缓存的不重复请求。
@@ -684,13 +777,19 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     if (pending.isEmpty) return;
     const int parallelism = 2;
     for (var i = 0; i < pending.length; i += parallelism) {
+      // 预热中途切走了页面：立即暂停剩余栏目，留待回到前台再续。
+      if (!_isPageActive) {
+        _pendingWarmUp = true;
+        return;
+      }
       final end = math.min(i + parallelism, pending.length);
       final chunk = pending.sublist(i, end);
       await Future.wait<Object?>(
         chunk.map((section) async {
+          if (!_isPageActive) return null;
           try {
             final books = await _fetchSectionBooks(section);
-            if (!mounted) return;
+            if (!mounted || !_isPageActive) return null;
             _sectionCache[section.key] = books;
             _sectionFetchedAt[section.key] = DateTime.now();
             _persistDiscoveryCache();
@@ -703,7 +802,11 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   }
 
   /// 后台静默刷新某个栏目：拉新数据替换缓存与当前展示（不显示加载态）。
+  ///
+  /// 仅在发现页打开中执行；页面不可见时跳过，避免离开页面后仍在后台
+  /// 聚合拉取网络数据。用户切换栏目时页面必然可见，不受影响。
   Future<void> _refreshSectionBooks(String key) async {
+    if (!_isPageActive) return;
     final sections = _groupCategorySections(_aggregatedCategories);
     if (sections.isEmpty) return;
     final active = sections.firstWhere(
@@ -742,7 +845,13 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
 
   /// 聚合一个栏目里所有细分分类的书籍：跨来源、按书名去重，结果按批次交错混排。
   /// 并发限制 3，避免分类多时一次性拉爆；'其他' 分类较多时只取前若干避免过载。
-  Future<List<SourcedBook>> _fetchSectionBooks(_CategorySection section) async {
+  ///
+  /// 每个并发批次完成后就把新增去重结果通过 [onBatch] 回调出去，供发现页
+  /// 流式实时上屏，而不是等所有资源都返回后再一次性显示。
+  Future<List<SourcedBook>> _fetchSectionBooks(
+    _CategorySection section, {
+    void Function(List<SourcedBook> items)? onBatch,
+  }) async {
     final byName = <String, _SourcedCategory>{};
     for (final c in section.cats) {
       final name = c.name.trim();
@@ -759,12 +868,15 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       final end = math.min(start + parallelism, take);
       final chunk = unique.sublist(start, end);
       final batches = await Future.wait(chunk.map(_fetchCategoryAcrossSources));
+      final newItems = <SourcedBook>[];
       for (final batch in batches) {
         for (final r in batch) {
           final title = r.book.title.trim();
-          if (title.isNotEmpty && seen.add(title)) merged.add(r);
+          if (title.isNotEmpty && seen.add(title)) newItems.add(r);
         }
       }
+      merged.addAll(newItems);
+      if (onBatch != null && newItems.isNotEmpty) onBatch(newItems);
       if (!mounted) break;
     }
     return merged;
@@ -1129,7 +1241,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         },
         scheme: Theme.of(context).colorScheme,
       ),
-      if (_loadingSectionBooks)
+      if (_loadingSectionBooks && _sectionBooks.isEmpty)
         _paddedSectionSliver(
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 30),
