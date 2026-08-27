@@ -39,43 +39,6 @@ class BookSourcesPage extends StatefulWidget {
     String? selectedSourceId,
   ) => SourceSearchPage.searchTargets(sources, selectedSourceId);
 
-  /// 单源解析并发上限。Legado 规则解析在主 isolate 同步执行（HTML/CSS/JS），
-  /// 无上限并发会让大量书源同时抢占主线程造成 UI 卡顿，这里做限流。
-  static const int discoverSourceConcurrency = 4;
-
-  /// 并发限流执行器：至多 [limit] 个任务并行，返回按输入顺序排列的结果。
-  ///
-  /// 发现页后台刷新/预热会拉取多个书源，每个源返回后都在主 isolate 同步解析，
-  /// 若对全部源同时 Future.wait 会瞬间形成解析风暴阻塞 UI。这里把同时解析的
-  /// 源数限制在 [limit]，既不阻塞界面又能保持聚合吞吐。
-  @visibleForTesting
-  static Future<List<R>> mapConcurrent<T, R>(
-    List<T> inputs,
-    int limit,
-    Future<R> Function(T) mapper, {
-    R Function(T, Object? error)? errorValue,
-  }) async {
-    if (inputs.isEmpty) return const [];
-    final n = inputs.length;
-    final results = List<R?>.filled(n, null);
-    var next = 0;
-    Future<void> worker() async {
-      while (true) {
-        final i = next++;
-        if (i >= n) return;
-        try {
-          results[i] = await mapper(inputs[i]);
-        } catch (error) {
-          if (errorValue != null) results[i] = errorValue(inputs[i], error);
-        }
-      }
-    }
-
-    final workers = math.min(limit, n);
-    await Future.wait(List.generate(workers, (_) => worker()));
-    return results.cast<R>();
-  }
-
   /// 保留每个书源自己的 latest 顺序，再按来源轮流穿插。
   ///
   /// 首轮优先展示头部更新时间较新的书源；随后每轮每源最多贡献一本，
@@ -619,18 +582,14 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     List<RegisteredBookSource> sources,
     Future<List<T>> Function(RegisteredBookSource source) fetch,
   ) async {
-    // 限流并发：Legado 源返回后都在主 isolate 同步解析 HTML/CSS/JS，
-    // 无上限并发会把大量源一次挤进主线程造成卡顿，这里只并行部分源。
-    final results = await BookSourcesPage.mapConcurrent<RegisteredBookSource, _SourceFetchResult<T>>(
-      sources,
-      BookSourcesPage.discoverSourceConcurrency,
-      (source) async {
+    final results = await Future.wait(
+      sources.map((source) async {
         try {
           return _SourceFetchResult<T>.success(source, await fetch(source));
         } catch (error) {
           return _SourceFetchResult<T>.failure(source, error);
         }
-      },
+      }),
     );
     final batches = results
         .where((result) => result.error == null)
@@ -820,11 +779,8 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     final candidates =
         _categories.where((c) => c.name.trim() == name).toList(growable: false);
     if (candidates.isEmpty) return const [];
-    // 同名分类可能对应多个源，限流并发拉取，避免解析风暴阻塞主线程。
-    final results = await BookSourcesPage.mapConcurrent<_SourcedCategory, _CategoryFetchResult>(
-      candidates,
-      BookSourcesPage.discoverSourceConcurrency,
-      (c) async {
+    final results = await Future.wait(
+      candidates.map((c) async {
         try {
           final page = await _client.getDiscovery(
             c.source,
@@ -838,11 +794,11 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
               }
             }
           }
-          return _CategoryFetchResult(source: c.source, books: books);
+          return (source: c.source, books: books);
         } catch (_) {
-          return _CategoryFetchResult(source: c.source, books: const <SourcedBook>[]);
+          return (source: c.source, books: const <SourcedBook>[]);
         }
-      },
+      }),
     );
     final batches = results
         .where((result) => result.books.isNotEmpty)
@@ -1760,14 +1716,6 @@ class _SourceFetchResult<T> {
   const _SourceFetchResult.success(this.source, this.items) : error = null;
 
   const _SourceFetchResult.failure(this.source, this.error) : items = const [];
-}
-
-/// 单个分类在某书源的拉取结果（跨源聚合用，record 的命名类型）。
-class _CategoryFetchResult {
-  final RegisteredBookSource source;
-  final List<SourcedBook> books;
-
-  const _CategoryFetchResult({required this.source, required this.books});
 }
 
 class _DiscoveryShelf {
