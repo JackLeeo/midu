@@ -9,8 +9,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:midu/data/migration/reading_schema_migration.dart';
+import 'package:midu/data/migration/reading_progress_migration.dart';
 import 'package:midu/data/migration/book_import_schema_migration.dart';
 import 'package:midu/data/migration/reader_annotation_schema_migration.dart';
+import 'package:midu/data/migration/shelf_group_schema_migration.dart';
 import 'package:midu/data/migration/webdav_sync_schema_migration.dart';
 
 class DatabaseService {
@@ -20,7 +22,7 @@ class DatabaseService {
 
   static Database? _database;
   static const String _dbName = 'midu_v2.db';
-  static const int _dbVersion = 22;
+  static const int _dbVersion = 24;
   static Future<Database>? _openingDatabase;
 
   Future<Database> get database async {
@@ -372,6 +374,12 @@ class DatabaseService {
         await db.execute('ALTER TABLE books ADD COLUMN current_source_id TEXT');
       }
     }
+    if (oldVersion < 23) {
+      await ShelfGroupSchemaMigration.migrate(db);
+    }
+    if (oldVersion < 24) {
+      await ReadingProgressMigration.migrate(db);
+    }
   }
 
   Future<void> _createTables(Database db) async {
@@ -396,6 +404,9 @@ class DatabaseService {
         last_canonical_locator TEXT,
         last_rendered_locator TEXT,
         layout_signature TEXT,
+        last_chapter_index INTEGER,
+        last_chapter_title TEXT,
+        last_read_at INTEGER,
         storage_type TEXT NOT NULL DEFAULT 'local',
         source_id TEXT,
         source_book_id TEXT,
@@ -475,6 +486,7 @@ class DatabaseService {
     await _createBookNotesIndexes(db);
     await ReaderAnnotationSchemaMigration.migrate(db);
     await WebDavSyncSchemaMigration.migrate(db);
+    await ShelfGroupSchemaMigration.migrate(db);
   }
 
   /// 创建books表索引
@@ -496,6 +508,11 @@ class DatabaseService {
     );
     final tableInfo = await db.rawQuery('PRAGMA table_info(books)');
     final columns = tableInfo.map((column) => column['name'] as String).toSet();
+    if (columns.contains('last_read_at')) {
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_books_last_read_at ON books (last_read_at)',
+      );
+    }
     if (columns.contains('source_id') && columns.contains('source_book_id')) {
       await db.execute(
         'CREATE UNIQUE INDEX IF NOT EXISTS idx_books_source_identity '

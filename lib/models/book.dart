@@ -46,6 +46,25 @@ class Book {
   /// 旧分页缓存和 rendered locator 失效。
   /// null 表示尚未计算或旧数据兼容。
   final String? layoutSignature;
+
+  // ---- 阅读进度增强字段（对标 Legado BookProgress） ----
+
+  /// 上次阅读的章节索引（0-based）。
+  /// null 表示尚无阅读记录。
+  final int? lastChapterIndex;
+
+  /// 上次阅读的章节标题。
+  /// null 表示尚无阅读记录或旧数据兼容。
+  final String? lastChapterTitle;
+
+  /// 上次阅读时间（epoch 毫秒）。
+  /// null 表示尚无阅读记录。
+  final int? lastReadAt;
+
+  /// 是否有过阅读记录（按 lastReadAt 判断）。
+  bool get hasReadProgress =>
+      lastReadAt != null && (lastChapterIndex ?? -1) >= 0;
+
   final String storageType;
   final String? sourceId;
   final String? sourceBookId;
@@ -103,6 +122,9 @@ class Book {
     this.lastCanonicalLocator,
     this.lastRenderedLocator,
     this.layoutSignature,
+    this.lastChapterIndex,
+    this.lastChapterTitle,
+    this.lastReadAt,
     this.storageType = 'local',
     this.sourceId,
     this.sourceBookId,
@@ -138,6 +160,9 @@ class Book {
       'last_canonical_locator': lastCanonicalLocator,
       'last_rendered_locator': lastRenderedLocator,
       'layout_signature': layoutSignature,
+      'last_chapter_index': lastChapterIndex,
+      'last_chapter_title': lastChapterTitle,
+      'last_read_at': lastReadAt,
       'storage_type': storageType,
       'source_id': sourceId,
       'source_book_id': sourceBookId,
@@ -172,6 +197,9 @@ class Book {
       lastCanonicalLocator: map['last_canonical_locator'],
       lastRenderedLocator: map['last_rendered_locator'],
       layoutSignature: map['layout_signature'],
+      lastChapterIndex: (map['last_chapter_index'] as num?)?.toInt(),
+      lastChapterTitle: map['last_chapter_title'],
+      lastReadAt: (map['last_read_at'] as num?)?.toInt(),
       storageType: map['storage_type'] as String? ?? 'local',
       sourceId: map['source_id'] as String?,
       sourceBookId: map['source_book_id'] as String?,
@@ -205,6 +233,9 @@ class Book {
     String? lastCanonicalLocator,
     String? lastRenderedLocator,
     String? layoutSignature,
+    int? lastChapterIndex,
+    String? lastChapterTitle,
+    int? lastReadAt,
     String? storageType,
     String? sourceId,
     String? sourceBookId,
@@ -238,6 +269,9 @@ class Book {
       lastCanonicalLocator: lastCanonicalLocator ?? this.lastCanonicalLocator,
       lastRenderedLocator: lastRenderedLocator ?? this.lastRenderedLocator,
       layoutSignature: layoutSignature ?? this.layoutSignature,
+      lastChapterIndex: lastChapterIndex ?? this.lastChapterIndex,
+      lastChapterTitle: lastChapterTitle ?? this.lastChapterTitle,
+      lastReadAt: lastReadAt ?? this.lastReadAt,
       storageType: storageType ?? this.storageType,
       sourceId: clearSourceMetadata ? null : sourceId ?? this.sourceId,
       sourceBookId: clearSourceMetadata

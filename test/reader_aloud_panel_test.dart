@@ -178,6 +178,12 @@ class _PanelSettingsStore implements ReaderAloudCloudSettingsStore {
 
   @override
   Future<void> writeApiKey(String apiKey) async {}
+
+  @override
+  Future<String?> loadHttpTtsEngineId() async => null;
+
+  @override
+  Future<void> saveHttpTtsEngineId(String? id) async {}
 }
 
 class _PanelCloudClient implements ReaderAloudCloudClient {

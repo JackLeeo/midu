@@ -428,7 +428,8 @@ class ReaderThemes {
       text.withValues(alpha: brightness == Brightness.dark ? 0.18 : 0.11),
       controlBar,
     );
-    final secondaryText = Color.alphaBlend(
+    final secondaryText = custom.secondaryText ??
+    Color.alphaBlend(
       text.withValues(alpha: 0.68),
       background,
     );

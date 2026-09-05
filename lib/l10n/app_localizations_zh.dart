@@ -1025,6 +1025,24 @@ class AppLocalizationsZh extends AppLocalizations {
   String get readerBookmarkRequiresShelf => '加入书架后才能保存书签';
 
   @override
+  String get bookmarkEditNoteTitle => '编辑书签备注';
+
+  @override
+  String get bookmarkEditNoteHint => '输入备注文字（可为空）';
+
+  @override
+  String get bookmarkNoteUpdated => '书签备注已更新';
+
+  @override
+  String get bookmarkManagerTitle => '书签管理';
+
+  @override
+  String get lastReadChapter => '最后阅读章节';
+
+  @override
+  String get lastReadTime => '最后阅读时间';
+
+  @override
   String get themeBlue => '海洋蓝';
 
   @override
@@ -1678,6 +1696,54 @@ class AppLocalizationsZh extends AppLocalizations {
   String libraryBatchDeletePartial(int success, int failed) {
     return '已删除 $success 本，$failed 本删除失败';
   }
+
+  @override
+  String get shelfGroupAll => '全部';
+
+  @override
+  String get shelfGroupManage => '管理分组';
+
+  @override
+  String get shelfGroupMoveTo => '移入分组';
+
+  @override
+  String get shelfGroupNewGroup => '新建分组';
+
+  @override
+  String get shelfGroupNameEmpty => '分组名称不能为空';
+
+  @override
+  String shelfGroupNameExists(String name) {
+    return '已存在同名分组「$name」';
+  }
+
+  @override
+  String get shelfGroupAssigned => '已更新分组';
+
+  @override
+  String get shelfGroupRename => '重命名分组';
+
+  @override
+  String get shelfGroupDeleteTitle => '删除分组';
+
+  @override
+  String shelfGroupDeleteConfirm(String name) {
+    return '删除分组「$name」？分组内的书籍不会被删除。';
+  }
+
+  @override
+  String shelfGroupTabCount(int count) {
+    return '$count 本';
+  }
+
+  @override
+  String get shelfGroupHide => '隐藏分组';
+
+  @override
+  String get shelfGroupShow => '显示分组';
+
+  @override
+  String get shelfGroupEmptyHint => '还没有分组，点下方「新建分组」创建';
 
   @override
   String get readerPrefaceTitle => '正文前';
@@ -2856,10 +2922,31 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get sourceLoginTitle => '登录';
+
+  @override
+  String get sourceLoginNoFields => '该书源未配置登录字段。';
+
+  @override
+  String get sourceLoginSubmit => '登录';
+
+  @override
+  String get sourceLoginDone => '完成';
+
+  @override
+  String get dictLookUp => '词典';
+
+  @override
   String get readerThemeTitle => '阅读主题';
 
   @override
   String get readerThemeDescription => '仅改变阅读页面与阅读控制栏，不影响应用主题';
+
+  @override
+  String get readerThemeManagement => '阅读主题管理';
+
+  @override
+  String get readerThemeManagementSubtitle => '调整主题顺序、新建/编辑自定义主题或应用已选主题';
 
   @override
   String get readerSettingsTabTheme => '主题';
@@ -2875,6 +2962,51 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get readerSettingsAdvancedTypography => '高级排版';
+
+  @override
+  String get readerSettingsTabDisplay => '显示';
+
+  @override
+  String get readerPunctuationCompressionTitle => '标点压缩';
+
+  @override
+  String get readerPunctuationCompressionHint => '合并错误断行产生的行首闭式标点、消除悬挂于行尾的开式标点';
+
+  @override
+  String get readerImmersiveModeTitle => '沉浸模式';
+
+  @override
+  String get readerImmersiveModeHint => '阅读时隐藏系统状态栏与导航栏（桌面与网页不适用）';
+
+  @override
+  String get readerEyeCareTitle => '护眼亮度';
+
+  @override
+  String get readerEyeCareOnLabel => '开';
+
+  @override
+  String get readerEyeCareOffLabel => '关';
+
+  @override
+  String get readerWarmthTitle => '暖光';
+
+  @override
+  String get readerTextBoldTitle => '字体加粗';
+
+  @override
+  String get readerTextBoldHint => '正文整体使用粗体，提高对比度让文字更清晰';
+
+  @override
+  String get readerChineseConversionTitle => '简繁转换';
+
+  @override
+  String get readerChineseConversionOff => '不转换';
+
+  @override
+  String get readerChineseConversionSimplifiedToTraditional => '简体 → 繁体';
+
+  @override
+  String get readerChineseConversionTraditionalToSimplified => '繁体 → 简体';
 
   @override
   String get readerThemeDay => '白天';
@@ -2947,6 +3079,12 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get readerCustomThemeTextColorHint => '正文、标题与主要图标';
+
+  @override
+  String get readerCustomThemeSecondaryTextColor => '副文字颜色';
+
+  @override
+  String get readerCustomThemeSecondaryTextColorHint => '页码、章节信息等次要文字的专属颜色';
 
   @override
   String get readerCustomThemeBackground => '阅读背景';
@@ -4216,6 +4354,233 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get readerNoAnnotationsHint => '选中文字即可高亮或添加文字批注；点击带下划线的批注文字可再次查看笔记。';
+
+  @override
+  String get rss => '订阅';
+
+  @override
+  String get rssAddFeed => '添加订阅';
+
+  @override
+  String get rssFeedUrlHint => '订阅地址（https://…）';
+
+  @override
+  String get rssNoFeeds => '还没有订阅源';
+
+  @override
+  String get rssNoFeedsHint => '点击「添加订阅」输入 RSS / Atom / JSON Feed 地址。';
+
+  @override
+  String get rssFeedError => '订阅加载失败';
+
+  @override
+  String get rssRefresh => '刷新';
+
+  @override
+  String get rssRemove => '取消订阅';
+
+  @override
+  String get rssNoArticles => '还没有文章';
+
+  @override
+  String get rssUntitled => '无标题';
+
+  @override
+  String get rssSourceFeedsSection => '书源订阅';
+
+  @override
+  String get rssMyFeedsSection => '我的订阅';
+
+  @override
+  String get autoTaskTitle => '自动化任务';
+
+  @override
+  String get autoTaskAddTask => '新建任务';
+
+  @override
+  String get autoTaskEditTask => '编辑任务';
+
+  @override
+  String get autoTaskDeleteTask => '删除任务';
+
+  @override
+  String get autoTaskRunNow => '立即执行';
+
+  @override
+  String get autoTaskLogs => '执行日志';
+
+  @override
+  String get autoTaskLogsEmpty => '还没有执行日志';
+
+  @override
+  String get autoTaskEmptyTitle => '还没有自动化任务';
+
+  @override
+  String get autoTaskEmptyHint => '新建任务后可定时或按事件触发：如定时抓取 Feed、备份 WebDAV、预缓存章节。';
+
+  @override
+  String get autoTaskLatestStatus => '最近结果';
+
+  @override
+  String get autoTaskName => '任务名称';
+
+  @override
+  String get autoTaskTriggerLabel => '触发器';
+
+  @override
+  String get autoTaskTriggerInterval => '间隔触发';
+
+  @override
+  String get autoTaskTriggerCron => 'Cron 定时';
+
+  @override
+  String get autoTaskTriggerEvent => '事件触发';
+
+  @override
+  String get autoTaskIntervalMinutes => '间隔（分钟）';
+
+  @override
+  String get autoTaskCronExpression => 'Cron 表达式';
+
+  @override
+  String get autoTaskEventName => '事件名';
+
+  @override
+  String get autoTaskActionLabel => '动作';
+
+  @override
+  String get autoTaskActionWeb => 'HTTP 请求';
+
+  @override
+  String get autoTaskActionBackup => 'WebDAV 备份';
+
+  @override
+  String get autoTaskActionCache => '缓存章节';
+
+  @override
+  String get autoTaskWebUrl => '请求地址';
+
+  @override
+  String get autoTaskWebMethod => '请求方法';
+
+  @override
+  String get autoTaskWebBody => '请求体';
+
+  @override
+  String get autoTaskWebBodyHint => '可选，POST 时使用';
+
+  @override
+  String get autoTaskBackupScope => '备份范围';
+
+  @override
+  String get autoTaskCacheBook => '书籍 ID';
+
+  @override
+  String get autoTaskSave => '保存';
+
+  @override
+  String get contentSearchTitle => '全文搜索';
+
+  @override
+  String get contentSearchHint => '搜索章节正文';
+
+  @override
+  String get contentSearchRegex => '正则';
+
+  @override
+  String get contentSearchPurify => '净化';
+
+  @override
+  String get contentSearchClear => '清除';
+
+  @override
+  String contentSearchProgressLabel(Object scanned, Object total) {
+    return '已搜索 $scanned/$total 章';
+  }
+
+  @override
+  String contentSearchHitCount(Object count) {
+    return '命中 $count 处';
+  }
+
+  @override
+  String get contentSearchIdleHint => '输入关键词搜索全书正文';
+
+  @override
+  String get contentSearchEmpty => '未找到匹配内容';
+
+  @override
+  String get contentSearchEmptyHint => '换个关键词，或关闭净化重试';
+
+  @override
+  String get autoReadTitle => '自动阅读';
+
+  @override
+  String get autoReadSpeedLabel => '翻页间隔';
+
+  @override
+  String get autoReadSpeedHint => '每页停留时间；可在暂停时调整，播放时自动沿用最新值';
+
+  @override
+  String get autoReadStart => '开始';
+
+  @override
+  String get autoReadPause => '暂停';
+
+  @override
+  String get autoReadStop => '停止自动阅读';
+
+  @override
+  String get webServerTitle => 'Web 管理服务器';
+
+  @override
+  String get webServerWebUnsupported => 'Web 目标不支持本地管理服务器';
+
+  @override
+  String get webServerStatusRunning => '运行中';
+
+  @override
+  String get webServerStatusStopped => '未运行';
+
+  @override
+  String get webServerPortLabel => '端口';
+
+  @override
+  String get webServerPortHint => '默认 18181，修改后需重启服务生效';
+
+  @override
+  String get webServerTokenLabel => '访问令牌';
+
+  @override
+  String get webServerTokenHint => '所有接口需携带该令牌（Authorization: Bearer）';
+
+  @override
+  String get webServerCopy => '复制';
+
+  @override
+  String get webServerRegenerate => '重新生成';
+
+  @override
+  String get webServerStart => '启动服务';
+
+  @override
+  String get webServerStop => '停止服务';
+
+  @override
+  String get webServerEndpointTitle => '可用接口';
+
+  @override
+  String get webServerEndpointHint =>
+      'REST /api/health /api/status /api/sources；WebSocket /ws?token=…（JSON-RPC / MCP）';
+
+  @override
+  String get webServerCopied => '已复制';
+
+  @override
+  String get webServerStartFailed => '启动失败';
+
+  @override
+  String get webServerRestartHint => '端口修改后需重启服务生效';
 }
 
 /// The translations for Chinese, as used in Taiwan (`zh_TW`).
@@ -5196,6 +5561,24 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
   String get readerBookmarkRequiresShelf => '加入書架後才能儲存書籤';
 
   @override
+  String get bookmarkEditNoteTitle => '編輯書籤備註';
+
+  @override
+  String get bookmarkEditNoteHint => '輸入備註文字（可為空）';
+
+  @override
+  String get bookmarkNoteUpdated => '書籤備註已更新';
+
+  @override
+  String get bookmarkManagerTitle => '書籤管理';
+
+  @override
+  String get lastReadChapter => '最後閱讀章節';
+
+  @override
+  String get lastReadTime => '最後閱讀時間';
+
+  @override
   String get themeBlue => '海洋藍';
 
   @override
@@ -5849,6 +6232,54 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
   String libraryBatchDeletePartial(int success, int failed) {
     return '已刪除 $success 本，$failed 本刪除失敗';
   }
+
+  @override
+  String get shelfGroupAll => '全部';
+
+  @override
+  String get shelfGroupManage => '管理分組';
+
+  @override
+  String get shelfGroupMoveTo => '移至分組';
+
+  @override
+  String get shelfGroupNewGroup => '新建分組';
+
+  @override
+  String get shelfGroupNameEmpty => '分組名稱不能為空';
+
+  @override
+  String shelfGroupNameExists(String name) {
+    return '已存在同名分組「$name」';
+  }
+
+  @override
+  String get shelfGroupAssigned => '已更新分組';
+
+  @override
+  String get shelfGroupRename => '重新命名分組';
+
+  @override
+  String get shelfGroupDeleteTitle => '刪除分組';
+
+  @override
+  String shelfGroupDeleteConfirm(String name) {
+    return '刪除分組「$name」？分組內的書籍不會被刪除。';
+  }
+
+  @override
+  String shelfGroupTabCount(int count) {
+    return '$count 本';
+  }
+
+  @override
+  String get shelfGroupHide => '隱藏分組';
+
+  @override
+  String get shelfGroupShow => '顯示分組';
+
+  @override
+  String get shelfGroupEmptyHint => '還沒有分組，點下方「新建分組」建立';
 
   @override
   String get readerPrefaceTitle => '內文前';
@@ -7027,10 +7458,31 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
   }
 
   @override
+  String get sourceLoginTitle => '登入';
+
+  @override
+  String get sourceLoginNoFields => '此書源未設定登入欄位。';
+
+  @override
+  String get sourceLoginSubmit => '登入';
+
+  @override
+  String get sourceLoginDone => '完成';
+
+  @override
+  String get dictLookUp => '辭典';
+
+  @override
   String get readerThemeTitle => '閱讀主題';
 
   @override
   String get readerThemeDescription => '僅改變閱讀頁面與閱讀控制列，不影響應用程式主題';
+
+  @override
+  String get readerThemeManagement => '閱讀主題管理';
+
+  @override
+  String get readerThemeManagementSubtitle => '調整主題順序、新建/編輯自訂主題或套用所選主題';
 
   @override
   String get readerSettingsTabTheme => '主題';
@@ -7046,6 +7498,51 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
 
   @override
   String get readerSettingsAdvancedTypography => '進階排版';
+
+  @override
+  String get readerSettingsTabDisplay => '顯示';
+
+  @override
+  String get readerPunctuationCompressionTitle => '標點壓縮';
+
+  @override
+  String get readerPunctuationCompressionHint => '合併錯誤斷行產生的行首閉式標點、消除懸掛於行尾的開式標點';
+
+  @override
+  String get readerImmersiveModeTitle => '沉浸模式';
+
+  @override
+  String get readerImmersiveModeHint => '閱讀時隱藏系統狀態列與導覽列（桌面與網頁不適用）';
+
+  @override
+  String get readerEyeCareTitle => '護眼亮度';
+
+  @override
+  String get readerEyeCareOnLabel => '開';
+
+  @override
+  String get readerEyeCareOffLabel => '關';
+
+  @override
+  String get readerWarmthTitle => '暖光';
+
+  @override
+  String get readerTextBoldTitle => '字體加粗';
+
+  @override
+  String get readerTextBoldHint => '正文整體使用粗體，提高對比度讓文字更清晰';
+
+  @override
+  String get readerChineseConversionTitle => '簡繁轉換';
+
+  @override
+  String get readerChineseConversionOff => '不轉換';
+
+  @override
+  String get readerChineseConversionSimplifiedToTraditional => '簡體 → 繁體';
+
+  @override
+  String get readerChineseConversionTraditionalToSimplified => '繁體 → 簡體';
 
   @override
   String get readerThemeDay => '白天';
@@ -7118,6 +7615,12 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
 
   @override
   String get readerCustomThemeTextColorHint => '正文、標題與主要圖示';
+
+  @override
+  String get readerCustomThemeSecondaryTextColor => '副文字顏色';
+
+  @override
+  String get readerCustomThemeSecondaryTextColorHint => '頁碼、章節資訊等次要文字的專屬顏色';
 
   @override
   String get readerCustomThemeBackground => '閱讀背景';
@@ -8387,4 +8890,231 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
 
   @override
   String get readerNoAnnotationsHint => '選取文字即可高亮或新增文字批註；點擊帶底線的批註文字可再次查看筆記。';
+
+  @override
+  String get rss => '訂閱';
+
+  @override
+  String get rssAddFeed => '新增訂閱';
+
+  @override
+  String get rssFeedUrlHint => '訂閱位址（https://…）';
+
+  @override
+  String get rssNoFeeds => '還沒有訂閱來源';
+
+  @override
+  String get rssNoFeedsHint => '點擊「新增訂閱」輸入 RSS / Atom / JSON Feed 位址。';
+
+  @override
+  String get rssFeedError => '訂閱載入失敗';
+
+  @override
+  String get rssRefresh => '重新整理';
+
+  @override
+  String get rssRemove => '取消訂閱';
+
+  @override
+  String get rssNoArticles => '還沒有文章';
+
+  @override
+  String get rssUntitled => '無標題';
+
+  @override
+  String get rssSourceFeedsSection => '書源訂閱';
+
+  @override
+  String get rssMyFeedsSection => '我的訂閱';
+
+  @override
+  String get autoTaskTitle => '自動化任務';
+
+  @override
+  String get autoTaskAddTask => '新增任務';
+
+  @override
+  String get autoTaskEditTask => '編輯任務';
+
+  @override
+  String get autoTaskDeleteTask => '刪除任務';
+
+  @override
+  String get autoTaskRunNow => '立即執行';
+
+  @override
+  String get autoTaskLogs => '執行日誌';
+
+  @override
+  String get autoTaskLogsEmpty => '還沒有執行日誌';
+
+  @override
+  String get autoTaskEmptyTitle => '還沒有自動化任務';
+
+  @override
+  String get autoTaskEmptyHint => '新增任務後可定時或依事件觸發：如定時抓取 Feed、備份 WebDAV、預緩存章節。';
+
+  @override
+  String get autoTaskLatestStatus => '最近結果';
+
+  @override
+  String get autoTaskName => '任務名稱';
+
+  @override
+  String get autoTaskTriggerLabel => '觸發器';
+
+  @override
+  String get autoTaskTriggerInterval => '間隔觸發';
+
+  @override
+  String get autoTaskTriggerCron => 'Cron 定時';
+
+  @override
+  String get autoTaskTriggerEvent => '事件觸發';
+
+  @override
+  String get autoTaskIntervalMinutes => '間隔（分鐘）';
+
+  @override
+  String get autoTaskCronExpression => 'Cron 表達式';
+
+  @override
+  String get autoTaskEventName => '事件名稱';
+
+  @override
+  String get autoTaskActionLabel => '動作';
+
+  @override
+  String get autoTaskActionWeb => 'HTTP 請求';
+
+  @override
+  String get autoTaskActionBackup => 'WebDAV 備份';
+
+  @override
+  String get autoTaskActionCache => '緩存章節';
+
+  @override
+  String get autoTaskWebUrl => '請求位址';
+
+  @override
+  String get autoTaskWebMethod => '請求方法';
+
+  @override
+  String get autoTaskWebBody => '請求體';
+
+  @override
+  String get autoTaskWebBodyHint => '選填，POST 時使用';
+
+  @override
+  String get autoTaskBackupScope => '備份範圍';
+
+  @override
+  String get autoTaskCacheBook => '書籍 ID';
+
+  @override
+  String get autoTaskSave => '儲存';
+
+  @override
+  String get contentSearchTitle => '全文搜尋';
+
+  @override
+  String get contentSearchHint => '搜尋章節正文';
+
+  @override
+  String get contentSearchRegex => '正規表達';
+
+  @override
+  String get contentSearchPurify => '淨化';
+
+  @override
+  String get contentSearchClear => '清除';
+
+  @override
+  String contentSearchProgressLabel(Object scanned, Object total) {
+    return '已搜尋 $scanned/$total 章';
+  }
+
+  @override
+  String contentSearchHitCount(Object count) {
+    return '命中 $count 處';
+  }
+
+  @override
+  String get contentSearchIdleHint => '輸入關鍵詞搜尋全書正文';
+
+  @override
+  String get contentSearchEmpty => '找不到相符內容';
+
+  @override
+  String get contentSearchEmptyHint => '換個關鍵詞，或關閉淨化重試';
+
+  @override
+  String get autoReadTitle => '自動閱讀';
+
+  @override
+  String get autoReadSpeedLabel => '翻頁間隔';
+
+  @override
+  String get autoReadSpeedHint => '每一頁停留時間；可在暫停時調整，播放時自動沿用最新值';
+
+  @override
+  String get autoReadStart => '開始';
+
+  @override
+  String get autoReadPause => '暫停';
+
+  @override
+  String get autoReadStop => '停止自動閱讀';
+
+  @override
+  String get webServerTitle => 'Web 管理伺服器';
+
+  @override
+  String get webServerWebUnsupported => 'Web 目標不支援本機管理伺服器';
+
+  @override
+  String get webServerStatusRunning => '執行中';
+
+  @override
+  String get webServerStatusStopped => '未執行';
+
+  @override
+  String get webServerPortLabel => '連接埠';
+
+  @override
+  String get webServerPortHint => '預設 18181，修改後需重新啟動服務生效';
+
+  @override
+  String get webServerTokenLabel => '存取權杖';
+
+  @override
+  String get webServerTokenHint => '所有介面需攜帶該權杖（Authorization: Bearer）';
+
+  @override
+  String get webServerCopy => '複製';
+
+  @override
+  String get webServerRegenerate => '重新產生';
+
+  @override
+  String get webServerStart => '啟動服務';
+
+  @override
+  String get webServerStop => '停止服務';
+
+  @override
+  String get webServerEndpointTitle => '可用介面';
+
+  @override
+  String get webServerEndpointHint =>
+      'REST /api/health /api/status /api/sources；WebSocket /ws?token=…（JSON-RPC / MCP）';
+
+  @override
+  String get webServerCopied => '已複製';
+
+  @override
+  String get webServerStartFailed => '啟動失敗';
+
+  @override
+  String get webServerRestartHint => '連接埠修改後需重新啟動服務生效';
 }

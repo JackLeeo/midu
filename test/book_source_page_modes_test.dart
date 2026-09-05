@@ -638,5 +638,6 @@ class _FakeShelfService extends BookSourceShelfService {
     required int chapterIndex,
     required int chapterCount,
     required double chapterProgress,
+    String? chapterTitle,
   }) async {}
 }

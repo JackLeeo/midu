@@ -19,6 +19,7 @@ import 'package:midu/pages/home/home_mobile_chrome.dart';
 import 'package:midu/pages/home/home_shell_page.dart';
 import 'package:midu/pages/reader/book_source_reader_page.dart';
 import 'package:midu/pages/settings/sync/book_file_sync_page.dart';
+import 'package:midu/pages/library/bookmark_manager_page.dart';
 import 'package:midu/services/books/book_services.dart';
 import 'package:midu/services/core/app_settings_service.dart';
 import 'package:midu/services/library/library_services.dart';
@@ -41,6 +42,8 @@ import 'package:midu/widgets/source_cover_image.dart';
 import 'import_book/import_book_page.dart';
 import 'download_tasks_page.dart';
 import 'library_selection_model.dart';
+import 'shelf_group_manage_page.dart';
+import 'shelf_group_picker_sheet.dart';
 
 enum _LibraryFilter { all, reading, finished }
 
@@ -66,6 +69,9 @@ class LibraryPageController {
   void selectAllVisible() => _state?._selectAllVisibleBooks();
 
   Future<void> deleteSelected() async => _state?._confirmDeleteSelectedBooks();
+
+  Future<void> moveSelectedToGroup() async =>
+      _state?._moveSelectedToGroup();
 
   void dispose() {
     filterActive.dispose();
@@ -119,6 +125,12 @@ class _LibraryPageState extends State<LibraryPage> {
   _LibraryFilter _selectedFilter = _LibraryFilter.all;
   final LibrarySelectionModel _selection = LibrarySelectionModel();
   final Set<String> _exportingBookPaths = <String>{};
+
+  // 书架分组：图书标签条与分组过滤（对标 Legado 书架分组）。
+  final _shelfGroupService = ShelfGroupService();
+  List<ShelfGroup> _groups = [];
+  ShelfGroup? _selectedGroup;
+  Set<int> _groupBookIds = <int>{};
 
   /// 经典封面展开需要在点击和返回时定位书库里的原封面。
   final Map<int, GlobalKey> _coverKeys = <int, GlobalKey>{};
@@ -250,13 +262,92 @@ class _LibraryPageState extends State<LibraryPage> {
   void initState() {
     super.initState();
     widget.controller?._state = this;
+    _loadGroups();
     _loadBooks();
     _librarySubscription = LibraryEventBus().stream.listen((_) {
       if (mounted) {
         _loadBooks();
+        _loadGroups();
       }
     });
   }
+
+  Future<void> _loadGroups() async {
+    final allGroups = await _shelfGroupService.loadGroups();
+    // 书库顶部标签条只显示 show=true 的分组
+    if (!mounted) return;
+    setState(() {
+      _groups = allGroups.where((g) => g.show).toList();
+    });
+  }
+
+  /// 切换分组标签：null 表示「全部」。
+  Future<void> _selectGroup(ShelfGroup? group) async {
+    if (!mounted) return;
+    setState(() {
+      _selectedGroup = group;
+      if (group == null) _groupBookIds = <int>{};
+    });
+    if (group != null) {
+      final ids = await _shelfGroupService.bookIdsInGroup(group.id);
+      if (!mounted || _selectedGroup?.id != group.id) return;
+      setState(() => _groupBookIds = ids);
+    }
+  }
+
+  Future<void> _openGroupManagePage() async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute<bool>(builder: (_) => const ShelfGroupManagePage()),
+    );
+    if (changed == true && mounted) {
+      await _loadGroups();
+      // 删除/隐藏当前分组后回到「全部」。
+      final current = _selectedGroup;
+      if (current != null &&
+          !_groups.any((group) => group.id == current.id)) {
+        await _selectGroup(null);
+      }
+    }
+  }
+
+  /// 把选中的书籍归入分组（多对多全量替换，对标 Legado 移入分组语义）。
+  Future<void> _moveBooksToGroup({required Set<int> bookIds}) async {
+    if (bookIds.isEmpty) return;
+    final service = _shelfGroupService;
+    if (!mounted) return;
+
+    Set<int> initiallyChecked;
+    if (bookIds.length == 1) {
+      // 单本书：初始勾选该书当前所属分组。
+      initiallyChecked = await service.groupIdsForBook(bookIds.first);
+    } else {
+      // 批量：全量替换目标分组（与 Legado 批量移入一致）。
+      initiallyChecked = const <int>{};
+    }
+    if (!mounted) return;
+
+    final selected = await showShelfGroupPickerSheet(
+      context: context,
+      service: service,
+      initiallyChecked: initiallyChecked,
+    );
+    if (selected == null || !mounted) return;
+
+    await service.setBooksGroups(bookIds: bookIds, groupIds: selected);
+    await _loadGroups();
+    if (!mounted) return;
+    showSideToast(
+      context,
+      context.l10n.shelfGroupAssigned,
+      kind: SideToastKind.success,
+    );
+    // 关掉多选态，让用户直接看到分组过滤后的结果。
+    _exitSelectionMode();
+  }
+
+  Future<void> _moveSelectedToGroup() =>
+      _moveBooksToGroup(bookIds: _selection.selectedIds);
 
   @override
   void didChangeDependencies() {
@@ -518,6 +609,7 @@ class _LibraryPageState extends State<LibraryPage> {
           if (!useRailNavigation) SizedBox(height: mobileTopInset),
           _buildSearchBar(),
         ],
+        _buildGroupTabBar(),
         Expanded(
           child: _isInitialLoading
               ? const Center(child: CircularProgressIndicator())
@@ -560,7 +652,15 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   List<Book> get _visibleBooks {
-    final filteredByStatus = _books
+    final byGroup = _selectedGroup == null
+        ? _books
+        : _books
+              .where((book) {
+                final id = book.id;
+                return id != null && _groupBookIds.contains(id);
+              })
+              .toList();
+    final filteredByStatus = byGroup
         .where((book) => _matchesSelectedFilter(book))
         .toList();
     final query = _searchQuery.trim().toLowerCase();
@@ -721,23 +821,133 @@ class _LibraryPageState extends State<LibraryPage> {
       bottom: MediaQuery.viewPaddingOf(context).bottom + 18,
       child: SafeArea(
         top: false,
-        child: Center(
-          child: FilledButton.icon(
-            key: const ValueKey('library-delete-selected'),
-            onPressed: _selection.selectedIds.isEmpty
-                ? null
-                : _confirmDeleteSelectedBooks,
-            style: FilledButton.styleFrom(
-              minimumSize: const Size(260, 52),
-              backgroundColor: scheme.error,
-              foregroundColor: scheme.onError,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            FilledButton.tonalIcon(
+              key: const ValueKey('library-move-to-group-selected'),
+              onPressed: _selection.selectedIds.isEmpty
+                  ? null
+                  : _moveSelectedToGroup,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(148, 52),
+              ),
+              icon: const Icon(Icons.drive_file_move_outlined),
+              label: Text(context.l10n.shelfGroupMoveTo),
             ),
-            icon: const Icon(Icons.delete_outline_rounded),
-            label: Text(
-              context.l10n.libraryDeleteSelected(_selection.selectedIds.length),
+            const SizedBox(width: 12),
+            FilledButton.icon(
+              key: const ValueKey('library-delete-selected'),
+              onPressed: _selection.selectedIds.isEmpty
+                  ? null
+                  : _confirmDeleteSelectedBooks,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(148, 52),
+                backgroundColor: scheme.error,
+                foregroundColor: scheme.onError,
+              ),
+              icon: const Icon(Icons.delete_outline_rounded),
+              label: Text(
+                context.l10n.libraryDeleteSelected(_selection.selectedIds.length),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 分组标签条：全部 + 各组 + 管理入口（对标 Legado 书架分组 Tab）。
+  Widget _buildGroupTabBar() {
+    if (_groups.isEmpty && _selectedGroup == null) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    final isMaterial3Style = _isMaterial3Style;
+    final palette = PageStyleHelper.palette(context);
+    return SizedBox(
+      height: 44,
+      child: ListView(
+        key: const ValueKey('library-group-tabs'),
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        children: [
+          _buildGroupChip(
+            key: const ValueKey('library-group-tab-all'),
+            label: context.l10n.shelfGroupAll,
+            selected: _selectedGroup == null,
+            onTap: () => unawaited(_selectGroup(null)),
+          ),
+          for (final group in _groups)
+            _buildGroupChip(
+              key: ValueKey('library-group-tab-${group.id}'),
+              label: group.name,
+              selected: _selectedGroup?.id == group.id,
+              onTap: () => unawaited(_selectGroup(group)),
+            ),
+          Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: Tooltip(
+              message: context.l10n.shelfGroupManage,
+              child: InkWell(
+                key: const ValueKey('library-group-manage'),
+                borderRadius: BorderRadius.circular(20),
+                onTap: _openGroupManagePage,
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: isMaterial3Style
+                        ? scheme.surfaceContainerHigh
+                        : palette.card,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: scheme.outline.withValues(alpha: 0.16),
+                    ),
+                  ),
+                  child: Icon(
+                    Icons.settings_outlined,
+                    size: 18,
+                    color: palette.iconMuted,
+                  ),
+                ),
+              ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGroupChip({
+    required Key key,
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      key: key,
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        selected: selected,
+        onSelected: (_) => onTap(),
+        showCheckmark: false,
+        label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        labelStyle: TextStyle(
+          fontSize: 13,
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          color: selected ? scheme.onPrimaryContainer : scheme.onSurfaceVariant,
         ),
+        selectedColor: scheme.primaryContainer,
+        backgroundColor: _isMaterial3Style
+            ? scheme.surfaceContainerHigh
+            : PageStyleHelper.palette(context).card,
+        side: BorderSide(
+          color: selected
+              ? Colors.transparent
+              : scheme.outline.withValues(alpha: 0.18),
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        visualDensity: VisualDensity.compact,
       ),
     );
   }
@@ -1663,13 +1873,41 @@ class _LibraryPageState extends State<LibraryPage> {
                       ),
                       _buildOptionItem(
                         context: context,
+                        icon: Icons.bookmarks_outlined,
+                        iconColor: localScheme.tertiary,
+                        title: context.l10n.bookmarkManagerTitle,
+                        onTap: () {
+                          Navigator.pop(context);
+                          unawaited(_openBookmarkManager(book));
+                        },
+                      ),
+                      _buildOptionItem(
+                        context: context,
+                        icon: Icons.drive_file_move_outlined,
+                        iconColor: localScheme.tertiary,
+                        title: context.l10n.shelfGroupMoveTo,
+                        onTap: () {
+                          final id = book.id;
+                          if (id == null) return;
+                          Navigator.pop(context);
+                          unawaited(_moveBooksToGroup(bookIds: {id}));
+                        },
+                      ),
+                      _buildOptionItem(
+                        context: context,
                         icon: Icons.play_circle_outline,
                         iconColor: localScheme.primary,
                         title: context.l10n.continueReading,
                         trailing: book.isOnline
                             ? context.l10n.bookSourceOnlineBadge
-                            : book.currentPage > 0
-                            ? context.l10n.libraryPageNumber(book.currentPage)
+                            : book.hasReadProgress
+                            ? (book.lastChapterTitle ?? '')
+                                  .trim()
+                                  .isNotEmpty
+                                  ? book.lastChapterTitle!.trim()
+                                  : context.l10n.libraryPageNumber(
+                                      book.currentPage,
+                                    )
                             : context.l10n.libraryStartFromBeginning,
                         onTap: () async {
                           Navigator.pop(context);
@@ -1976,6 +2214,61 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   }
 
+  /// 打开书籍书签管理页；用户点击某书签时返回并跳转阅读到该书签位置。
+  Future<void> _openBookmarkManager(Book book) async {
+    final fullBook = await _bookDao.getBookById(book.id!);
+    if (fullBook == null || !mounted) return;
+    final initialTheme = await ReaderThemes.loadSavedPalette();
+    if (!mounted) return;
+    final result = await Navigator.of(context).push<BookmarkManagerResult>(
+      MaterialPageRoute(
+        builder: (_) => BookmarkManagerPage(
+          book: fullBook,
+          initialTheme: initialTheme,
+        ),
+      ),
+    );
+    if (result == null || !mounted) return;
+    final targetIndex = result.chapterIndex;
+    final locator = await _bookDao.getBookById(fullBook.id!);
+    final bookAtBookmark = locator == null
+        ? fullBook
+        : locator.copyWith(currentPage: targetIndex);
+    if (fullBook.isOnline) {
+      final source = _sourceShelfService.sourceFrom(fullBook);
+      final sourceBook = _sourceShelfService.sourceBookFrom(fullBook);
+      final route = BookOpenTransition.createRoute<void>(
+        BookSourceReaderPage(
+          source: source,
+          book: sourceBook,
+          shelfService: _sourceShelfService,
+          initialTheme: initialTheme,
+          initialChapterIndex: targetIndex,
+        ),
+        libraryAnimation: null,
+        readerBackgroundColor: initialTheme.background,
+      );
+      await BookOpenTransition.push<void>(context, route);
+    } else {
+      await NativeReaderService.openBook(context, bookAtBookmark);
+    }
+  }
+
+  /// 将 epoch 毫秒格式化为相对时间：今天显示时分，否则显示日期。
+  String _lastReadTimeText(int lastReadAt) {
+    final date = DateTime.fromMillisecondsSinceEpoch(lastReadAt).toLocal();
+    final now = DateTime.now();
+    if (date.year == now.year &&
+        date.month == now.month &&
+        date.day == now.day) {
+      final hour = date.hour.toString().padLeft(2, '0');
+      final minute = date.minute.toString().padLeft(2, '0');
+      return '$hour:$minute';
+    }
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')}';
+  }
+
   /// 显示书籍详细信息
   void _showBookInfo(Book book) {
     final scheme = Theme.of(context).colorScheme;
@@ -2042,6 +2335,21 @@ class _LibraryPageState extends State<LibraryPage> {
               context.l10n.readingProgress,
               '${(book.progress * 100).toStringAsFixed(1)}%',
             ),
+            if (book.lastChapterTitle != null &&
+                book.lastChapterTitle!.trim().isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _buildInfoRow(
+                context.l10n.lastReadChapter,
+                book.lastChapterTitle!.trim(),
+              ),
+            ],
+            if (book.lastReadAt != null) ...[
+              const SizedBox(height: 12),
+              _buildInfoRow(
+                context.l10n.lastReadTime,
+                _lastReadTimeText(book.lastReadAt!),
+              ),
+            ],
           ],
         ),
         actions: [

@@ -11,6 +11,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:midu/core/reader/reader_keep_screen_on.dart';
+import 'package:midu/core/reader/reader_custom_theme.dart';
+import 'package:midu/core/reader/reader_theme_order.dart';
 import 'package:midu/core/reader/reader_settings.dart';
 import 'package:midu/core/reader/reader_system_ui.dart';
 import 'package:midu/l10n/app_localizations.dart';
@@ -18,10 +20,17 @@ import 'package:midu/main.dart';
 import 'package:midu/pages/book_sources/book_source_management_page.dart';
 import 'package:midu/pages/home/home_mobile_chrome.dart';
 import 'package:midu/pages/home/home_shell_page.dart';
+import 'package:midu/pages/reader/themes/reader_custom_themes_page.dart';
 import 'package:midu/pages/settings/about/changelog_page.dart';
 import 'package:midu/pages/settings/about/open_source_licenses_page.dart';
+import 'package:midu/pages/settings/auto_task_page.dart';
+import 'package:midu/pages/settings/web_server_page.dart';
 import 'package:midu/pages/settings/cache_management_page.dart';
+import 'package:midu/pages/settings/dict_rule_manage_page.dart';
+import 'package:midu/pages/settings/highlight_rule_manage_page.dart';
+import 'package:midu/pages/settings/http_tts_engines_page.dart';
 import 'package:midu/pages/settings/floating_navigation_settings_page.dart';
+import 'package:midu/pages/settings/replace_rules_page.dart';
 import 'package:midu/pages/settings/library_layout_settings_page.dart';
 import 'package:midu/pages/settings/sync/webdav_sync_page.dart';
 import 'package:midu/services/core/core_services.dart';
@@ -374,6 +383,38 @@ class _SettingsPageState extends State<SettingsPage> {
     ReaderTopBarStyle.hidden => context.l10n.readerTopBarStyleHiddenHint,
   };
 
+  Future<void> _openReaderThemeManagement() async {
+    final results = await Future.wait<Object>([
+      const ReaderCustomThemeStore().loadAll(),
+      const ReaderThemeOrderStore().load(),
+      const ReaderSettingsStore().loadThemeId(),
+    ]);
+    if (!mounted) return;
+    final initialThemes = results[0] as List<ReaderCustomTheme>;
+    final initialOrder = results[1] as List<String>;
+    final initialSelected = results[2] as String;
+    final result = await Navigator.of(context).push<ReaderCustomThemesResult>(
+      MaterialPageRoute(
+        builder: (_) => ReaderCustomThemesPage(
+          initialThemes: initialThemes,
+          initialThemeOrder: initialOrder,
+          initialSelectedThemeId: initialSelected,
+        ),
+      ),
+    );
+    if (result == null || !mounted) return;
+    ReaderThemes.setCustomThemes(result.themes);
+    ReaderThemes.setThemeOrder(result.themeOrder);
+    if (result.selectedThemeId != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        ReaderSettingsStore.themeKey,
+        result.selectedThemeId!,
+      );
+    }
+    setState(() {});
+  }
+
   Future<void> _showReaderTopBarStylePicker() async {
     final prefs = await SharedPreferences.getInstance();
     final palette = ReaderThemes.byId(
@@ -695,6 +736,12 @@ class _SettingsPageState extends State<SettingsPage> {
       title: l10n.readingSettings,
       icon: Icons.book_outlined,
       children: [
+        _buildActionSetting(
+          title: l10n.readerThemeManagement,
+          subtitle: l10n.readerThemeManagementSubtitle,
+          onTap: () => unawaited(_openReaderThemeManagement()),
+          icon: Icons.palette_outlined,
+        ),
         _buildSwitchSetting(
           title: l10n.settingsVolumeKeyTurnTitle,
           subtitle: l10n.settingsVolumeKeyTurnSubtitle,
@@ -714,6 +761,46 @@ class _SettingsPageState extends State<SettingsPage> {
           subtitle: _readerTopBarStyleTitle(_readerTopBarStyle),
           onTap: _showReaderTopBarStylePicker,
           icon: Icons.vertical_align_top_rounded,
+        ),
+        _buildActionSetting(
+          title: '替换净化',
+          subtitle: '对正文/朗读文本按顺序应用替换规则，去广告、去推广段',
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const ReplaceRulesPage(),
+            ),
+          ),
+          icon: Icons.auto_fix_high_outlined,
+        ),
+        _buildActionSetting(
+          title: '词典规则',
+          subtitle: '阅读长按选词调起词典查询（自定义接口与解析规则）',
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const DictRulesPage(),
+            ),
+          ),
+          icon: Icons.menu_book_outlined,
+        ),
+        _buildActionSetting(
+          title: '高亮规则',
+          subtitle: '按规则自动匹配正文/标题文本并着色（人名、术语、关键词）',
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const HighlightRulesPage(),
+            ),
+          ),
+          icon: Icons.highlight_outlined,
+        ),
+        _buildActionSetting(
+          title: '语音引擎 (HTTP TTS)',
+          subtitle: '配置在线朗读引擎（URL 模板/登录/请求头/段落停顿）',
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const HttpTtsEnginesPage(),
+            ),
+          ),
+          icon: Icons.record_voice_over_outlined,
         ),
       ],
     );
@@ -790,6 +877,26 @@ class _SettingsPageState extends State<SettingsPage> {
       title: '高级设置',
       icon: Icons.developer_mode_rounded,
       children: [
+        _buildActionSetting(
+          title: '自动化任务',
+          subtitle: '定时 / 事件触发执行动作，查看运行日志',
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const AutoTaskPage(),
+            ),
+          ),
+          icon: Icons.schedule_rounded,
+        ),
+        _buildActionSetting(
+          title: 'Web 管理服务器',
+          subtitle: '本地 HTTP / WebSocket / MCP 服务，电脑端远程管理',
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const WebServerPage(),
+            ),
+          ),
+          icon: Icons.dns_outlined,
+        ),
         _buildSwitchSetting(
           title: '调试模式',
           subtitle: '开启后记录详细操作日志，用于问题定位',

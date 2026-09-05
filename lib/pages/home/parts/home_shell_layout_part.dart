@@ -347,27 +347,62 @@ extension _HomeShellLayoutPart on _HomeShellPageState {
                               child: SizedBox(
                                 width: double.infinity,
                                 height: metrics.floatingNavHeight,
-                                child: FilledButton.icon(
-                                  key: const ValueKey(
-                                    'library-delete-selected',
-                                  ),
-                                  onPressed: librarySelection.selectedCount == 0
-                                      ? null
-                                      : () => unawaited(
-                                          _libraryController.deleteSelected(),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      flex: 1,
+                                      child: FilledButton.tonalIcon(
+                                        key: const ValueKey(
+                                          'library-move-to-group-selected',
                                         ),
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: scheme.error,
-                                    foregroundColor: scheme.onError,
-                                  ),
-                                  icon: const Icon(
-                                    Icons.delete_outline_rounded,
-                                  ),
-                                  label: Text(
-                                    context.l10n.libraryDeleteSelected(
-                                      librarySelection.selectedCount,
+                                        onPressed:
+                                            librarySelection.selectedCount == 0
+                                            ? null
+                                            : () => unawaited(
+                                                _libraryController
+                                                    .moveSelectedToGroup(),
+                                              ),
+                                        style: FilledButton.styleFrom(
+                                          minimumSize: const Size(0, 52),
+                                        ),
+                                        icon: const Icon(
+                                          Icons.drive_file_move_outlined,
+                                        ),
+                                        label: Text(
+                                          context.l10n.shelfGroupMoveTo,
+                                        ),
+                                      ),
                                     ),
-                                  ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      flex: 1,
+                                      child: FilledButton.icon(
+                                        key: const ValueKey(
+                                          'library-delete-selected',
+                                        ),
+                                        onPressed:
+                                            librarySelection.selectedCount == 0
+                                            ? null
+                                            : () => unawaited(
+                                                _libraryController
+                                                    .deleteSelected(),
+                                              ),
+                                        style: FilledButton.styleFrom(
+                                          minimumSize: const Size(0, 52),
+                                          backgroundColor: scheme.error,
+                                          foregroundColor: scheme.onError,
+                                        ),
+                                        icon: const Icon(
+                                          Icons.delete_outline_rounded,
+                                        ),
+                                        label: Text(
+                                          context.l10n.libraryDeleteSelected(
+                                            librarySelection.selectedCount,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),

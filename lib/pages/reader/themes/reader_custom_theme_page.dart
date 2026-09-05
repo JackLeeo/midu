@@ -203,6 +203,21 @@ class _ReaderCustomThemePageState extends State<ReaderCustomThemePage> {
                 ),
               ),
               const SizedBox(height: 10),
+              _ColorSettingTile(
+                key: const ValueKey('custom-theme-secondary-text-color'),
+                palette: palette,
+                icon: Icons.notes_rounded,
+                title: context.l10n.readerCustomThemeSecondaryTextColor,
+                subtitle: context.l10n.readerCustomThemeSecondaryTextColorHint,
+                color: _theme.effectiveSecondaryText,
+                onTap: () => _pickColor(
+                  title: context.l10n.readerCustomThemeSecondaryTextColor,
+                  current: _theme.effectiveSecondaryText,
+                  onChanged: (color) =>
+                      _theme = _theme.copyWith(secondaryText: color),
+                ),
+              ),
+              const SizedBox(height: 10),
               _BackgroundImageSetting(
                 palette: palette,
                 hasImage: _theme.hasBackgroundImage,

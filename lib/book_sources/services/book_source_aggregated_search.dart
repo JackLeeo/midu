@@ -90,9 +90,12 @@ class BookSourceAggregatedSearch {
       ..sort((a, b) {
         final r = a.tier.compareTo(b.tier);
         if (r != 0) return r;
-        // tier 相同：score 高在前，其次按源数多在前
+        // tier 相同：score 高在前，其次源权重总和（对标 Legado 加权聚合），
+        // 再按源数多在前
         final r2 = b.score.compareTo(a.score);
         if (r2 != 0) return r2;
+        final r3 = b.weightSum.compareTo(a.weightSum);
+        if (r3 != 0) return r3;
         return b.sources.length.compareTo(a.sources.length);
       });
 
@@ -187,11 +190,16 @@ class AggregatedSearchHitBuilder {
     required String normAuthorQuery,
     required String rawTitleQuery,
   }) {
-    // 选择展示用的 canonical 源：优先选更新时间最新，其次有封面 + 简介。
+    // 选择展示用的 canonical 源：优先权重高（对标 Legado 加权），其次更新
+    // 时间最新，再其次有封面 + 简介。
     _SourcedBook? best;
     for (final it in items) {
       if (best == null) {
         best = it;
+        continue;
+      }
+      if (it.source.weight != best.source.weight) {
+        if (it.source.weight > best.source.weight) best = it;
         continue;
       }
       final itTime = it.book.lastUpdateTime;
@@ -212,6 +220,23 @@ class AggregatedSearchHitBuilder {
       }
     }
     final display = best ?? items.first;
+
+    final sources = items
+        .map((e) => SourcedBookPointer(
+              sourceId: e.source.id,
+              sourceName: e.source.name,
+              bookId: e.book.id,
+              book: e.book,
+              sourceWeight: e.source.weight,
+            ))
+        .toList(growable: false)
+      // 同一本书多源命中时，权重高者排前（聚合页默认打开第一个源）。
+      ..sort((a, b) => b.sourceWeight.compareTo(a.sourceWeight));
+
+    final weightSum = items.fold<int>(
+      0,
+      (sum, item) => sum + item.source.weight,
+    );
 
     final title = display.book.title;
     final author = display.book.author;
@@ -243,16 +268,10 @@ class AggregatedSearchHitBuilder {
     return AggregatedSearchHit(
       canonicalTitle: title,
       canonicalAuthor: author,
-      sources: items
-          .map((e) => SourcedBookPointer(
-                sourceId: e.source.id,
-                sourceName: e.source.name,
-                bookId: e.book.id,
-                book: e.book,
-              ))
-          .toList(growable: false),
+      sources: sources,
       tier: tier,
       score: score,
+      weightSum: weightSum,
       coverUrl: display.book.coverUrl,
       description: display.book.description,
       latestChapter: display.book.latestChapter,

@@ -84,53 +84,7 @@ class FlutterJsRuleTester {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUpAll(() async {
-    if (Platform.isWindows) {
-      // 从 .dart_tool/package_config.json 解析 flutter_js 包根目录，
-      // 把 quickjs DLL 复制到 cwd 供 FFI 加载
-      final configFile = File(
-        '${Directory.current.path}${Platform.pathSeparator}.dart_tool'
-        '${Platform.pathSeparator}package_config.json',
-      );
-      if (!configFile.existsSync()) return;
-      try {
-        final config = jsonDecode(configFile.readAsStringSync()) as Map;
-        final packages = config['packages'] as List? ?? const [];
-        String? rootPath;
-        for (final p in packages.whereType<Map>()) {
-          if (p['name'] == 'flutter_js') {
-            final raw = '${p['rootUri'] ?? ''}';
-            if (raw.startsWith('file://')) {
-              rootPath = Uri.parse(raw).toFilePath();
-            } else if (raw.isNotEmpty) {
-              rootPath =
-                  '${Directory.current.path}${Platform.pathSeparator}$raw';
-            }
-            break;
-          }
-        }
-        if (rootPath == null) return;
-        final dll = File(
-          '$rootPath${Platform.pathSeparator}windows'
-          '${Platform.pathSeparator}shared'
-          '${Platform.pathSeparator}quickjs_c_bridge.dll',
-        );
-        if (dll.existsSync()) {
-          try {
-            dll.copySync(
-              '${Directory.current.path}${Platform.pathSeparator}quickjs_c_bridge.dll',
-            );
-          } catch (e) {
-            // ignore: avoid_print
-            print('复制 DLL 失败（测试可能跳过）: $e');
-          }
-        }
-      } catch (e) {
-        // ignore: avoid_print
-        print('解析 flutter_js 包路径失败（测试可能跳过）: $e');
-      }
-    }
-  });
+  setUpAll(() => prepareQuickJsLibrary());
 
   group('flutter_js QuickJS 基础', () {
     late JavascriptRuntime runtime;
@@ -195,4 +149,51 @@ void main() {
       expect(result, 'fallback');
     });
   });
+}
+
+/// 从 .dart_tool/package_config.json 解析 flutter_js 包根目录，把 quickjs
+/// DLL 复制到 cwd 供 FFI 加载（Windows；供本文件与 legado_runtime_jslib_test
+/// 共用）。非 Windows 平台为空操作。
+Future<void> prepareQuickJsLibrary() async {
+  if (!Platform.isWindows) return;
+  final configFile = File(
+    '${Directory.current.path}${Platform.pathSeparator}.dart_tool'
+    '${Platform.pathSeparator}package_config.json',
+  );
+  if (!configFile.existsSync()) return;
+  try {
+    final config = jsonDecode(configFile.readAsStringSync()) as Map;
+    final packages = config['packages'] as List? ?? const [];
+    String? rootPath;
+    for (final p in packages.whereType<Map>()) {
+      if (p['name'] == 'flutter_js') {
+        final raw = '${p['rootUri'] ?? ''}';
+        if (raw.startsWith('file://')) {
+          rootPath = Uri.parse(raw).toFilePath();
+        } else if (raw.isNotEmpty) {
+          rootPath = '${Directory.current.path}${Platform.pathSeparator}$raw';
+        }
+        break;
+      }
+    }
+    if (rootPath == null) return;
+    final dll = File(
+      '$rootPath${Platform.pathSeparator}windows'
+      '${Platform.pathSeparator}shared'
+      '${Platform.pathSeparator}quickjs_c_bridge.dll',
+    );
+    if (dll.existsSync()) {
+      try {
+        dll.copySync(
+          '${Directory.current.path}${Platform.pathSeparator}quickjs_c_bridge.dll',
+        );
+      } catch (e) {
+        // ignore: avoid_print
+        print('复制 DLL 失败（测试可能跳过）: $e');
+      }
+    }
+  } catch (e) {
+    // ignore: avoid_print
+    print('解析 flutter_js 包路径失败（测试可能跳过）: $e');
+  }
 }

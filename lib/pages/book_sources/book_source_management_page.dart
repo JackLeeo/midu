@@ -10,7 +10,10 @@ import 'package:midu/book_sources/protocol/book_source_protocol.dart';
 import 'package:midu/book_sources/services/book_source_client.dart';
 import 'package:midu/book_sources/services/book_source_health_service.dart';
 import 'package:midu/book_sources/services/book_source_import_analyzer.dart';
+import 'package:midu/book_sources/services/book_source_login_service.dart';
 import 'package:midu/book_sources/services/book_source_registry.dart';
+import 'package:midu/pages/book_sources/book_source_debug_page.dart';
+import 'package:midu/pages/book_sources/book_source_edit_page.dart';
 import 'package:midu/utils/debug_logger.dart';
 import 'package:midu/utils/layout_helper.dart';
 import 'package:midu/utils/localization_extension.dart';
@@ -18,6 +21,7 @@ import 'package:midu/utils/page_style_helper.dart';
 import 'package:midu/utils/source_protocol_meta.dart';
 import 'package:midu/widgets/side_toast.dart';
 import 'package:midu/widgets/source_cover_image.dart';
+import 'package:midu/widgets/source_login_sheet.dart';
 
 /// Low-frequency configuration for online content providers.
 ///
@@ -86,6 +90,11 @@ class _BookSourceManagementPageState extends State<BookSourceManagementPage> {
             tooltip: '健康检查',
             onPressed: _runHealthCheck,
             icon: const Icon(Icons.health_and_safety_outlined),
+          ),
+          IconButton(
+            tooltip: '新建书源',
+            onPressed: _showNewSourceDialog,
+            icon: const Icon(Icons.note_add_outlined),
           ),
           IconButton(
             tooltip: context.l10n.bookSourcesAdd,
@@ -210,21 +219,29 @@ class _BookSourceManagementPageState extends State<BookSourceManagementPage> {
     final orsp = _sources
         .where((source) => source.sourceProtocol == BookSourceProtocolKind.orsp)
         .toList(growable: false);
-    final additional = _sources
+    final legado = _sources
         .where((source) => source.sourceProtocol != BookSourceProtocolKind.orsp)
         .toList(growable: false);
+    // 按 Legado 分组名聚合（对标 bookSourceGroup），保持各源在 _sources 中的
+    // 现有顺序；分组间的先后按首次出现顺序。
+    final legadoByGroup = <String, List<RegisteredBookSource>>{};
+    for (final source in legado) {
+      legadoByGroup.putIfAbsent(source.group, () => []).add(source);
+    }
     return [
       if (orsp.isNotEmpty)
         ..._buildSourceGroup(
           title: context.l10n.bookSourcesProtocolGroupOrsp,
           sources: orsp,
           additionalProtocolsEnabled: additionalProtocolsEnabled,
+          groupKey: 'protocol:orsp',
         ),
-      if (additional.isNotEmpty)
+      for (final entry in legadoByGroup.entries)
         ..._buildSourceGroup(
-          title: context.l10n.bookSourcesProtocolGroupAdditional,
-          sources: additional,
+          title: entry.key,
+          sources: entry.value,
           additionalProtocolsEnabled: additionalProtocolsEnabled,
+          groupKey: 'group:${entry.key}',
         ),
     ];
   }
@@ -347,7 +364,9 @@ class _BookSourceManagementPageState extends State<BookSourceManagementPage> {
     required String title,
     required List<RegisteredBookSource> sources,
     required bool additionalProtocolsEnabled,
+    required String groupKey,
   }) {
+    final allEnabled = sources.every((s) => s.enabled);
     return [
       Padding(
         padding: const EdgeInsets.fromLTRB(2, 8, 2, 10),
@@ -361,6 +380,62 @@ class _BookSourceManagementPageState extends State<BookSourceManagementPage> {
                 ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
               ),
             ),
+            if (!_selectionMode) ...[
+              // 组内一键启停（对标 Legado 分组开关）。
+              if ((sources.every(
+                    (s) =>
+                        s.capabilities.isNotEmpty ||
+                        s.sourceProtocol == BookSourceProtocolKind.orsp,
+                  )))
+                TextButton(
+                  key: Key('groupToggle-$groupKey'),
+                  onPressed: () => _setGroupEnabled(sources, !allEnabled),
+                  child: Text(allEnabled ? '停用' : '启用'),
+                ),
+              if (sources.any(
+                (s) => s.sourceProtocol != BookSourceProtocolKind.orsp,
+              ))
+                PopupMenuButton<String>(
+                  key: Key('groupMenu-$groupKey'),
+                  tooltip: '分组操作',
+                  icon: const Icon(Icons.more_vert_rounded, size: 20),
+                  onSelected: (value) => _onGroupAction(title, sources, value),
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 'sortName',
+                      child: Row(
+                        children: [
+                          Icon(Icons.sort_by_alpha_rounded),
+                          SizedBox(width: 10),
+                          Text('按名称排序'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'sortWeight',
+                      child: Row(
+                        children: [
+                          Icon(Icons.tune_rounded),
+                          SizedBox(width: 10),
+                          Text('按权重排序'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuDivider(),
+                    const PopupMenuItem(
+                      value: 'renameGroup',
+                      child: Row(
+                        children: [
+                          Icon(Icons.drive_file_rename_outline_rounded),
+                          SizedBox(width: 10),
+                          Text('重命名分组'),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+            const SizedBox(width: 6),
             Text(
               '${sources.length}',
               style: TextStyle(
@@ -371,18 +446,126 @@ class _BookSourceManagementPageState extends State<BookSourceManagementPage> {
           ],
         ),
       ),
-      ...sources.map(
-        (source) => _buildSourceCard(
-          source,
-          additionalProtocolsEnabled: additionalProtocolsEnabled,
+      if (_selectionMode ||
+          sources.any(
+            (s) => s.sourceProtocol == BookSourceProtocolKind.orsp,
+          ))
+        ...sources.map(
+          (source) => _buildSourceCard(
+            source,
+            additionalProtocolsEnabled: additionalProtocolsEnabled,
+          ),
+        )
+      else
+        // Legado 分组支持拖拽排序（对标 Legado 书源重排）。
+        ReorderableListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          buildDefaultDragHandles: false,
+          itemCount: sources.length,
+          onReorderItem: (oldIndex, newIndex) =>
+              _reorderInGroup(sources, oldIndex, newIndex),
+          itemBuilder: (context, index) {
+            final source = sources[index];
+            return KeyedSubtree(
+              key: ValueKey('bookSourceCard-${source.id}'),
+              child: _buildSourceCard(
+                source,
+                additionalProtocolsEnabled: additionalProtocolsEnabled,
+                dragIndex: index,
+              ),
+            );
+          },
         ),
-      ),
     ];
+  }
+
+  /// 组内一键启停：切换组内全部源的启停状态。
+  Future<void> _setGroupEnabled(
+    List<RegisteredBookSource> sources,
+    bool enabled,
+  ) async {
+    final next = await _registry.setEnabledAll(
+      sources.map((s) => s.id),
+      enabled,
+    );
+    if (!mounted) return;
+    setState(() => _sources = next);
+  }
+
+  /// 组操作：排序 / 重命名分组。
+  Future<void> _onGroupAction(
+    String title,
+    List<RegisteredBookSource> sources,
+    String value,
+  ) async {
+    if (value == 'sortName' || value == 'sortWeight') {
+      setState(() {
+        _sources.sort((a, b) {
+          final ag = _groupRankOf(a);
+          final bg = _groupRankOf(b);
+          if (ag != bg) return ag.compareTo(bg);
+          if (value == 'sortWeight') {
+            final r = b.weight.compareTo(a.weight);
+            if (r != 0) return r;
+          }
+          return a.name.compareTo(b.name);
+        });
+      });
+      await _registry.sortSources(_sources.map((s) => s.id));
+      return;
+    }
+    if (value == 'renameGroup') {
+      final newGroup = await _promptGroupName(title);
+      if (newGroup == null || newGroup == title) return;
+      var next = _sources;
+      for (final source in sources) {
+        next = await _registry.setGroup(source.id, newGroup);
+      }
+      if (!mounted) return;
+      setState(() => _sources = next);
+    }
+  }
+
+  int _groupRankOf(RegisteredBookSource source) {
+    if (source.sourceProtocol == BookSourceProtocolKind.orsp) return 0;
+    final groups = _sources
+        .where((s) => s.sourceProtocol != BookSourceProtocolKind.orsp)
+        .map((s) => s.group)
+        .toSet();
+    return 1 + groups.toList().indexOf(source.group);
+  }
+
+  /// 拖拽重排：将 [oldIndex] 的源移动到 [newIndex]（群组内），再序列化全量顺序。
+  Future<void> _reorderInGroup(
+    List<RegisteredBookSource> groupSources,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    final groupIds = groupSources.map((s) => s.id).toList(growable: false);
+    final moved = groupIds.removeAt(oldIndex);
+    // onReorderItem 已对下移情形修正过 newIndex，直接插入即可。
+    groupIds.insert(newIndex.clamp(0, groupIds.length), moved);
+    final movedIds = groupIds.toSet();
+    // 按视觉顺序重建全量列表：组外源保持原位，组内以新顺序填入。
+    final byId = {for (final source in _sources) source.id: source};
+    var cursor = 0;
+    final ordered = <RegisteredBookSource>[
+      for (final source in _sources)
+        if (movedIds.contains(source.id))
+          byId[groupIds[cursor++]]!
+        else
+          source,
+    ];
+    final saved = await _registry.sortSources(ordered.map((s) => s.id));
+    if (!mounted) return;
+    setState(() => _sources = saved);
   }
 
   Widget _buildSourceCard(
     RegisteredBookSource source, {
     required bool additionalProtocolsEnabled,
+    int? dragIndex,
   }) {
     final scheme = Theme.of(context).colorScheme;
     final canEnable =
@@ -420,6 +603,8 @@ class _BookSourceManagementPageState extends State<BookSourceManagementPage> {
                             _buildSourceIcon(source, size: 52),
                           const SizedBox(width: 13),
                           Expanded(child: _buildSourceSummary(source)),
+                          if (dragIndex != null && !_selectionMode)
+                            _buildDragHandle(dragIndex, source),
                           _buildSourceMenu(source),
                         ],
                       ),
@@ -517,11 +702,26 @@ class _BookSourceManagementPageState extends State<BookSourceManagementPage> {
                           onPressed: () => _refreshSource(source),
                           icon: const Icon(Icons.refresh_rounded),
                         ),
+                      if (dragIndex != null && !_selectionMode)
+                        _buildDragHandle(dragIndex, source),
                       if (!_selectionMode) _buildSourceMenu(source),
                     ],
                   ),
           );
         },
+      ),
+    );
+  }
+
+  /// 拖拽排序手柄：由 [ReorderableDragStartListener] 接管长按/指针拖拽。
+  Widget _buildDragHandle(int index, RegisteredBookSource source) {
+    return ReorderableDragStartListener(
+      index: index,
+      child: IconButton(
+        key: Key('bookSourceDragHandle-${source.id}'),
+        tooltip: '拖拽排序',
+        icon: const Icon(Icons.drag_indicator_rounded),
+        onPressed: null,
       ),
     );
   }
@@ -589,10 +789,70 @@ class _BookSourceManagementPageState extends State<BookSourceManagementPage> {
     return PopupMenuButton<String>(
       tooltip: context.l10n.bookSourcesRemove,
       onSelected: (value) {
+        if (value == 'edit') _openSourceEditor(source);
+        if (value == 'debug') _openSourceDebug(source);
+        if (value == 'login') _openSourceLogin(source);
         if (value == 'rights') _showSourceRightsDialog(source);
+        if (value == 'group') _editSourceGroup(source);
+        if (value == 'weight') _editSourceWeight(source);
         if (value == 'remove') _confirmRemoveSource(source);
       },
       itemBuilder: (context) => [
+        PopupMenuItem(
+          value: 'edit',
+          child: Row(
+            children: [
+              const Icon(Icons.edit_outlined),
+              const SizedBox(width: 10),
+              const Text('编辑书源'),
+            ],
+          ),
+        ),
+        if (source.sourceProtocol == BookSourceProtocolKind.legado) ...[
+          if (BookSourceLoginService.hasLogin(
+            LegadoBookSource.fromJson(source.sourceConfig!),
+          ))
+            PopupMenuItem(
+              value: 'login',
+              child: Row(
+                children: [
+                  const Icon(Icons.login_outlined),
+                  const SizedBox(width: 10),
+                  const Text('登录'),
+                ],
+              ),
+            ),
+          PopupMenuItem(
+            value: 'debug',
+            child: Row(
+              children: [
+                const Icon(Icons.bug_report_outlined),
+                const SizedBox(width: 10),
+                const Text('调试书源'),
+              ],
+            ),
+          ),
+          PopupMenuItem(
+            value: 'group',
+            child: Row(
+              children: [
+                const Icon(Icons.folder_outlined),
+                const SizedBox(width: 10),
+                const Text('设置分组'),
+              ],
+            ),
+          ),
+          PopupMenuItem(
+            value: 'weight',
+            child: Row(
+              children: [
+                const Icon(Icons.tune_rounded),
+                const SizedBox(width: 10),
+                const Text('设置权重'),
+              ],
+            ),
+          ),
+        ],
         if (source.sourceProtocol == BookSourceProtocolKind.orsp)
           PopupMenuItem(
             value: 'rights',
@@ -610,6 +870,187 @@ class _BookSourceManagementPageState extends State<BookSourceManagementPage> {
         ),
       ],
     );
+  }
+
+  /// 设置书源分组：快速选择已有分组 + 输入新分组名。
+  Future<void> _editSourceGroup(RegisteredBookSource source) async {
+    final existing = <String>{
+      for (final s in _sources)
+        if (s.sourceProtocol == BookSourceProtocolKind.legado) s.group,
+    }.toList()..sort();
+    final textController = TextEditingController();
+    final group = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('设置分组 — ${source.name}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('已有分组：'),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final name in existing)
+                      ChoiceChip(
+                        label: Text(name),
+                        selected: source.group == name,
+                        onSelected: (_) =>
+                            Navigator.pop(context, name),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: textController,
+                  autofocus: false,
+                  decoration: const InputDecoration(
+                    labelText: '新建分组名',
+                    border: OutlineInputBorder(),
+                  ),
+                  onSubmitted: (value) {
+                    if (value.trim().isNotEmpty) {
+                      Navigator.pop(context, value.trim());
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(context.l10n.bookSourcesCancel),
+            ),
+            FilledButton(
+              onPressed: () {
+                final text = textController.text.trim();
+                if (text.isNotEmpty) Navigator.pop(context, text);
+              },
+              child: const Text('使用新分组'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (group == null) return;
+    final next = await _registry.setGroup(source.id, group);
+    if (!mounted) return;
+    setState(() => _sources = next);
+  }
+
+  /// 设置书源权重：0 表示清除（恢复默认不参与加权）。
+  Future<void> _editSourceWeight(RegisteredBookSource source) async {
+    final controller = TextEditingController(text: '${source.weight}');
+    final weight = await showDialog<int>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('设置权重 — ${source.name}'),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: '权重（越大越优先，0 表示不加权）',
+            helperText: '对标 Legado bookSource.weight',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(context.l10n.bookSourcesCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, int.tryParse(controller.text.trim()) ?? 0),
+            child: Text(context.l10n.bookSourcesConfirm),
+          ),
+        ],
+      ),
+    );
+    if (weight == null) return;
+    final next = await _registry.setWeight(source.id, weight);
+    if (!mounted) return;
+    setState(() => _sources = next);
+  }
+
+  /// 输入新分组名（用于重命名分组）。
+  Future<String?> _promptGroupName(String current) async {
+    final controller = TextEditingController(text: current);
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('重命名分组'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: '分组名',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(context.l10n.bookSourcesCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: Text(context.l10n.bookSourcesConfirm),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 打开书源调试页（仅 Legado 源；请求/响应日志 + 五分区调试）。
+  Future<void> _openSourceDebug(RegisteredBookSource source) {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => BookSourceDebugPage(source: source),
+      ),
+    );
+  }
+
+  /// 弹出书源登录表单（仅 Legado 源；按 loginUi 动态渲染字段并执行登录，
+  /// 登录信息/Cookie 持久化）。复用共享客户端按源隔离的 runtime，保证登录态
+  /// 与正常阅读请求共享同一 Cookie 会话。
+  Future<void> _openSourceLogin(RegisteredBookSource source) {
+    return showSourceLoginSheet(
+      context: context,
+      runtime: _sourceClient.legadoRuntimeForSource(source),
+      source: source,
+    );
+  }
+
+  /// 打开书源编辑页（Legado 或 ORSP 源均可用编辑页直接改 sourceConfig）。
+  Future<void> _openSourceEditor(RegisteredBookSource source) async {
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => BookSourceEditPage(source: source),
+      ),
+    );
+    await _loadSources();
+  }
+
+  /// 打开「新建书源」页（空模板，仅 Legado 字段）。
+  void _showNewSourceDialog() {
+    Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => BookSourceEditPage(
+          initialRaw: {
+            'bookSourceUrl': '',
+            'bookSourceName': '',
+            'bookSourceGroup': '',
+            'bookSourceComment': '',
+          },
+        ),
+      ),
+    ).then((_) => _loadSources());
   }
 
   Widget _buildSourceIcon(RegisteredBookSource source, {double size = 48}) {

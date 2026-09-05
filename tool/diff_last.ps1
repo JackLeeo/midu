@@ -1,0 +1,2 @@
+$g = 'C:\Program Files\Git\bin\git.exe'
+& $g -C d:\gz\midu diff 5954ace^ 5954ace -- lib/book_sources/legado/legado_ajax_rewrite.dart lib/book_sources/legado/legado_fjs_sandbox.dart | Select-Object -First 900

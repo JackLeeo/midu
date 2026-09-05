@@ -1,0 +1,2 @@
+$g = 'C:\Program Files\Git\bin\git.exe'
+& $g -C d:\gz\midu diff 5954ace^ 5954ace -- lib/l10n/app_localizations.dart lib/l10n/app_localizations_zh.dart lib/pages/book_sources/widgets/sourced_book_widgets.dart | Select-Object -First 120

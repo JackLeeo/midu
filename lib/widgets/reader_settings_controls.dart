@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/reader/chinese_converter.dart';
 import '../core/reader/reader_layout.dart';
 import '../core/reader/reader_margin_settings.dart';
 import '../core/reader/reader_settings.dart';
@@ -77,6 +78,35 @@ class ReaderSettingsSheet extends StatefulWidget {
     required this.onTapPageAnimationChanged,
     required this.onTabletTwoPageChanged,
     this.onTxtChapterTitlePageChanged,
+    // —— M5 显示设置（对标 Legado：标点压缩/沉浸/护眼/暖光）——
+    this.tabDisplayLabel,
+    this.punctuationCompression = false,
+    this.immersiveMode = false,
+    this.eyeCareBrightness = 0,
+    this.warmth = 0,
+    this.punctuationCompressionTitle,
+    this.punctuationCompressionHint,
+    this.immersiveModeTitle,
+    this.immersiveModeHint,
+    this.eyeCareTitle,
+    this.eyeCareOnLabel,
+    this.eyeCareOffLabel,
+    this.warmthTitle,
+    this.onPunctuationCompressionChanged,
+    this.onImmersiveModeChanged,
+    this.onEyeCareBrightnessChanged,
+    this.onWarmthChanged,
+    // —— M7 阅读设置：字体加粗 + 简繁转换 ——
+    this.textBold = false,
+    this.textBoldTitle,
+    this.textBoldHint,
+    this.onTextBoldChanged,
+    this.chineseConversion = ChineseConversionMode.off,
+    this.chineseConversionTitle,
+    this.chineseConversionOffLabel,
+    this.chineseConversionT2sLabel,
+    this.chineseConversionS2tLabel,
+    this.onChineseConversionChanged,
   });
 
   final String title;
@@ -145,6 +175,35 @@ class ReaderSettingsSheet extends StatefulWidget {
   final ValueChanged<bool> onTapPageAnimationChanged;
   final ValueChanged<bool> onTabletTwoPageChanged;
   final ValueChanged<bool>? onTxtChapterTitlePageChanged;
+  // —— M5 显示设置 ——
+  final String? tabDisplayLabel;
+  final bool punctuationCompression;
+  final bool immersiveMode;
+  final double eyeCareBrightness;
+  final double warmth;
+  final String? punctuationCompressionTitle;
+  final String? punctuationCompressionHint;
+  final String? immersiveModeTitle;
+  final String? immersiveModeHint;
+  final String? eyeCareTitle;
+  final String? eyeCareOnLabel;
+  final String? eyeCareOffLabel;
+  final String? warmthTitle;
+  final ValueChanged<bool>? onPunctuationCompressionChanged;
+  final ValueChanged<bool>? onImmersiveModeChanged;
+  final ValueChanged<double>? onEyeCareBrightnessChanged;
+  final ValueChanged<double>? onWarmthChanged;
+  // —— M7 阅读设置 ——
+  final bool textBold;
+  final String? textBoldTitle;
+  final String? textBoldHint;
+  final ValueChanged<bool>? onTextBoldChanged;
+  final ChineseConversionMode chineseConversion;
+  final String? chineseConversionTitle;
+  final String? chineseConversionOffLabel;
+  final String? chineseConversionT2sLabel;
+  final String? chineseConversionS2tLabel;
+  final ValueChanged<ChineseConversionMode>? onChineseConversionChanged;
 
   @override
   State<ReaderSettingsSheet> createState() => _ReaderSettingsSheetState();
@@ -165,6 +224,14 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
   late bool _tapPageAnimationEnabled = widget.tapPageAnimationEnabled;
   late bool _tabletTwoPageEnabled = widget.tabletTwoPageEnabled;
   late bool? _txtChapterTitlePageEnabled = widget.txtChapterTitlePageEnabled;
+  // —— M5 显示设置 ——
+  late bool _punctuationCompression = widget.punctuationCompression;
+  late bool _immersiveMode = widget.immersiveMode;
+  late double _eyeCareBrightness = widget.eyeCareBrightness;
+  late double _warmth = widget.warmth;
+  // —— M7 阅读设置 ——
+  late bool _textBold = widget.textBold;
+  late ChineseConversionMode _chineseConversion = widget.chineseConversion;
   _ReaderSettingsTab _tab = _ReaderSettingsTab.theme;
 
   @override
@@ -203,6 +270,11 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                 value: _ReaderSettingsTab.paging,
                 label: Text(widget.tabPagingLabel),
               ),
+              if (widget.tabDisplayLabel != null)
+                ButtonSegment(
+                  value: _ReaderSettingsTab.display,
+                  label: Text(widget.tabDisplayLabel!),
+                ),
             ],
             selected: {_tab},
             onSelectionChanged: (selection) =>
@@ -214,6 +286,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
             _ReaderSettingsTab.text => _textTabChildren(context),
             _ReaderSettingsTab.layout => _layoutTabChildren(),
             _ReaderSettingsTab.paging => _pagingTabChildren(),
+            _ReaderSettingsTab.display => _displayTabChildren(),
           },
         ],
       ),
@@ -276,6 +349,21 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
         ],
       ),
     ),
+    if (widget.textBoldTitle != null &&
+        widget.textBoldHint != null &&
+        widget.onTextBoldChanged != null)
+      SwitchListTile(
+        key: const ValueKey('reader-text-bold-switch'),
+        contentPadding: EdgeInsets.zero,
+        secondary: const Icon(Icons.format_bold_rounded),
+        value: _textBold,
+        title: Text(widget.textBoldTitle!),
+        subtitle: Text(widget.textBoldHint!),
+        onChanged: (value) {
+          setState(() => _textBold = value);
+          widget.onTextBoldChanged!(value);
+        },
+      ),
     ExpansionTile(
       key: const ValueKey('reader-advanced-typography-tile'),
       tilePadding: EdgeInsets.zero,
@@ -451,9 +539,119 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
       },
     ),
   ];
+List<Widget> _displayTabChildren() => [
+    // 简繁转换：正文简体/繁体互转（对标 Legado 中文转换）。
+    if (widget.chineseConversionTitle != null &&
+        widget.chineseConversionOffLabel != null &&
+        widget.chineseConversionT2sLabel != null &&
+        widget.chineseConversionS2tLabel != null &&
+        widget.onChineseConversionChanged != null)
+      Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              widget.chineseConversionTitle!,
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            SegmentedButton<ChineseConversionMode>(
+              key: const ValueKey('reader-chinese-conversion-control'),
+              expandedInsets: EdgeInsets.zero,
+              showSelectedIcon: false,
+              segments: [
+                ButtonSegment(
+                  value: ChineseConversionMode.off,
+                  label: Text(widget.chineseConversionOffLabel!),
+                ),
+                ButtonSegment(
+                  value: ChineseConversionMode.simplifiedToTraditional,
+                  label: Text(widget.chineseConversionS2tLabel!),
+                ),
+                ButtonSegment(
+                  value: ChineseConversionMode.traditionalToSimplified,
+                  label: Text(widget.chineseConversionT2sLabel!),
+                ),
+              ],
+              selected: {_chineseConversion},
+              onSelectionChanged: (selection) {
+                final value = selection.first;
+                setState(() => _chineseConversion = value);
+                widget.onChineseConversionChanged!(value);
+              },
+            ),
+          ],
+        ),
+      ),
+    // 标点压缩：行首不出现闭式标点、行尾不悬挂开式标点。
+    if (widget.punctuationCompressionTitle != null &&
+        widget.punctuationCompressionHint != null &&
+        widget.onPunctuationCompressionChanged != null)
+      SwitchListTile(
+        key: const ValueKey('reader-punctuation-compression-switch'),
+        contentPadding: EdgeInsets.zero,
+        secondary: const Icon(Icons.format_quote_rounded),
+        value: _punctuationCompression,
+        title: Text(widget.punctuationCompressionTitle!),
+        subtitle: Text(widget.punctuationCompressionHint!),
+        onChanged: (value) {
+          setState(() => _punctuationCompression = value);
+          widget.onPunctuationCompressionChanged!(value);
+        },
+      ),
+    // 沉浸模式：阅读时隐藏系统状态栏/导航栏（Web 条件禁用）。
+    if (widget.immersiveModeTitle != null &&
+        widget.immersiveModeHint != null &&
+        widget.onImmersiveModeChanged != null)
+      SwitchListTile(
+        key: const ValueKey('reader-immersive-mode-switch'),
+        contentPadding: EdgeInsets.zero,
+        secondary: const Icon(Icons.fullscreen_rounded),
+        value: _immersiveMode,
+        title: Text(widget.immersiveModeTitle!),
+        subtitle: Text(widget.immersiveModeHint!),
+        onChanged: (value) {
+          setState(() => _immersiveMode = value);
+          widget.onImmersiveModeChanged!(value);
+        },
+      ),
+    // 护眼亮度：半透明遮罩降低整体亮度。
+    if (widget.eyeCareTitle != null && widget.onEyeCareBrightnessChanged != null)
+      ReaderSettingSlider(
+        key: const ValueKey('reader-eye-care-slider'),
+        label: widget.eyeCareTitle!,
+        value: _eyeCareBrightness,
+        valueLabel: _eyeCareBrightness == 0
+            ? (widget.eyeCareOffLabel ?? '0')
+            : _eyeCareBrightness.toStringAsFixed(1),
+        min: 0,
+        max: 1,
+        divisions: 10,
+        onChanged: (value) => setState(() => _eyeCareBrightness = value),
+        onChangeEnd: widget.onEyeCareBrightnessChanged,
+      ),
+    // 暖光：琥珀色调叠加。
+    if (widget.warmthTitle != null && widget.onWarmthChanged != null)
+      ReaderSettingSlider(
+        key: const ValueKey('reader-warmth-slider'),
+        label: widget.warmthTitle!,
+        value: _warmth,
+        valueLabel: _warmth == 0
+            ? (widget.eyeCareOffLabel ?? '0')
+            : _warmth.toStringAsFixed(1),
+        min: 0,
+        max: 1,
+        divisions: 10,
+        onChanged: (value) => setState(() => _warmth = value),
+        onChangeEnd: widget.onWarmthChanged,
+      ),
+  ];
 }
 
-enum _ReaderSettingsTab { theme, text, layout, paging }
+enum _ReaderSettingsTab { theme, text, layout, paging, display }
 
 class ReaderTopBarStyleSheet extends StatelessWidget {
   const ReaderTopBarStyleSheet({

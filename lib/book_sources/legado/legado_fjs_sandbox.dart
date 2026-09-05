@@ -53,6 +53,9 @@ abstract class LegadoJsSandbox {
     Uri? baseUri,
     Map<String, dynamic> extraGlobals = const {},
   });
+
+  /// 预加载书源公共 JS 库（jsLib）：在首次 [evalJs] 前执行一次，注册全局函数。
+  Future<void> preloadJsLib(String code) => Future.value();
 }
 
 /// FJS QuickJS 沙箱包装，提供 Legado 书源 JS 所需 polyfill。
@@ -137,6 +140,23 @@ class LegadoFjsSandbox implements LegadoJsSandbox, AjaxFetcherSink {
     _domCache = null;
     _currentHtml = '';
     _currentBaseUri = null;
+    _jsLibLoaded = false;
+  }
+
+  bool _jsLibLoaded = false;
+
+  /// 预加载书源公共 JS 库（jsLib）。与规则执行共享同一引擎与全局作用域，
+  /// 保证 jsLib 中声明的函数可被后续所有 @js 规则直接调用（Legado javsscript
+  /// 语义：jsLib 在搜索/详情/目录/正文规则执行前先注册一次）。
+  @override
+  Future<void> preloadJsLib(String code) async {
+    final trimmedCode = code.trim();
+    if (trimmedCode.isEmpty) return;
+    if (!_inited) await init();
+    final engine = _engine!;
+    if (_jsLibLoaded) return;
+    _jsLibLoaded = true;
+    await _safeEval(engine, _stripJsTag(trimmedCode));
   }
 
   /// 执行一段 JS 规则（可带 @js: 或 <js>...</js> 标记），返回 result / finalResult 寄存器的字符串值。
@@ -346,6 +366,66 @@ class LegadoFjsSandbox implements LegadoJsSandbox, AjaxFetcherSink {
       }
       if (typeof atob === 'undefined') { atob = function(s){ return __dart('atob', s); }; }
       if (typeof btoa === 'undefined') { btoa = function(s){ return __dart('btoa', s); }; }
+
+      // URL 编解码兜底（书源对 URL 参数做 encodeURIComponent/escape 很常见）。
+      // fjs 若已提供则不改；用正则近似实现，保证源规则里的编码调用不抛 NotFound。
+      if (typeof encodeURIComponent === 'undefined') {
+        encodeURIComponent = function(s){
+          return String(s == null ? '' : s).replace(/[^A-Za-z0-9\-_.!~*'()]/g, function(c){
+            return '%' + (c.charCodeAt(0) < 0x80
+                ? c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')
+                : encodeURIComponent(c));
+          });
+        };
+      }
+      if (typeof decodeURIComponent === 'undefined') {
+        decodeURIComponent = function(s){
+          try {
+            s = String(s == null ? '' : s);
+            var bytes = [];
+            var i, len;
+            for (i = 0; i < s.length; i++) {
+              var ch = s.charAt(i);
+              if (ch === '%') {
+                var hex = s.substr(i + 1, 2);
+                bytes.push(parseInt(hex, 16));
+                i += 2;
+              } else {
+                var b = ch.charCodeAt(0);
+                if (b >= 0x80) bytes.push(240, 159, 128, 130); // 非 US-ASCII 逐字保底
+                else bytes.push(b);
+              }
+            }
+            // UTF-8 → 字符串
+            var out = '';
+            for (i = 0; i < bytes.length; i++) {
+              var b0 = bytes[i];
+              if (b0 < 0x80) { out += String.fromCharCode(b0); continue; }
+              if (b0 >= 0xC0 && b0 < 0xE0) {
+                out += String.fromCharCode(((b0 & 0x1F) << 6) | (bytes[i+1] & 0x3F)); i += 1;
+              } else if (b0 >= 0xE0) {
+                out += String.fromCharCode(((b0 & 0x0F) << 12) | ((bytes[i+1] & 0x3F) << 6) | (bytes[i+2] & 0x3F)); i += 2;
+              } else out += String.fromCharCode(b0);
+            }
+            return out;
+          } catch(e){ return String(s); }
+        };
+      }
+      if (typeof escape === 'undefined') {
+        escape = function(s){
+          return String(s == null ? '' : s).replace(/[^A-Za-z0-9\-_.!~*'()@]/g, function(c){
+            var code = c.charCodeAt(0);
+            return (code < 0x100 ? '%' : '%u') + code.toString(16).toUpperCase().padStart(code < 0x100 ? 2 : 4, '0');
+          });
+        };
+      }
+      if (typeof unescape === 'undefined') {
+        unescape = function(s){
+          return String(s == null ? '' : s)
+              .replace(/%u([0-9A-Fa-f]{4})/g, function(_, h){ return String.fromCharCode(parseInt(h, 16)); })
+              .replace(/%([0-9A-Fa-f]{2})/g, function(_, h){ return String.fromCharCode(parseInt(h, 16)); });
+        };
+      }
 
       // 当前处理上下文（章节/条目 JSON，供 java.getString('$.field') 解析）：
       // contextJson 全局由规则引擎按每次 eval 注入（字符串时为 JSON 文本）。

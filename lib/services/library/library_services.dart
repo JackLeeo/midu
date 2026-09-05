@@ -3,3 +3,4 @@
 
 // Library domain services barrel.
 export 'package:midu/services/library/library_event_bus_service.dart';
+export 'package:midu/services/library/shelf_group_service.dart';

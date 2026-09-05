@@ -5,6 +5,7 @@ enum HomeNavigationDestination {
   home('home'),
   library('library'),
   discover('discover'),
+  rss('rss'),
   ai('ai'),
   settings('settings');
 
@@ -24,6 +25,7 @@ const List<HomeNavigationDestination> defaultHomeNavigationOrder = [
   HomeNavigationDestination.home,
   HomeNavigationDestination.library,
   HomeNavigationDestination.discover,
+  HomeNavigationDestination.rss,
   HomeNavigationDestination.settings,
 ];
 

@@ -26,6 +26,20 @@ class RegisteredBookSource {
   /// Absent means the protocol default of 100 applies.
   final int? maxCatalogPageSize;
 
+  /// Legado 分组名（对标 `bookSourceGroup`）；空/缺失回退「默认分组」。
+  /// 仅 Legado 源计入分组语义；ORSP 源由管理页按协议聚合。
+  String get group {
+    final value = sourceConfig?['bookSourceGroup'];
+    if (value is String && value.trim().isNotEmpty) return value.trim();
+    return '默认分组';
+  }
+
+  /// Legado 权重（对标 `weight`，越大越优先）；缺失为 0。
+  int get weight {
+    final value = sourceConfig?['weight'];
+    return value is num ? value.toInt() : 0;
+  }
+
   const RegisteredBookSource({
     required this.id,
     required this.name,

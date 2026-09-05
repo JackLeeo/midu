@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -5,8 +6,13 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 
 import '../../utils/debug_logger.dart';
+import '../../services/webview_guard/web_browser_fallback.dart';
+import '../../services/webview_guard/webview_gateway_factory.dart';
 import '../models/registered_book_source.dart';
 import '../protocol/book_source_protocol.dart';
+import '../services/book_source_cookie_store.dart';
+import '../services/book_source_debug_recorder.dart';
+import '../services/book_source_network_policy.dart';
 import '../services/comic_image_url_parser.dart';
 import 'legado_book_source.dart';
 import 'legado_ajax_rewrite.dart';
@@ -18,12 +24,23 @@ class LegadoRuntime {
   LegadoRuntime({
     LegadoTransport? transport,
     LegadoJsSandbox? sandbox,
+    // 浏览器兜底池：`@webBrowser:/@webView:` 或请求选项 `webView:true` 时执行
+    // 路由。测试可注入 mock 池；默认按平台分发（桌面/Web 降级不可用）。
+    WebBrowserPool? webBrowserPool,
     // 默认开启 java.ajax / java.connect 接入：走「eval 前改写 + 内联响应」，
     // 同时支持字面量与动态第一参数（如 JSON.parse(result).data.xxx）。只对规则
     // 实际含 java. 调用的源产生改写与一次预取，非 JS 源零开销。
     this.enableAjaxBridge = true,
-  }) : _transport = transport ?? LegadoHttpTransport(),
-       _sandbox = sandbox ?? LegadoFjsSandbox();
+    // 书源调试记录器：由书源调试页注入（独立 BookSourceClient），正常阅读链路
+    // 不传，保持既有行为与零额外开销。
+    this.debugRecorder,
+    // 登录 Cookie 持久化后端：传给默认 HTTP 传输，使源登录后 Set-Cookie 可
+    // 跨 App 重启继续携带（对标 Legado CookieStore）。测试可注入 null 关闭。
+    this.cookieStore,
+  }) : _transport = transport ?? LegadoHttpTransport(cookieStore: cookieStore),
+       _sandbox = sandbox ?? LegadoFjsSandbox(),
+       webBrowserPool = webBrowserPool ??
+           WebBrowserPool(createGateway: defaultWebBrowserGateway);
 
   static const int _maxSearchItems = 100;
   static const int _maxChapters = 30000;
@@ -46,6 +63,22 @@ class LegadoRuntime {
   /// 等「目录/正文依赖 java.ajax 补全」）的真实请求还原。
   final bool enableAjaxBridge;
 
+  /// 书源调试记录器（可空）：注入后 [_request]/[_rawFetch]/[fetchImageBytes] 会
+  /// 把请求/响应/错误写入其中供调试页展示。正常阅读链路不注入，零副作用。
+  final BookSourceDebugRecorder? debugRecorder;
+
+  /// 登录 Cookie 持久化后端：传给默认 HTTP 传输，使源登录后 Set-Cookie 可
+  /// 跨 App 重启继续携带（对标 Legado CookieStore）。测试可注入 null 关闭。
+  final BookSourceCookieStore? cookieStore;
+
+  /// 浏览器兜底池（`@webBrowser:/@webView:` 路由目标）。
+  final WebBrowserPool webBrowserPool;
+
+  /// 浏览器兜底出站的 SSRF 策略：与 HTTP 传输层保持同参（允许合成 DNS、
+  /// 默认禁私有网段），WebView 发出的每个 URL 都先过 validate 再放行（R3）。
+  final BookSourceNetworkPolicy _webViewNetworkPolicy =
+      const BookSourceNetworkPolicy(allowSyntheticDns: true);
+
   final LegadoTransport _transport;
   final LegadoJsSandbox _sandbox;
 
@@ -62,6 +95,10 @@ class LegadoRuntime {
     if (enableAjaxBridge && _sandbox is AjaxFetcherSink) {
       (_sandbox as AjaxFetcherSink).setAjaxFetcher(_rawFetch);
     }
+    // 预加载书源 jsLib：jsLib 是 Legado 语义的「公共 JS 脚本」，需先于任何
+    // @js / <js> 规则执行注册，保证规则里能直接调用其中声明的函数。
+    // 注：当前方法不持有书源对象，jsLib 触发点放在每个源首次求值前
+    // （_evalJsPair / _evalJsExpression 入口统一处理，见 _ensureJsLibForSource）。
     _sandboxInited = true;
   }
 
@@ -73,22 +110,52 @@ class LegadoRuntime {
     Map<String, String>? headers,
     String? body,
   }) async {
+    final recorder = debugRecorder;
+    final order = recorder?.recordRequest(
+      stage: BookSourceDebugStage.js,
+      sourceName: 'JS',
+      url: url,
+      method: method.toUpperCase(),
+      body: body,
+      headers: headers,
+    );
+    final stopwatch = Stopwatch()..start();
     try {
       final isPost = method.trim().toUpperCase() == 'POST';
-      return (
-        await _transport.send(
-          LegadoRequestTemplate(
-            url: Uri.parse(url),
-            method: isPost
-                ? LegadoRequestMethod.post
-                : LegadoRequestMethod.get,
-            headers: headers ?? const {},
-            charset: 'utf-8',
-            body: isPost ? body : null,
-          ),
-        )
-      ).body;
-    } catch (_) {
+      final response = await _transport.send(
+        LegadoRequestTemplate(
+          url: Uri.parse(url),
+          method: isPost
+              ? LegadoRequestMethod.post
+              : LegadoRequestMethod.get,
+          headers: headers ?? const {},
+          charset: 'utf-8',
+          body: isPost ? body : null,
+        ),
+      );
+      stopwatch.stop();
+      recorder?.recordResponse(
+        stage: BookSourceDebugStage.js,
+        sourceName: 'JS',
+        order: order ?? 0,
+        statusCode: response.statusCode ?? 0,
+        headers: response.headers,
+        url: response.finalUri.toString(),
+        elapsedMs: stopwatch.elapsedMilliseconds,
+        preview: debugPreview(response.body),
+      );
+      return response.body;
+    } catch (e) {
+      stopwatch.stop();
+      recorder?.recordError(
+        stage: BookSourceDebugStage.js,
+        sourceName: 'JS',
+        order: order,
+        message:
+            'java.ajax/java.connect 执行失败：$e（改强势 JS 源受沙箱限制时为空串）',
+        url: url,
+        elapsedMs: stopwatch.elapsedMilliseconds,
+      );
       return '';
     }
   }
@@ -96,8 +163,53 @@ class LegadoRuntime {
   void close({bool force = true}) {
     final transport = _transport;
     if (transport is LegadoHttpTransport) transport.close(force: force);
+    unawaited(webBrowserPool.closeAll());
     _sandbox.dispose();
     _sandboxInited = false;
+  }
+
+  // ===== 书源调试辅助（BookSourceDebugPage 使用） =====
+
+  /// 在沙箱中执行一段 JS（可带 `@js:` / `<js>` 标记），返回寄存器/完成值字符串，
+  /// 并把结果写入调试记录器（若有）。用于调试页「JS 单测」分区。
+  Future<String> debugEvalJs({
+    required String code,
+    required String sourceName,
+    String? docHtml,
+    Uri? baseUri,
+    Map<String, dynamic> extraGlobals = const {},
+  }) async {
+    await _ensureSandbox();
+    final recorder = debugRecorder;
+    final result = await _sandbox.evalJs(
+      code,
+      docHtml: docHtml,
+      baseUri: baseUri,
+      extraGlobals: extraGlobals,
+    );
+    recorder?.recordRuleResult(
+      stage: BookSourceDebugStage.js,
+      sourceName: sourceName,
+      message: result.isEmpty ? '（空结果）' : result,
+    );
+    return result;
+  }
+
+  /// 调试页「规则单测」：给一段（HTML/JSON）正文与基准 URI，按单条规则求值，
+  /// 返回匹配到的值列表（无匹配返回空列表，求值异常也返回空列表，不抛错）。
+  Future<List<Object?>> debugEvaluateRule(
+    String body,
+    Uri baseUri,
+    String rule,
+  ) async {
+    if (rule.trim().isEmpty) return const [];
+    await _ensureSandbox();
+    try {
+      final document = LegadoRuleDocument.parse(body, baseUri);
+      return await _rules.evaluateList(document, null, rule);
+    } catch (_) {
+      return const [];
+    }
   }
 
   Future<BookSourceSearchPage> search(
@@ -115,6 +227,7 @@ class LegadoRuntime {
     await _ensureSandbox();
     final source = _source(registered);
     _ensureRunnable(source);
+    await _ensureJsLib(source);
     logger.log('search', '搜索URL模板', details: {
       'source': source.name,
       'searchUrl': source.searchUrl,
@@ -123,6 +236,7 @@ class LegadoRuntime {
       source,
       source.searchUrl,
       variables: {'key': query.trim(), 'page': '$page'},
+      debugStage: BookSourceDebugStage.search,
     );
     logger.log('search', '搜索响应', details: {
       'source': source.name,
@@ -140,6 +254,11 @@ class LegadoRuntime {
       document,
       null,
       _requiredRule(rule, 'bookList'),
+    );
+    debugRecorder?.recordInfo(
+      stage: BookSourceDebugStage.search,
+      sourceName: source.name,
+      message: 'ruleSearch.bookList 匹配到 ${contexts.length} 条',
     );
     logger.log('search', 'bookList 匹配数', details: {
       'source': source.name,
@@ -183,7 +302,12 @@ class LegadoRuntime {
     _seedVarsFromBookId(bookId);
     final source = _source(registered);
     _ensureRunnable(source);
-    final response = await _request(source, bookId);
+    await _ensureJsLib(source);
+    final response = await _request(
+      source,
+      bookId,
+      debugStage: BookSourceDebugStage.bookInfo,
+    );
     final document = LegadoRuleDocument.parse(response.body, response.finalUri);
     final rule = source.rule('ruleBookInfo');
     final init = _optionalRule(rule, 'init');
@@ -234,6 +358,7 @@ class LegadoRuntime {
     _seedVarsFromBookId(bookId);
     final source = _source(registered);
     _ensureRunnable(source);
+    await _ensureJsLib(source);
     final tocUrl = await _tocUrl(source, bookId);
     final rule = source.rule('ruleToc');
     final chapters = <BookSourceChapter>[];
@@ -242,7 +367,11 @@ class LegadoRuntime {
     var nextUrl = tocUrl;
     for (var hop = 0; hop < _maxPageHops && nextUrl.isNotEmpty; hop++) {
       if (!seenPages.add(nextUrl)) break;
-      final response = await _request(source, nextUrl);
+      final response = await _request(
+        source,
+        nextUrl,
+        debugStage: BookSourceDebugStage.toc,
+      );
       DebugLogger.instance.log('toc', 'toc请求', details: {
         'url': nextUrl,
         'len': response.body.length,
@@ -257,6 +386,11 @@ class LegadoRuntime {
         document,
         null,
         _requiredRule(rule, 'chapterList'),
+      );
+      debugRecorder?.recordInfo(
+        stage: BookSourceDebugStage.toc,
+        sourceName: source.name,
+        message: 'ruleToc.chapterList 匹配到 ${contexts.length} 条 (hop=$hop)',
       );
       DebugLogger.instance.log('toc', 'chapterList 匹配数', details: {
         'count': contexts.length,
@@ -574,6 +708,7 @@ class LegadoRuntime {
     await _ensureSandbox();
     final source = _source(registered);
     _ensureRunnable(source);
+    await _ensureJsLib(source);
     final rule = source.rule('ruleContent');
     logger.log('content', 'ruleContent 规则', details: {
       'source': source.name,
@@ -587,6 +722,7 @@ class LegadoRuntime {
     // 章节目录/正文页的最终请求 URL：漫画源正文为相对路径 `<img>` 时，
     // 用它做图片地址拼接基准。
     String? chapterBaseUrl;
+    LegadoRuleDocument? lastDocument;
     for (var hop = 0; hop < _maxPageHops && nextUrl.isNotEmpty; hop++) {
       if (!seenPages.add(nextUrl)) break;
       logger.log('content', '请求章节页面 (hop=$hop)', details: {
@@ -594,7 +730,11 @@ class LegadoRuntime {
         'url': nextUrl,
       });
       try {
-        final response = await _request(source, nextUrl).timeout(
+        final response = await _request(
+          source,
+          nextUrl,
+          debugStage: BookSourceDebugStage.content,
+        ).timeout(
           const Duration(seconds: 15),
           onTimeout: () =>
               throw const BookSourceProtocolException(
@@ -611,7 +751,13 @@ class LegadoRuntime {
           response.body,
           response.finalUri,
         );
+        lastDocument = document;
         var content = await _value(document, null, rule, 'content', required: true);
+        debugRecorder?.recordInfo(
+          stage: BookSourceDebugStage.content,
+          sourceName: source.name,
+          message: 'ruleContent.content 提取 ${content.length} 字符 (hop=$hop)',
+        );
         logger.log('content', '提取的内容长度', details: {
           'source': source.name,
           'contentLength': content.length,
@@ -666,15 +812,60 @@ class LegadoRuntime {
     });
     final joined = parts.join('\n\n');
     final imageUrls = _extractContentImageUrls(joined, baseUrl: chapterBaseUrl);
+    // 段评（ruleContent.think）：仅文本章节物化插入段落间；漫画正文不入文本。
+    final thinks = await _extractChapterThink(source, rule, lastDocument);
+    final display = imageUrls.isNotEmpty || thinks.isEmpty
+        ? joined
+        : attachChapterThink(joined, thinks);
     // 漫画正文：图片列表即为章节内容，不入库为文本；标记 type/image 供阅读器渲染。
     return BookSourceChapterContent(
       bookId: bookId,
       chapterId: chapterId,
       title: '',
-      content: imageUrls.isEmpty ? joined : imageUrls.join('\n'),
+      content: imageUrls.isEmpty ? display : imageUrls.join('\n'),
       contentType: imageUrls.isEmpty ? 'text/html' : 'application/x-imagelist',
       imageUrls: imageUrls,
+      thinkList: imageUrls.isEmpty ? thinks : const [],
     );
+  }
+
+  /// 评估段评规则（`think` / `ruleContent.think`，对标 Legado ruleContent.think）。
+  ///
+  /// 规则返回 JSON 数组或单个对象（字段：title/content/user/date/likes）。
+  /// 任何解析失败都静默降级为空列表——段评是增强能力，绝不影响正文加载。
+  Future<List<BookSourceChapterThink>> _extractChapterThink(
+    LegadoBookSource source,
+    Map<String, dynamic> contentRule,
+    LegadoRuleDocument? document,
+  ) async {
+    if (document == null) return const [];
+    var rule = source.think;
+    if (rule.isEmpty) rule = _optionalRule(contentRule, 'think');
+    if (rule.isEmpty) return const [];
+    try {
+      final raw = (await _rules.evaluateString(document, null, rule)).trim();
+      if (raw.isEmpty) return const [];
+      final decoded = jsonDecode(raw);
+      final items = decoded is List ? decoded : [decoded];
+      final thinks = <BookSourceChapterThink>[
+        for (final item in items)
+          if (item != null && item is Map)
+            BookSourceChapterThink.fromJson(item),
+      ]..removeWhere((think) => think.content.isEmpty);
+      debugRecorder?.recordInfo(
+        stage: BookSourceDebugStage.content,
+        sourceName: source.name,
+        message: 'ruleContent.think 提取 ${thinks.length} 条段评',
+      );
+      return List.unmodifiable(thinks);
+    } catch (error) {
+      debugRecorder?.recordInfo(
+        stage: BookSourceDebugStage.content,
+        sourceName: source.name,
+        message: 'ruleContent.think 解析失败，忽略段评：$error',
+      );
+      return const [];
+    }
   }
 
   /// 拉取漫画单页图片的原始字节。图片 URL 已是解析后的绝对地址，这里走请求层
@@ -696,9 +887,38 @@ class LegadoRuntime {
       headers: headers,
       charset: 'utf-8',
     );
+    final recorder = debugRecorder;
+    final order = recorder?.recordRequest(
+      stage: BookSourceDebugStage.image,
+      sourceName: source.name,
+      url: url,
+      method: 'GET',
+      headers: headers,
+    );
+    final stopwatch = Stopwatch()..start();
     try {
-      return await _transport.sendBytes(template);
+      final bytes = await _transport.sendBytes(template);
+      stopwatch.stop();
+      recorder?.recordResponse(
+        stage: BookSourceDebugStage.image,
+        sourceName: source.name,
+        order: order ?? 0,
+        statusCode: 200,
+        url: url,
+        elapsedMs: stopwatch.elapsedMilliseconds,
+        preview: '图片加载成功，${bytes.length} 字节',
+      );
+      return bytes;
     } catch (e) {
+      stopwatch.stop();
+      recorder?.recordError(
+        stage: BookSourceDebugStage.image,
+        sourceName: source.name,
+        order: order,
+        message: '图片加载失败：$e',
+        url: url,
+        elapsedMs: stopwatch.elapsedMilliseconds,
+      );
       throw BookSourceProtocolException('漫画图片加载失败：$e');
     }
   }
@@ -722,7 +942,11 @@ class LegadoRuntime {
     final tocRule = _optionalRule(rule, 'tocUrl');
     // tocUrl 未配置：目录页即详情页（bookId），与搜索/详情共用一条 URL。
     if (tocRule.isEmpty) return bookId;
-    final response = await _request(source, bookId);
+    final response = await _request(
+      source,
+      bookId,
+      debugStage: BookSourceDebugStage.bookInfo,
+    );
     final document = LegadoRuleDocument.parse(response.body, response.finalUri);
     final init = _optionalRule(rule, 'init');
     final context = init.isEmpty
@@ -787,10 +1011,55 @@ class LegadoRuntime {
     );
   }
 
+  /// 书源登录请求（对标 Legado `source.login()`）：按已登录表单回填的变量
+  /// 展开 `loginUrl` 模板请求，返回响应（响应头含 Set-Cookie，已由传输层
+  /// 持久化进 [BookSourceCookieStore]）。用于登录页“提交登录”。
+  Future<LegadoResponse> requestForLogin(
+    RegisteredBookSource registered, {
+    Map<String, String> variables = const {},
+  }) async {
+    await _ensureSandbox();
+    final source = _source(registered);
+    _ensureRunnable(source);
+    await _ensureJsLib(source);
+    final template = source.loginUrl.trim();
+    if (template.isEmpty) {
+      throw const BookSourceProtocolException(
+        'This source does not provide a loginUrl.',
+      );
+    }
+    final response = await _request(
+      source,
+      template,
+      variables: variables,
+      debugStage: BookSourceDebugStage.raw,
+    );
+    return response;
+  }
+
+  /// 在沙箱中执行一段书源脚本（登录校验/动作），返回寄存器或完成值字符串。
+  /// 复用 `debugEvalJs`，但把响应 HTML 作为 document 上下文注入。
+  Future<String> evalSourceScript(
+    RegisteredBookSource registered, {
+    required String code,
+    String? docHtml,
+    Map<String, dynamic> extraGlobals = const {},
+  }) async {
+    await _ensureSandbox();
+    await _ensureJsLib(_source(registered));
+    return debugEvalJs(
+      code: code,
+      sourceName: _source(registered).name,
+      docHtml: docHtml,
+      extraGlobals: extraGlobals,
+    );
+  }
+
   Future<LegadoResponse> _request(
     LegadoBookSource source,
     String template, {
     Map<String, String> variables = const {},
+    BookSourceDebugStage debugStage = BookSourceDebugStage.raw,
   }) async {
     await _ensureSandbox();
     // ===== 米读：before-send JS 预处理 =====
@@ -813,21 +1082,68 @@ class LegadoRuntime {
         baseUri: source.baseUri,
       );
     }
+    // ===== 米读：@webBrowser:/@webView: 浏览器兜底路由 =====
+    // 浏览器兜底指向真实 WebView 加载（还原强 JS / 反爬站点环境），而非普通
+    // HTTP 传输。识别两处：URL 模板前缀（forceWebView）与请求选项 webView:true
+    // （后者由 LegadoRequestTemplate.parse 回填 useWebView）。
+    final browserStripped = WebBrowserRoute.stripBrowserPrefix(processedTemplate);
+    final parseInput = browserStripped ?? processedTemplate;
+    final parsedTemplate = LegadoRequestTemplate.parse(
+      _expandSourceVars(parseInput),
+      baseUri: source.baseUri,
+      variables: variables,
+      sourceHeaders: _expandHeaderVars(processedHeaders),
+      forceWebView: browserStripped != null,
+    );
+    if (parsedTemplate.useWebView) {
+      return _openInWebBrowser(source, parsedTemplate, debugStage: debugStage);
+    }
     // ===== 米读：浏览器安全验证挑战自动重试 =====
     // 部分书源（爱下网书等）在详情/目录/章节页先返回一个「正在验证浏览器」页面，
     // 内含 `token`，脚本里 `location.pathname + "?challenge=" + token` 跳转放行。
     // 合法的 token 可直接回传 `?challenge=` 通过；该挑战不含需要真实 JS 执行的
     // 认证逻辑，故在此自动求解，不再把裸挑战页当正文抛给用户。
-    LegadoRequestTemplate? requestTemplate;
+    var challengeTemplate = parsedTemplate;
     var attempt = 0;
     while (true) {
-      requestTemplate ??= LegadoRequestTemplate.parse(
-        _expandSourceVars(processedTemplate),
-        baseUri: source.baseUri,
-        variables: variables,
-        sourceHeaders: _expandHeaderVars(processedHeaders),
+      final template = challengeTemplate;
+      // ===== 调试记录：每次真实发出的请求对应一条 request + 一条 response =====
+      final recorder = debugRecorder;
+      final order = recorder?.recordRequest(
+        stage: debugStage,
+        sourceName: source.name,
+        url: template.url.toString(),
+        method: template.method == LegadoRequestMethod.post ? 'POST' : 'GET',
+        body: template.body,
+        headers: template.headers,
       );
-      final response = await _transport.send(requestTemplate!);
+      final stopwatch = Stopwatch()..start();
+      final LegadoResponse response;
+      try {
+        response = await _transport.send(template);
+      } catch (error) {
+        stopwatch.stop();
+        recorder?.recordError(
+          stage: debugStage,
+          sourceName: source.name,
+          order: order,
+          message: '$error',
+          url: template.url.toString(),
+          elapsedMs: stopwatch.elapsedMilliseconds,
+        );
+        rethrow;
+      }
+      stopwatch.stop();
+      recorder?.recordResponse(
+        stage: debugStage,
+        sourceName: source.name,
+        order: order ?? 0,
+        statusCode: response.statusCode ?? 0,
+        headers: response.headers,
+        url: response.finalUri.toString(),
+        elapsedMs: stopwatch.elapsedMilliseconds,
+        preview: debugPreview(response.body, max: 1500),
+      );
       final token = _extractChallengeToken(response.body);
       // 无挑战、或已重试次数用尽（避免循环），直接返回。
       if (token == null || attempt >= 2) return response;
@@ -840,14 +1156,72 @@ class LegadoRuntime {
           'challenge': token,
         },
       );
-      requestTemplate = LegadoRequestTemplate(
+      challengeTemplate = LegadoRequestTemplate(
         url: solvedUrl,
-        method: requestTemplate!.method,
-        headers: requestTemplate!.headers,
-        charset: requestTemplate!.charset,
-        body: requestTemplate!.body,
+        method: template.method,
+        headers: template.headers,
+        charset: template.charset,
+        body: template.body,
       );
       attempt++;
+    }
+  }
+
+  /// 执行一次浏览器兜底：SSRF 前置校验 → WebView 池加载 → 包装为 LegadoResponse。
+  /// 调试记录器与普通请求一致记录 request/response/error。
+  Future<LegadoResponse> _openInWebBrowser(
+    LegadoBookSource source,
+    LegadoRequestTemplate template, {
+    BookSourceDebugStage debugStage = BookSourceDebugStage.raw,
+  }) async {
+    final recorder = debugRecorder;
+    final order = recorder?.recordRequest(
+      stage: debugStage,
+      sourceName: source.name,
+      url: template.url.toString(),
+      method: template.method == LegadoRequestMethod.post ? 'POST' : 'GET',
+      body: template.body,
+      headers: template.headers,
+    );
+    final stopwatch = Stopwatch()..start();
+    try {
+      // R3：WebView 出站 URL 一律先过 SSRF 策略，失败即抛错且不触网。
+      await _webViewNetworkPolicy.validate(template.url);
+      final document = await webBrowserPool.open(
+        WebBrowserRequest(
+          url: template.url,
+          method: template.method == LegadoRequestMethod.post ? 'POST' : 'GET',
+          headers: template.headers,
+          body: template.body,
+        ),
+      );
+      stopwatch.stop();
+      recorder?.recordResponse(
+        stage: debugStage,
+        sourceName: source.name,
+        order: order ?? 0,
+        statusCode: document.statusCode ?? 0,
+        headers: null,
+        url: document.finalUri.toString(),
+        elapsedMs: stopwatch.elapsedMilliseconds,
+        preview: debugPreview(document.body, max: 1500),
+      );
+      return LegadoResponse(
+        body: document.body,
+        finalUri: document.finalUri,
+        statusCode: document.statusCode,
+      );
+    } catch (error) {
+      stopwatch.stop();
+      recorder?.recordError(
+        stage: debugStage,
+        sourceName: source.name,
+        order: order,
+        message: '$error',
+        url: template.url.toString(),
+        elapsedMs: stopwatch.elapsedMilliseconds,
+      );
+      rethrow;
     }
   }
 
@@ -1039,6 +1413,7 @@ class LegadoRuntime {
     await _ensureSandbox();
     final source = _source(registered);
     _ensureRunnable(source);
+    await _ensureJsLib(source);
     final urlText = exploreUrlOverride ?? source.exploreUrl;
     logger.log('discover', 'getDiscovery 调用', details: {
       'source': source.name,
@@ -1358,6 +1733,14 @@ class LegadoRuntime {
     return LegadoBookSource.fromJson(registered.sourceConfig!);
   }
 
+  /// 预加载书源公共 jsLib（幂等）。每个业务入口在拿到 [source] 后调用一次，
+  /// jsLib 在沙箱内注册的全局函数即可被后续所有 @js / <js> 规则使用。
+  Future<void> _ensureJsLib(LegadoBookSource source) async {
+    final jsLib = source.jsLib;
+    if (jsLib.trim().isEmpty) return;
+    await _sandbox.preloadJsLib(jsLib);
+  }
+
   void _ensureRunnable(LegadoBookSource source) {
     final report = const LegadoCompatibilityScanner().scan(source);
     // 米读：只有 unsupported 级别（音频/视频/登录/自定义DNS代理/缺搜索缺规则）
@@ -1383,7 +1766,11 @@ class LegadoRuntime {
     final hasInlineJsTemplate = RegExp(r'\{\{\s*[^{}]+\s*\}\}')
         .allMatches(searchUrl)
         .any((m) => _isPlainJsTemplate(m.group(0)!));
-    if (!isJsSearchUrl && !hasInlineJsTemplate) {
+    // @webBrowser:/@webView: 浏览器兜底路由由 _request 运行时执行（含 SSRF 校验），
+    // 静态预检无法模拟真实 WebView 环境，跳过 parse 预检。
+    if (!isJsSearchUrl &&
+        !hasInlineJsTemplate &&
+        !WebBrowserRoute.isBrowserUrl(searchUrl)) {
       LegadoRequestTemplate.parse(
         searchUrl,
         baseUri: source.baseUri,

@@ -196,7 +196,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.text('ORSP sources'), findsOneWidget);
-    expect(find.text('Other protocol sources'), findsOneWidget);
+    // M4：Legado 源改按 bookSourceGroup 分组聚合，无分组时回退「默认分组」。
+    expect(find.text('默认分组'), findsOneWidget);
     expect(find.text('ORSP Example'), findsOneWidget);
     expect(find.text('Other Example'), findsOneWidget);
   });
@@ -338,7 +339,11 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     expect(tester.takeException(), isNull);
-    await tester.tap(find.byType(PopupMenuItem<String>).first);
+    // 菜单位置：编辑 → 权利详情（ORSP）→ 移除；按文本精确定位权利详情项，
+    // 避免前面新增的「编辑书源」项使 `.first` 指向错误菜单项。
+    final context = tester.element(find.byType(BookSourceManagementPage));
+    final rightsLabel = AppLocalizations.of(context).bookSourcesRightsDetails;
+    await tester.tap(find.text(rightsLabel));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
 

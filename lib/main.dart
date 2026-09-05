@@ -30,6 +30,7 @@ import 'services/core/background_download_notifier.dart';
 import 'services/core/core_services.dart';
 import 'services/library/download_task_controller.dart';
 import 'services/sync/webdav_sync_controller.dart';
+import 'services/web_server/web_console_service.dart';
 import 'utils/app_themes.dart';
 import 'utils/book_open_transition.dart';
 import 'services/tts_service.dart';
@@ -106,6 +107,9 @@ void main(List<String> arguments) async {
           ),
           provider.ChangeNotifierProvider(
             create: (_) => WebDavSyncController(),
+          ),
+          provider.ChangeNotifierProvider(
+            create: (_) => WebConsoleService(),
           ),
         ],
         child: MiduApp(

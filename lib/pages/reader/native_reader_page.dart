@@ -18,7 +18,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
+import 'package:midu/book_sources/services/highlight_rule_service.dart';
 import 'package:midu/core/reader/canonical_locator.dart';
+import 'package:midu/core/reader/chinese_converter.dart';
 import 'package:midu/core/reader/android_reader_aloud_notification.dart';
 import 'package:midu/core/reader/indexed_text_reader.dart';
 import 'package:midu/core/reader/native_text_paginator.dart';
@@ -42,6 +44,7 @@ import 'package:midu/core/reader/txt_chapter_parser.dart';
 import 'package:midu/models/book.dart';
 import 'package:midu/models/book_note.dart';
 import 'package:midu/models/bookmark.dart';
+import 'package:midu/pages/settings/dict_rule_manage_page.dart';
 import 'package:midu/services/books/book_dao.dart';
 import 'package:midu/services/books/book_note_dao.dart';
 import 'package:midu/services/books/bookmark_dao.dart';
@@ -251,6 +254,14 @@ class _NativeReaderPageState extends State<NativeReaderPage>
   bool _tapZoneEditorVisible = false;
   bool _tabletTwoPageEnabled = ReaderSettings.defaultTabletTwoPageEnabled;
   bool _txtChapterTitlePageEnabled = true;
+  // —— M5 显示设置 ——
+  bool _punctuationCompression = false;
+  bool _immersiveMode = false;
+  double _eyeCareBrightness = 0;
+  double _warmth = 0;
+  // —— M7 阅读设置 ——
+  ChineseConversionMode _chineseConversion = ChineseConversionMode.off;
+  bool _textBold = false;
   bool _readerSettingsLoaded = false;
   bool _readerFontReady = true;
   bool _readerSystemUiApplied = false;
@@ -758,6 +769,8 @@ class _NativeReaderPageState extends State<NativeReaderPage>
         _topBarStyle = topBarStyle;
         _readerSystemUiApplied = true;
       });
+      // 沉浸模式可能已在设置加载时就绪：统一走 _applyReaderSystemUi 收敛最终状态。
+      unawaited(_applyReaderSystemUi());
     });
   }
 
@@ -812,10 +825,51 @@ class _NativeReaderPageState extends State<NativeReaderPage>
         transparentSystemBars: !GlassEffectConfig.shouldDisableBlur,
       );
 
-  Future<void> _applyReaderSystemUi() => ReaderSystemUiController.apply(
-    style: _topBarStyle,
-    overlayStyle: _readerSystemUiOverlayStyle,
-  );
+  Future<void> _applyReaderSystemUi() async {
+    // 沉浸模式覆盖顶部信息栏样式：全屏隐藏系统状态栏/导航栏（Web 条件禁用）。
+    if (!kIsWeb && _immersiveMode) {
+      await ReaderSystemUiController.apply(
+        style: ReaderTopBarStyle.hidden,
+        overlayStyle: _readerSystemUiOverlayStyle,
+      );
+      return;
+    }
+    await ReaderSystemUiController.apply(
+      style: _topBarStyle,
+      overlayStyle: _readerSystemUiOverlayStyle,
+    );
+  }
+
+  /// 护眼/暖光遮罩：半透明黑色层降低亮度、琥珀层叠加暖色（Web 条件禁用）。
+  /// 置于阅读栈最顶端并用 IgnorePointer 包裹，不拦截任何手势。
+  Widget? get _nativeDisplayOverlay {
+    if (kIsWeb) return null;
+    if (_eyeCareBrightness <= 0 && _warmth <= 0) return null;
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Stack(
+          children: [
+            if (_eyeCareBrightness > 0)
+              DecoratedBox(
+                key: const ValueKey('native-reader-eye-care-overlay'),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: _eyeCareBrightness * 0.35),
+                ),
+              ),
+            if (_warmth > 0)
+              DecoratedBox(
+                key: const ValueKey('native-reader-warmth-overlay'),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFA726).withValues(
+                    alpha: _warmth * 0.22,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   void _onLeafStatusChanged() {
     if (mounted) setState(() {});
@@ -861,8 +915,16 @@ class _NativeReaderPageState extends State<NativeReaderPage>
         _tabletTwoPageEnabled = settings.tabletTwoPageEnabled;
         _topBarStyle = topBarStyle;
         _txtChapterTitlePageEnabled = txtChapterTitlePageEnabled;
+        _punctuationCompression = settings.punctuationCompression;
+        _immersiveMode = settings.immersiveMode;
+        _eyeCareBrightness = settings.eyeCareBrightness;
+        _warmth = settings.warmth;
+        _chineseConversion = settings.chineseConversion;
+        ReaderNativeConversion.set(_chineseConversion);
+        _textBold = settings.textBold;
         _readerSettingsLoaded = true;
       });
+      if (_readerSystemUiApplied) unawaited(_applyReaderSystemUi());
       unawaited(_syncVolumeKeyPaging());
     } catch (error, stackTrace) {
       debugPrint('Reader settings failed to load: $error');
@@ -926,6 +988,12 @@ class _NativeReaderPageState extends State<NativeReaderPage>
     pullBookmarkEnabled: _pullBookmarkEnabled,
     tapPageAnimationEnabled: _tapPageAnimationEnabled,
     tabletTwoPageEnabled: _tabletTwoPageEnabled,
+    punctuationCompression: _punctuationCompression,
+    immersiveMode: _immersiveMode,
+    eyeCareBrightness: _eyeCareBrightness,
+    warmth: _warmth,
+    chineseConversion: _chineseConversion,
+    textBold: _textBold,
   );
 
   TextStyle get _readerTextStyle => TextStyle(
@@ -940,6 +1008,7 @@ class _NativeReaderPageState extends State<NativeReaderPage>
     height: _lineHeight,
     letterSpacing: _letterSpacing,
     color: _readerTheme.text,
+    fontWeight: _textBold ? FontWeight.w700 : null,
   );
 
   TextAlign get _readerTextAlign => switch (_textAlignment) {
@@ -995,17 +1064,62 @@ class _NativeReaderPageState extends State<NativeReaderPage>
       palette: _readerTheme,
       bodyStyle: _readerTextStyle,
       flowStyle: flowStyle,
-      annotations: _annotations,
+      annotations: [..._annotations, ..._autoHighlightNotes(chapter)],
       spokenHighlight: _readerAloudHighlight,
       baseSourceSpanBuilder: (start, end) =>
           _styledSpanForRange(chapter, start, end, _readerTextStyle),
       onSaveTextAnnotation: _saveTextAnnotation,
       fillAvailableSpace: fillAvailableSpace,
+      onLookUpWord: _onLookUpWord,
       onInteractionChanged: (active) {
         if (!mounted || _annotationInteractionActive == active) return;
         setState(() => _annotationInteractionActive = active);
       },
     );
+  }
+
+  /// 长按选区「查词」：把选中的文本交予词典规则查询面板。
+  void _onLookUpWord(ReaderSelectionSnapshot selection) {
+    if (!mounted) return;
+    final start = selection.startOffset.clamp(0, selection.sourceText.length);
+    final end = selection.endOffset.clamp(start, selection.sourceText.length);
+    final word = selection.sourceText.substring(start, end).trim();
+    if (word.isEmpty) return;
+    showDictLookupSheet(context, word: word);
+  }
+
+  /// 依据启用的高亮规则，把当前章节正文/标题的命中区间合成为独立的高亮标注
+  /// （与用户划线的笔记区分开，不落库、不参与标注计数）。
+  List<BookNote> _autoHighlightNotes(_NativeChapter chapter) {
+    final rules = HighlightRuleService.instance.enabledRules;
+    if (rules.isEmpty) return const [];
+    final text = chapter.plainText;
+    if (text.isEmpty) return const [];
+    final titleOffset = text.indexOf(chapter.title);
+    final ranges = matchAutoHighlightRanges(
+      text,
+      rules,
+      title: chapter.title,
+      titleOffsetInText: titleOffset,
+    );
+    if (ranges.isEmpty) return const [];
+    return [
+      for (final range in ranges)
+        if (range.start >= 0 &&
+            range.start < text.length &&
+            range.end <= text.length)
+          BookNote(
+            bookId: widget.book.id ?? 0,
+            content: text.substring(range.start, range.end),
+            cfi: 'auto-highlight:${chapter.id}:${range.start}:${range.end}',
+            chapter: chapter.title,
+            type: readerAnnotationTypeHighlight,
+            color: range.styleHex,
+            startOffset: range.start,
+            endOffset: range.end,
+            annotationId: 'auto_${range.ruleId}_${range.start}_${range.end}',
+          ),
+    ];
   }
 
   ReaderSafeAreaMetrics get _readerSafeArea => ReaderSafeAreaMetrics(
@@ -1097,6 +1211,44 @@ class _NativeReaderPageState extends State<NativeReaderPage>
     await _readerSettingsStore.save(_readerSettings);
   }
 
+  /// M5 显示设置：标点压缩/沉浸模式/护眼亮度/暖光。
+  ///
+  /// 标点压缩对本地 TXT/EPUB 只落盘不重排——native 路径以 [chapter.plainText]
+  /// 原始坐标锚定批注/书签/朗读偏移，逐字重排会破坏映射；书源阅读路径生效。
+  Future<void> _setDisplaySettings({
+    bool? punctuationCompression,
+    bool? immersiveMode,
+    double? eyeCareBrightness,
+    double? warmth,
+    bool? textBold,
+    ChineseConversionMode? chineseConversion,
+  }) async {
+    final conversionChanged =
+        chineseConversion != null && chineseConversion != _chineseConversion;
+    final boldChanged = textBold != null && textBold != _textBold;
+    setState(() {
+      _punctuationCompression =
+          punctuationCompression ?? _punctuationCompression;
+      _immersiveMode = immersiveMode ?? _immersiveMode;
+      _eyeCareBrightness = (eyeCareBrightness ?? _eyeCareBrightness).clamp(
+        0.0,
+        1.0,
+      );
+      _warmth = (warmth ?? _warmth).clamp(0.0, 1.0);
+      _textBold = textBold ?? _textBold;
+      _chineseConversion = chineseConversion ?? _chineseConversion;
+      if (conversionChanged || boldChanged) {
+        _pageCache.clear();
+        _restoreAnchorAfterLayout = true;
+      }
+    });
+    if (conversionChanged) ReaderNativeConversion.set(_chineseConversion);
+    await _readerSettingsStore.save(_readerSettings);
+    if (immersiveMode != null && _readerSystemUiApplied) {
+      await _applyReaderSystemUi();
+    }
+  }
+
   Future<void> _setTxtChapterTitlePageEnabled(bool value) async {
     if (_txtChapterTitlePageEnabled == value) return;
     setState(() {
@@ -1171,6 +1323,8 @@ class _NativeReaderPageState extends State<NativeReaderPage>
       _layoutSignature,
       chapterIndex,
       readingProgress: readingProgress,
+      lastChapterIndex: chapterIndex,
+      lastChapterTitle: chapter.title,
     );
   }
 
@@ -1967,6 +2121,8 @@ class _NativeReaderPageState extends State<NativeReaderPage>
                   ? 1.0
                   : offset / chapter.plainText.length)) /
           _loadedChapters.length,
+      lastChapterIndex: chapterIndex,
+      lastChapterTitle: chapter.title,
     );
   }
 
@@ -2078,6 +2234,42 @@ class _NativeReaderPageState extends State<NativeReaderPage>
         onTxtChapterTitlePageChanged: widget.book.format.toLowerCase() == 'txt'
             ? (value) => unawaited(_setTxtChapterTitlePageEnabled(value))
             : null,
+        tabDisplayLabel: context.l10n.readerSettingsTabDisplay,
+        punctuationCompression: _punctuationCompression,
+        immersiveMode: _immersiveMode,
+        eyeCareBrightness: _eyeCareBrightness,
+        warmth: _warmth,
+        punctuationCompressionTitle:
+            context.l10n.readerPunctuationCompressionTitle,
+        punctuationCompressionHint: context.l10n.readerPunctuationCompressionHint,
+        immersiveModeTitle: context.l10n.readerImmersiveModeTitle,
+        immersiveModeHint: context.l10n.readerImmersiveModeHint,
+        eyeCareTitle: context.l10n.readerEyeCareTitle,
+        eyeCareOnLabel: context.l10n.readerEyeCareOnLabel,
+        eyeCareOffLabel: context.l10n.readerEyeCareOffLabel,
+        warmthTitle: context.l10n.readerWarmthTitle,
+        onPunctuationCompressionChanged: (value) =>
+            unawaited(_setDisplaySettings(punctuationCompression: value)),
+        onImmersiveModeChanged: (value) =>
+            unawaited(_setDisplaySettings(immersiveMode: value)),
+        onEyeCareBrightnessChanged: (value) =>
+            unawaited(_setDisplaySettings(eyeCareBrightness: value)),
+        onWarmthChanged: (value) => unawaited(_setDisplaySettings(warmth: value)),
+        // —— M7 阅读设置 ——
+        textBold: _textBold,
+        textBoldTitle: context.l10n.readerTextBoldTitle,
+        textBoldHint: context.l10n.readerTextBoldHint,
+        onTextBoldChanged: (value) =>
+            unawaited(_setDisplaySettings(textBold: value)),
+        chineseConversion: _chineseConversion,
+        chineseConversionTitle: context.l10n.readerChineseConversionTitle,
+        chineseConversionOffLabel: context.l10n.readerChineseConversionOff,
+        chineseConversionS2tLabel:
+            context.l10n.readerChineseConversionSimplifiedToTraditional,
+        chineseConversionT2sLabel:
+            context.l10n.readerChineseConversionTraditionalToSimplified,
+        onChineseConversionChanged: (value) =>
+            unawaited(_setDisplaySettings(chineseConversion: value)),
       ),
     );
     if (!mounted) return;
@@ -2371,6 +2563,62 @@ class _NativeReaderPageState extends State<NativeReaderPage>
     );
   }
 
+  /// 编辑书签备注（对标 Legado BookmarkDialog 的备注编辑能力）。
+  Future<void> _editBookmarkNote(Bookmark bookmark) async {
+    final id = bookmark.id;
+    if (id == null) return;
+    final controller = TextEditingController(text: bookmark.note);
+    final saved = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(context.l10n.bookmarkEditNoteTitle),
+        content: TextField(
+          key: const ValueKey('bookmark-note-editor'),
+          controller: controller,
+          autofocus: true,
+          maxLines: 4,
+          minLines: 2,
+          decoration: InputDecoration(
+            hintText: context.l10n.bookmarkEditNoteHint,
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(
+              MaterialLocalizations.of(dialogContext).cancelButtonLabel,
+            ),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+            child: Text(
+              MaterialLocalizations.of(dialogContext).saveButtonLabel,
+            ),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (saved == null) return;
+    await _bookmarkDao.updateBookmarkNote(id, saved.trim());
+    if (!mounted) return;
+    setState(() {
+      final index = _bookmarks.indexWhere((candidate) => candidate.id == id);
+      if (index >= 0) {
+        _bookmarks = List.of(_bookmarks);
+        _bookmarks[index] = _bookmarks[index].copyWith(note: saved.trim());
+      }
+    });
+    showSideToast(
+      context,
+      context.l10n.bookmarkNoteUpdated,
+      duration: const Duration(milliseconds: 1500),
+      icon: Icons.edit_note_rounded,
+      kind: SideToastKind.success,
+    );
+  }
+
   Future<void> _jumpToBookmark(
     Bookmark bookmark,
     List<_NativeChapter> chapters,
@@ -2503,6 +2751,10 @@ class _NativeReaderPageState extends State<NativeReaderPage>
             },
             onBookmarkDeleted: (bookmark) async {
               await _deleteBookmark(bookmark);
+              if (mounted) setSheetState(() {});
+            },
+            onBookmarkNoteEdited: (bookmark) async {
+              await _editBookmarkNote(bookmark);
               if (mounted) setSheetState(() {});
             },
             onAnnotationSelected: (annotation) {
@@ -4787,6 +5039,10 @@ class _NativeReaderPageState extends State<NativeReaderPage>
                                   ),
                                 ),
                               ),
+                            // M5 护眼/暖光遮罩（Web 条件禁用，不拦截手势）。
+                            if (_nativeDisplayOverlay
+                                case final overlay?)
+                              overlay,
                           ],
                         );
                       },
@@ -4967,6 +5223,21 @@ List<_ReaderPageData> _paginateChapter(
   return pages;
 }
 
+/// 全局简繁转换模式与代差：阅读页切换模式时递增代差，让已加载章节的
+/// 转换缓存自动失效（长度恒定的字符级转换保证批注/书签/朗读偏移稳定）。
+class ReaderNativeConversion {
+  ReaderNativeConversion._();
+
+  static ChineseConversionMode mode = ChineseConversionMode.off;
+  static int generation = 0;
+
+  static void set(ChineseConversionMode next) {
+    if (next == mode) return;
+    mode = next;
+    generation += 1;
+  }
+}
+
 class _NativeChapter {
   _NativeChapter({
     required this.id,
@@ -5021,6 +5292,8 @@ class _NativeChapter {
   Future<void>? _pendingLoad;
   List<_NativeBlock>? _loadedBlocks;
   List<_NativeBlock>? _textBlocks;
+  int _convertedGeneration = -1;
+  String? _convertedText;
 
   bool get hasLoadedText => _plainText != null || _loadedText != null;
 
@@ -5030,7 +5303,16 @@ class _NativeChapter {
   Map<String, dynamic> get epubDescriptor => _epubDescriptor!;
   Map<String, dynamic> get epubLoadArguments => _epubLoadArguments!;
 
-  String get plainText => _plainText ?? (_loadedText ??= _readIndexedText());
+  String get plainText {
+    final raw = _plainText ?? (_loadedText ??= _readIndexedText());
+    final generation = ReaderNativeConversion.generation;
+    if (_convertedGeneration == generation && _convertedText != null) {
+      return _convertedText!;
+    }
+    final converted = ChineseConverter.convert(raw, ReaderNativeConversion.mode);
+    _convertedGeneration = generation;
+    return _convertedText = converted;
+  }
 
   List<_NativeBlock> get blocks =>
       _blocks ??

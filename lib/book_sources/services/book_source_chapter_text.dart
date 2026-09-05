@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html_parser;
@@ -5,6 +7,7 @@ import 'package:html/parser.dart' as html_parser;
 import '../protocol/book_source_protocol.dart';
 import '../../core/reader/reader_text_characters.dart';
 import 'book_source_text_paginator.dart';
+import 'replace_rule_service.dart';
 
 const _bookSourceBlockTags = {'p', 'div', 'li', 'blockquote'};
 
@@ -31,6 +34,7 @@ final _htmlTagOpener = RegExp(r'</?[a-z][a-z0-9]*', caseSensitive: false);
 String readableBookSourceChapterText(
   BookSourceChapterContent content, {
   String fallbackTitle = '',
+  List<ReplaceRule> replaceRules = const [],
 }) {
   final chapterTitles = <String>{
     if (content.title.trim().isNotEmpty) content.title,
@@ -46,7 +50,14 @@ String readableBookSourceChapterText(
   // 空 <p>/<br> 或多余换行（如书满屋单章 500+ 行空白），plain 路径下 splitReaderTextLines
   // 原样保留这些空行，导致阅读时出现大量空白段。这里统一折叠，不影响单个空行语义。
   final collapsed = _collapseBlankLines(cleaned);
-  return _removeRepeatedLeadingChapterTitle(collapsed, chapterTitles).join('\n');
+  final canonical = _removeRepeatedLeadingChapterTitle(
+    collapsed,
+    chapterTitles,
+  ).join('\n');
+  // 全局替换净化：按启用的规则链顺序替换/删除广告推广等内容，再交给分页器。
+  // 规则列表为空或全部禁用时原样返回，零开销。
+  if (replaceRules.isEmpty) return canonical;
+  return applyReplaceRules(canonical, replaceRules);
 }
 
 /// 折叠连续空行：非空行原样保留；空行只在两个非空行之间出现一次，且首尾空行剔除。
@@ -74,12 +85,18 @@ List<String> _collapseBlankLines(List<String> lines) {
 Future<String> readableBookSourceChapterTextAsync(
   BookSourceChapterContent content, {
   String fallbackTitle = '',
+  List<ReplaceRule> replaceRules = const [],
 }) {
   final shouldUseWorker =
       _looksLikeHtml(content.content) || content.content.length >= 64 * 1024;
+  final rulesJson = jsonEncode(replaceRules.map((rule) => rule.toJson()).toList());
   if (!shouldUseWorker) {
     return Future<String>.value(
-      readableBookSourceChapterText(content, fallbackTitle: fallbackTitle),
+      readableBookSourceChapterText(
+        content,
+        fallbackTitle: fallbackTitle,
+        replaceRules: replaceRules,
+      ),
     );
   }
   return compute(
@@ -91,25 +108,51 @@ Future<String> readableBookSourceChapterTextAsync(
       'content': content.content,
       'contentType': content.contentType,
       'fallbackTitle': fallbackTitle,
+      'replaceRulesJson': rulesJson,
     },
     debugLabel: 'normalize book-source chapter',
   ).onError(
     (_, _) =>
-        readableBookSourceChapterText(content, fallbackTitle: fallbackTitle),
+        readableBookSourceChapterText(
+          content,
+          fallbackTitle: fallbackTitle,
+          replaceRules: replaceRules,
+        ),
   );
 }
 
-String _readableBookSourceChapterTextInBackground(Map<String, String> values) =>
-    readableBookSourceChapterText(
-      BookSourceChapterContent(
-        bookId: values['bookId']!,
-        chapterId: values['chapterId']!,
-        title: values['title']!,
-        content: values['content']!,
-        contentType: values['contentType']!,
-      ),
-      fallbackTitle: values['fallbackTitle']!,
-    );
+String _readableBookSourceChapterTextInBackground(Map<String, String> values) {
+  final rules = <ReplaceRule>[
+    for (final raw in _decodeRulesList(values['replaceRulesJson'] ?? '[]'))
+      ReplaceRule.fromJson(raw),
+  ];
+  return readableBookSourceChapterText(
+    BookSourceChapterContent(
+      bookId: values['bookId']!,
+      chapterId: values['chapterId']!,
+      title: values['title']!,
+      content: values['content']!,
+      contentType: values['contentType']!,
+    ),
+    fallbackTitle: values['fallbackTitle']!,
+    replaceRules: rules,
+  );
+}
+
+/// 解析规则 JSON（换行/注释容错：解析失败返回空列表，等价于不净化）。
+List<Map<String, dynamic>> _decodeRulesList(String raw) {
+  if (raw.isEmpty || raw == '[]') return const [];
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) return const [];
+    return decoded
+        .whereType<Map>()
+        .map((e) => e.cast<String, dynamic>())
+        .toList(growable: false);
+  } on FormatException {
+    return const [];
+  }
+}
 
 bool _looksLikeHtml(String content) => _htmlTagOpener.hasMatch(content);
 

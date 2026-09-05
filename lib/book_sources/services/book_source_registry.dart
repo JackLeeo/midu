@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../legado/legado_book_source.dart';
 import '../models/registered_book_source.dart';
 import '../protocol/book_source_protocol.dart';
 import 'book_source_client.dart';
@@ -52,7 +53,8 @@ class BookSourceRegistry {
           // Skip a damaged entry instead of making the whole registry unusable.
         }
       }
-      sources.sort((a, b) => a.name.compareTo(b.name));
+      // 保留存储顺序（对标 Legado 书源顺序）：M4 起用户可拖拽/按名称/按权重
+      // 重排，加载时不得再按名字强制排序，否则手动顺序被破坏。
       if (!filterUnverified) return sources;
       // 米读：Legado 源只需兼容性扫描通过（capabilities 非空）即可参与运行；
       // ORSP 源保留原有放行逻辑。
@@ -264,6 +266,103 @@ class BookSourceRegistry {
     });
   }
 
+  /// 按给定 id 顺序重排书源列表（对标 Legado 拖拽排序）。
+  /// 仅位于 [orderedIds] 中的源参与重排，其余源保持相对顺序垫后。
+  Future<List<RegisteredBookSource>> sortSources(
+    Iterable<String> orderedIds,
+  ) async {
+    final rank = <String, int>{};
+    var index = 0;
+    for (final id in orderedIds) {
+      if (rank.containsKey(id)) continue;
+      rank[id] = index++;
+    }
+    return _mutate(() async {
+      final sources = (await _load(filterUnverified: false)).toList();
+      final startsAt = rank.length;
+      sources.sort((a, b) {
+        final ra = rank[a.id] ?? startsAt;
+        final rb = rank[b.id] ?? startsAt;
+        if (ra != rb) return ra.compareTo(rb);
+        return a.name.compareTo(b.name);
+      });
+      await _save(sources);
+      _changesController.add(null);
+      return load();
+    });
+  }
+
+  /// 设置书源分组（对标 `bookSourceGroup`，仅 Legado 源生效）。
+  /// [group] 为空时移除分组字段（回退默认分组）。
+  Future<List<RegisteredBookSource>> setGroup(String id, String group) async {
+    final nextGroup = group.trim();
+    return _mutate(() async {
+      final sources = (await _load(filterUnverified: false))
+          .map((source) {
+            if (source.id != id) return source;
+            final config = Map<String, dynamic>.of(source.sourceConfig ?? {});
+            if (nextGroup.isEmpty) {
+              config.remove('bookSourceGroup');
+            } else {
+              config['bookSourceGroup'] = nextGroup;
+            }
+            return _withConfig(source, config);
+          })
+          .toList(growable: false);
+      await _save(sources);
+      _changesController.add(null);
+      return load();
+    });
+  }
+
+  /// 设置书源权重（对标 `weight`，仅 Legado 源生效；[weight] <= 0 时清除）。
+  Future<List<RegisteredBookSource>> setWeight(String id, int weight) async {
+    return _mutate(() async {
+      final sources = (await _load(filterUnverified: false))
+          .map((source) {
+            if (source.id != id) return source;
+            final config = Map<String, dynamic>.of(source.sourceConfig ?? {});
+            if (weight <= 0) {
+              config.remove('weight');
+            } else {
+              config['weight'] = weight;
+            }
+            return _withConfig(source, config);
+          })
+          .toList(growable: false);
+      await _save(sources);
+      _changesController.add(null);
+      return load();
+    });
+  }
+
+  static RegisteredBookSource _withConfig(
+    RegisteredBookSource source,
+    Map<String, dynamic> config,
+  ) {
+    return RegisteredBookSource(
+      id: source.id,
+      name: source.name,
+      description: source.description,
+      manifestUrl: source.manifestUrl,
+      apiBaseUrl: source.apiBaseUrl,
+      iconUrl: source.iconUrl,
+      websiteUrl: source.websiteUrl,
+      operatorName: source.operatorName,
+      contactUrl: source.contactUrl,
+      contentLicense: source.contentLicense,
+      rightsStatement: source.rightsStatement,
+      protocolVersion: source.protocolVersion,
+      languages: source.languages,
+      capabilities: source.capabilities,
+      maxCatalogPageSize: source.maxCatalogPageSize,
+      enabled: source.enabled,
+      addedAt: source.addedAt,
+      sourceProtocol: source.sourceProtocol,
+      sourceConfig: config.isEmpty ? null : config,
+    );
+  }
+
   /// Applies an exact record-level winner received from the user's sync space.
   ///
   /// Unlike manifest refresh, sync must preserve the remote device's enabled
@@ -279,6 +378,49 @@ class BookSourceRegistry {
       } else {
         sources[index] = source;
       }
+      await _save(sources);
+      _changesController.add(null);
+      return load();
+    });
+  }
+
+  /// 米读：书源编辑保存入口。用编辑后的 Legado 原始数据替换本地配置，
+  /// 保留用户本地的 enabled / addedAt 状态；若字段变化导致源不再可运行
+  /// （capabilities 收缩），则自动停用，避免崩溃路径。
+  ///
+  /// [source] 为当前注册源；[nextRaw] 为编辑后的完整书源 JSON（含 rules）。
+  Future<List<RegisteredBookSource>> updateSourceConfig(
+    RegisteredBookSource source,
+    Map<String, dynamic> nextRaw,
+  ) async {
+    final lib = LegadoBookSource.fromJson(nextRaw);
+    final registered = lib.toRegisteredSource(enabled: source.enabled);
+    return _mutate(() async {
+      final sources = (await _load(filterUnverified: false)).toList();
+      final index = sources.indexWhere((item) => item.id == source.id);
+      if (index < 0) throw const BookSourceProtocolException('Source no longer exists.');
+      final previous = sources[index];
+      sources[index] = RegisteredBookSource(
+        id: previous.id,
+        name: registered.name,
+        description: registered.description,
+        manifestUrl: previous.manifestUrl,
+        apiBaseUrl: previous.apiBaseUrl,
+        iconUrl: previous.iconUrl,
+        websiteUrl: previous.websiteUrl,
+        operatorName: previous.operatorName,
+        contactUrl: previous.contactUrl,
+        contentLicense: previous.contentLicense,
+        rightsStatement: previous.rightsStatement,
+        protocolVersion: previous.protocolVersion,
+        languages: registered.languages,
+        capabilities: registered.capabilities,
+        maxCatalogPageSize: previous.maxCatalogPageSize,
+        enabled: previous.enabled && registered.capabilities.isNotEmpty,
+        addedAt: previous.addedAt,
+        sourceProtocol: previous.sourceProtocol,
+        sourceConfig: registered.sourceConfig,
+      );
       await _save(sources);
       _changesController.add(null);
       return load();

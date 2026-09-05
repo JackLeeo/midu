@@ -9,8 +9,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/reader/reader_aloud_controller.dart';
+import 'http_tts_engine_service.dart';
 
-enum ReaderAloudEngineType { system, cloud }
+enum ReaderAloudEngineType { system, cloud, httpTts }
 
 @immutable
 class ReaderAloudCloudSettings {
@@ -151,6 +152,10 @@ abstract interface class ReaderAloudCloudSettingsStore {
   Future<String?> readApiKey();
   Future<void> writeApiKey(String apiKey);
   Future<void> clearApiKey();
+
+  /// 当前选中的 HTTP TTS 引擎 id（Legado `appTtsEngine`）。
+  Future<String?> loadHttpTtsEngineId();
+  Future<void> saveHttpTtsEngineId(String? id);
 }
 
 class PreferencesReaderAloudCloudSettingsStore
@@ -167,6 +172,7 @@ class PreferencesReaderAloudCloudSettingsStore
   );
 
   static const _engineKey = 'reader_aloud_engine';
+  static const _httpTtsEngineIdKey = 'reader_aloud_http_tts_engine_id';
   static const _baseUrlKey = 'reader_aloud_cloud_base_url';
   static const _modelKey = 'reader_aloud_cloud_model';
   static const _voiceKey = 'reader_aloud_cloud_voice';
@@ -235,6 +241,20 @@ class PreferencesReaderAloudCloudSettingsStore
       return;
     }
     await _secretStorage.write(_apiKeyKey, normalized);
+  }
+
+  @override
+  Future<String?> loadHttpTtsEngineId() async =>
+      (await _prefs).getString(_httpTtsEngineIdKey);
+
+  @override
+  Future<void> saveHttpTtsEngineId(String? id) async {
+    final prefs = await _prefs;
+    if (id == null || id.isEmpty) {
+      await prefs.remove(_httpTtsEngineIdKey);
+    } else {
+      await prefs.setString(_httpTtsEngineIdKey, id);
+    }
   }
 }
 
@@ -561,13 +581,19 @@ class ReaderAloudService extends ChangeNotifier implements ReaderAloudEngine {
     ReaderAloudCloudClient? cloudClient,
     ReaderAloudBytesPlayer? bytesPlayer,
     ReaderAloudCloudAudioCache? cache,
+    HttpTtsEngineService? httpTtsEngineService,
+    HttpTtsAudioFetcher? httpTtsFetcher,
   }) : _settingsStore =
            settingsStore ?? PreferencesReaderAloudCloudSettingsStore(),
        _cloudClient = cloudClient ?? OpenAiCompatibleReaderAloudCloudClient(),
        _bytesPlayer = bytesPlayer ?? AudioplayersReaderAloudBytesPlayer(),
-       _cache = cache ?? ReaderAloudCloudAudioCache() {
+       _cache = cache ?? ReaderAloudCloudAudioCache(),
+       _httpTtsEngineService =
+           httpTtsEngineService ?? HttpTtsEngineService.instance,
+       _httpTtsFetcher = httpTtsFetcher ?? HttpTtsAudioFetcher() {
     systemEngine.addListener(_relayEngineChange);
     _bytesPlayer.addListener(_relayEngineChange);
+    _httpTtsEngineService.addListener(_relayEngineChange);
     unawaited(initialize());
   }
 
@@ -576,10 +602,14 @@ class ReaderAloudService extends ChangeNotifier implements ReaderAloudEngine {
   final ReaderAloudCloudClient _cloudClient;
   final ReaderAloudBytesPlayer _bytesPlayer;
   final ReaderAloudCloudAudioCache _cache;
+  final HttpTtsEngineService _httpTtsEngineService;
+  final HttpTtsAudioFetcher _httpTtsFetcher;
 
   ReaderAloudEngineType _engineType = ReaderAloudEngineType.system;
   ReaderAloudEngineType _activeEngineType = ReaderAloudEngineType.system;
   ReaderAloudCloudSettings _cloudSettings = const ReaderAloudCloudSettings();
+  String? _httpTtsEngineId;
+  String? _httpTtsError;
   Future<void>? _initialization;
   bool _initialized = false;
   bool _hasCloudApiKey = false;
@@ -594,6 +624,25 @@ class ReaderAloudService extends ChangeNotifier implements ReaderAloudEngine {
   bool get hasCloudApiKey => _hasCloudApiKey;
   String? get cloudError => _cloudError;
   bool get usesCloud => _engineType == ReaderAloudEngineType.cloud;
+  bool get usesHttpTts => _engineType == ReaderAloudEngineType.httpTts;
+
+  /// 当前选中的 HTTP TTS 引擎 id（Legado appTtsEngine）。
+  String? get httpTtsEngineId => _httpTtsEngineId;
+
+  /// 当前选中的 HTTP TTS 引擎；未配置/不存在返回 null。
+  HttpTtsEngine? get activeHttpTtsEngine =>
+      _httpTtsEngineService.engineById(_httpTtsEngineId);
+
+  String? get httpTtsEngineName => activeHttpTtsEngine?.name;
+
+  /// 朗读面板展示用：是否存在可选的 HTTP TTS 引擎。
+  bool get hasHttpTtsEngines => _httpTtsEngineService.hasEngines;
+
+  /// 供朗读面板选择器枚举的全部引擎。
+  List<HttpTtsEngine> get httpTtsEnginesForPicker =>
+      _httpTtsEngineService.engines;
+
+  String? get httpTtsError => _httpTtsError;
 
   @override
   int get currentPosition {
@@ -632,6 +681,8 @@ class ReaderAloudService extends ChangeNotifier implements ReaderAloudEngine {
     try {
       _engineType = await _settingsStore.loadEngineType();
       _cloudSettings = await _settingsStore.loadSettings();
+      _httpTtsEngineId = await _settingsStore.loadHttpTtsEngineId();
+      await _httpTtsEngineService.ensureLoaded();
       try {
         _hasCloudApiKey = (await _settingsStore.readApiKey()) != null;
       } catch (_) {
@@ -657,7 +708,19 @@ class ReaderAloudService extends ChangeNotifier implements ReaderAloudEngine {
     _engineType = value;
     _activeEngineType = value;
     _cloudError = null;
+    _httpTtsError = null;
     await _settingsStore.saveEngineType(value);
+    _notifySafe();
+  }
+
+  /// 设置当前选中的 HTTP TTS 引擎（Legado appTtsEngine）；传 null 清除。
+  Future<void> setHttpTtsEngine(String? id) async {
+    await initialize();
+    final normalized = id?.isEmpty ?? true ? null : id;
+    if (_httpTtsEngineId == normalized) return;
+    _httpTtsEngineId = normalized;
+    _httpTtsError = null;
+    await _settingsStore.saveHttpTtsEngineId(normalized);
     _notifySafe();
   }
 
@@ -691,6 +754,10 @@ class ReaderAloudService extends ChangeNotifier implements ReaderAloudEngine {
     if (_engineType == ReaderAloudEngineType.system) {
       _activeEngineType = ReaderAloudEngineType.system;
       await systemEngine.speak(text);
+      return;
+    }
+    if (_engineType == ReaderAloudEngineType.httpTts) {
+      await _speakWithHttpTts(text, operation);
       return;
     }
 
@@ -741,6 +808,71 @@ class ReaderAloudService extends ChangeNotifier implements ReaderAloudEngine {
     }
   }
 
+  /// HTTP TTS 引擎朗读：按段请求音频字节并用 bytesPlayer 播放，
+  /// 对标 HttpReadAloudService 的逐段合成 + 段落间静音停顿。
+  Future<void> _speakWithHttpTts(String text, int operation) async {
+    try {
+      final engine = activeHttpTtsEngine;
+      if (engine == null) {
+        throw const HttpTtsEngineException(
+          'missing_engine',
+          '请先在「语音引擎」中配置并选择 HTTP TTS 引擎',
+        );
+      }
+      final engineId = engine.id;
+      await _httpTtsEngineService.ensureLoaded();
+      _activeEngineType = ReaderAloudEngineType.httpTts;
+      _currentCloudText = text;
+      _httpTtsError = null;
+      _cloudError = null;
+
+      final httpRate = _httpSpeakRate;
+      final cacheKey = sha256
+          .convert(
+            utf8.encode(
+              '$engineId\n${engine.url}\n${_httpSpeakRate.toStringAsFixed(3)}\n$text',
+            ),
+          )
+          .toString();
+      var audio = _cache.read(cacheKey);
+      if (audio == null) {
+        audio = await _httpTtsFetcher.fetchAudio(
+          engine: engine,
+          text: text,
+          rate: httpRate,
+        );
+      }
+      if (!_isCurrentOperation(operation)) return;
+      _cache.write(cacheKey, audio);
+      await _bytesPlayer.play(
+        audio,
+        mimeType: _mimeTypeFor(engine.contentType),
+        volume: systemEngine.speechVolume,
+      );
+      // 段落间静音停顿（Legado pauseDuration，0-10000ms）。
+      final pause = engine.pauseDuration;
+      if (pause > 0 && !_disposed && operation == _operationGeneration) {
+        await Future<void>.delayed(Duration(milliseconds: pause));
+      }
+    } catch (error, stackTrace) {
+      if (!_isCurrentOperation(operation)) return;
+      _httpTtsError = error is HttpTtsEngineException
+          ? error.message
+          : 'HTTP TTS 播放失败';
+      _notifySafe();
+      if (cloudSettings.fallbackToSystem) {
+        _activeEngineType = ReaderAloudEngineType.system;
+        await systemEngine.speak(text);
+        return;
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  /// HTTP TTS 语速：{@link HttpTtsAudioFetcher.speakSpeedFor} 已映射成整数，
+  /// 这里统一从系统引擎的 speechRate（0.1-1.0）取源值。
+  double get _httpSpeakRate => systemEngine.speechRate.clamp(0.1, 1.0);
+
   @override
   Future<void> pause() async {
     _operationGeneration++;
@@ -763,14 +895,13 @@ class ReaderAloudService extends ChangeNotifier implements ReaderAloudEngine {
   Future<void> syncVolume() =>
       _bytesPlayer.setVolume(systemEngine.speechVolume);
 
-  String _mimeTypeFor(String responseFormat) => switch (responseFormat) {
-    'opus' => 'audio/opus',
-    'aac' => 'audio/aac',
-    'flac' => 'audio/flac',
-    'wav' => 'audio/wav',
-    'pcm' => 'audio/pcm',
-    _ => 'audio/mpeg',
-  };
+  String _mimeTypeFor(String? contentType) {
+    final value = contentType?.trim();
+    if (value == null || value.isEmpty) return 'audio/mpeg';
+    final lower = value.toLowerCase();
+    if (!lower.contains(';') && lower.contains('/')) return lower;
+    return lower.split(';').first.trim();
+  }
 
   void _relayEngineChange() => _notifySafe();
 
@@ -788,6 +919,8 @@ class ReaderAloudService extends ChangeNotifier implements ReaderAloudEngine {
     _operationGeneration++;
     systemEngine.removeListener(_relayEngineChange);
     _bytesPlayer.removeListener(_relayEngineChange);
+    _httpTtsEngineService.removeListener(_relayEngineChange);
+    _httpTtsFetcher.close();
     _bytesPlayer.dispose();
     super.dispose();
   }

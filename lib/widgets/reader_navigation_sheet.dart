@@ -31,6 +31,7 @@ class ReaderNavigationSheet extends StatefulWidget {
     required this.onChapterSelected,
     required this.onBookmarkSelected,
     required this.onBookmarkDeleted,
+    this.onBookmarkNoteEdited,
     this.annotations = const [],
     this.onAnnotationSelected,
     this.onAnnotationDeleted,
@@ -46,6 +47,7 @@ class ReaderNavigationSheet extends StatefulWidget {
   final ValueChanged<int> onChapterSelected;
   final ValueChanged<Bookmark> onBookmarkSelected;
   final ValueChanged<Bookmark> onBookmarkDeleted;
+  final ValueChanged<Bookmark>? onBookmarkNoteEdited;
   final ValueChanged<BookNote>? onAnnotationSelected;
   final ValueChanged<BookNote>? onAnnotationDeleted;
 
@@ -925,9 +927,18 @@ class _ReaderNavigationSheetState extends State<ReaderNavigationSheet>
                     ),
                   ),
                   onSelected: (value) {
-                    if (value == 'delete') widget.onBookmarkDeleted(bookmark);
+                    if (value == 'edit') {
+                      widget.onBookmarkNoteEdited?.call(bookmark);
+                    } else if (value == 'delete') {
+                      widget.onBookmarkDeleted(bookmark);
+                    }
                   },
                   itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: 'edit',
+                      enabled: widget.onBookmarkNoteEdited != null,
+                      child: Text(context.l10n.edit),
+                    ),
                     PopupMenuItem(
                       value: 'delete',
                       child: Text(

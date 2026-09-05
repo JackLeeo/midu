@@ -27,8 +27,13 @@ class ReaderChromeOverlay extends StatelessWidget {
     this.onReadAloud,
     this.readAloudTooltip,
     this.readAloudActive = false,
+    this.onAutoRead,
+    this.autoReadTooltip,
+    this.autoReadActive = false,
     this.onDownload,
     this.downloadTooltip,
+    this.onSearch,
+    this.searchTooltip,
     this.onSwitchSource,
     this.switchSourceTooltip,
     this.bookmarkBusy = false,
@@ -61,7 +66,12 @@ class ReaderChromeOverlay extends StatelessWidget {
   final VoidCallback? onTableOfContents;
   final VoidCallback onSettings;
   final VoidCallback? onReadAloud;
+  final VoidCallback? onAutoRead;
   final VoidCallback? onDownload;
+  final VoidCallback? onSearch;
+  final String? autoReadTooltip;
+  final bool autoReadActive;
+  final String? searchTooltip;
   final String? downloadTooltip;
   final VoidCallback? onSwitchSource;
   final String? switchSourceTooltip;
@@ -266,9 +276,15 @@ class ReaderChromeOverlay extends StatelessWidget {
                   const SizedBox(height: 18),
                   SizedBox(
                     height: 68,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
+                    // 横向可滚动：工具栏按钮数量随能力增删（自动阅读/换源/缓存/
+                    // 搜索等），在窄屏下可横向滑动，避免溢出挤坏布局。
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
                         if (onPreviousChapter != null)
                           ReaderControlIconButton(
                             palette: palette,
@@ -297,6 +313,17 @@ class ReaderChromeOverlay extends StatelessWidget {
                             active: readAloudActive,
                             label: '听书',
                           ),
+                        if (onAutoRead != null)
+                          ReaderControlIconButton(
+                            palette: palette,
+                            onPressed: onAutoRead,
+                            tooltip: autoReadTooltip ?? '',
+                            icon: autoReadActive
+                                ? Icons.timer_rounded
+                                : Icons.play_circle_outline_rounded,
+                            active: autoReadActive,
+                            label: '自动',
+                          ),
                         if (onSwitchSource != null)
                           ReaderControlIconButton(
                             palette: palette,
@@ -312,6 +339,14 @@ class ReaderChromeOverlay extends StatelessWidget {
                             tooltip: downloadTooltip ?? '',
                             icon: Icons.download_rounded,
                             label: '缓存',
+                          ),
+                        if (onSearch != null)
+                          ReaderControlIconButton(
+                            palette: palette,
+                            onPressed: onSearch,
+                            tooltip: searchTooltip ?? '搜索',
+                            icon: Icons.manage_search_rounded,
+                            label: '搜索',
                           ),
                         if (showSettingsAction)
                           ReaderControlIconButton(
@@ -331,7 +366,8 @@ class ReaderChromeOverlay extends StatelessWidget {
                             icon: Icons.skip_next_rounded,
                             label: '下一章',
                           ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                   const SizedBox(height: 10),

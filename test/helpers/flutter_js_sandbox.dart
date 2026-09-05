@@ -96,6 +96,17 @@ class FlutterLegadoJsSandbox implements LegadoJsSandbox, AjaxFetcherSink {
     _inited = false;
   }
 
+  /// 预加载书源公共 JS 库（jsLib）：在全局作用域执行一次，声明函数对后续
+  /// evalJs 可见（QuickJS 共享 global，等价于生产 fjs 沙箱的 preloadJsLib）。
+  @override
+  Future<void> preloadJsLib(String code) async {
+    final trimmed = code.trim();
+    if (trimmed.isEmpty) return;
+    if (!_inited) await init();
+    final r = _runtime.evaluate(_stripJsTag(trimmed));
+    if (r.isError) lastError = r.stringResult;
+  }
+
   @override
   String? getSourceVar(String key) => _vars[key];
 

@@ -19,6 +19,7 @@ import 'package:midu/pages/book_sources/source_search_page.dart';
 import 'package:midu/pages/library/import_book/import_book_page.dart';
 import 'package:midu/pages/library/library_page.dart';
 import 'package:midu/pages/library/download_tasks_page.dart';
+import 'package:midu/pages/rss/rss_page.dart';
 import 'package:midu/pages/settings/settings_page.dart';
 import 'package:midu/services/core/app_settings_service.dart';
 import 'package:midu/services/core/network_preflight.dart';
@@ -176,6 +177,13 @@ class _HomeShellPageState extends State<HomeShellPage> {
         selectedIcon: Icons.explore_rounded,
         label: l10n.discover,
         page: const BookSourcesPage(),
+      ),
+      HomeNavigationDestination.rss: HomeNavigationItem(
+        destination: HomeNavigationDestination.rss,
+        icon: Icons.rss_feed_rounded,
+        selectedIcon: Icons.rss_feed_rounded,
+        label: l10n.rss,
+        page: const RssPage(),
       ),
       HomeNavigationDestination.settings: HomeNavigationItem(
         destination: HomeNavigationDestination.settings,

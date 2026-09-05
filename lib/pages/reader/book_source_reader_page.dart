@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui';
 
-import 'package:flutter/foundation.dart' show compute;
+import 'package:flutter/foundation.dart' show compute, kIsWeb, listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -19,7 +19,9 @@ import 'package:midu/book_sources/services/book_source_reading_progress.dart';
 import 'package:midu/book_sources/services/book_source_shelf_service.dart';
 import 'package:midu/book_sources/services/book_source_registry.dart';
 import 'package:midu/book_sources/services/book_source_text_paginator.dart';
+import 'package:midu/book_sources/services/replace_rule_service.dart';
 import 'package:midu/core/reader/canonical_locator.dart';
+import 'package:midu/core/reader/chinese_converter.dart';
 import 'package:midu/core/reader/android_reader_aloud_notification.dart';
 import 'package:midu/core/reader/native_text_paginator.dart';
 import 'package:midu/core/reader/reader_annotation.dart';
@@ -58,9 +60,11 @@ import 'package:midu/utils/localization_extension.dart';
 import 'package:midu/utils/midu_theme.dart';
 import 'package:midu/utils/reader_themes.dart';
 import 'package:midu/utils/system_ui_helper.dart';
+import 'package:midu/pages/reader/content_search_page.dart';
 import 'package:midu/pages/reader/network_comic_viewer.dart';
 import 'package:midu/widgets/reader_annotated_text_page.dart';
 import 'package:midu/widgets/reader_aloud_panel.dart';
+import 'package:midu/widgets/reader_auto_read_panel.dart';
 import 'package:midu/widgets/reader_control_chrome.dart';
 import 'package:midu/widgets/reader_cover_page_turn.dart';
 import 'package:midu/widgets/reader_chapter_title_page.dart';
@@ -91,6 +95,10 @@ class BookSourceReaderPage extends StatefulWidget {
   final ReaderThemePalette? initialTheme;
   final List<SourcedBookPointer>? alternateSources;
 
+  /// 从书签管理页跳转时可指定初始打开的章节索引（0-based）。
+  /// null 表示保持默认行为（恢复上次阅读进度）。
+  final int? initialChapterIndex;
+
   const BookSourceReaderPage({
     super.key,
     required this.source,
@@ -100,6 +108,7 @@ class BookSourceReaderPage extends StatefulWidget {
     this.shelfService,
     this.initialTheme,
     this.alternateSources,
+    this.initialChapterIndex,
   });
 
   @override
@@ -118,6 +127,11 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
   late final BookSourceShelfService _shelfService =
       widget.shelfService ?? BookSourceShelfService(client: _client);
   final BookDao _bookDao = BookDao();
+
+  /// 全局替换净化规则（对标 Legado 替换净化）：渲染/书签/页码/朗读共用同一条
+  /// 净化链，保证阅读正文、进度锚点与页布局基于同一份文本。规则列表为空时
+  /// 原样渲染，零开销。规则变更后由 [_loadReplaceRules] 刷新。
+  List<ReplaceRule> _replaceRules = const [];
   // 当前阅读所使用的源/书籍。换源后会被替换为切换后的源/书籍，
   // 这样章节加载、进度保存与缓存键都能跟随切换后的源生效。
   late RegisteredBookSource _activeSource;
@@ -177,6 +191,17 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
   ReaderTapZones _tapZones = ReaderTapZones.defaults;
   bool _tapZoneEditorVisible = false;
   bool _tabletTwoPageEnabled = ReaderSettings.defaultTabletTwoPageEnabled;
+  // —— M5 显示设置 ——
+  bool _punctuationCompression = false;
+  bool _immersiveMode = false;
+  double _eyeCareBrightness = 0;
+  double _warmth = 0;
+  // —— M7 阅读设置 ——
+  ChineseConversionMode _chineseConversion = ChineseConversionMode.off;
+  bool _textBold = false;
+  // 自动阅读翻页间隔（对标 Legado ReadBookConfig.autoReadSpeed）。
+  int _autoReadSeconds = ReaderSettings.defaultAutoReadSeconds;
+  ReaderAutoReadController? _autoReadController;
   int _pageIndex = 0;
   bool _usesTwoPageLayout = false;
   int _pageCount = 1;
@@ -269,6 +294,13 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     pullBookmarkEnabled: _pullBookmarkEnabled,
     tapPageAnimationEnabled: _tapPageAnimationEnabled,
     tabletTwoPageEnabled: _tabletTwoPageEnabled,
+    punctuationCompression: _punctuationCompression,
+    immersiveMode: _immersiveMode,
+    eyeCareBrightness: _eyeCareBrightness,
+    warmth: _warmth,
+    chineseConversion: _chineseConversion,
+    textBold: _textBold,
+    autoReadSeconds: _autoReadSeconds,
   );
 
   ReaderSafeAreaMetrics get _readerSafeArea => ReaderSafeAreaMetrics(
@@ -348,6 +380,8 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       ..addListener(_onLeafStatusChanged)
       ..start();
     unawaited(ReaderKeepScreenOnController.activate(this));
+    unawaited(_initialize());
+    unawaited(_loadReplaceRules());
     _startReadingSession();
     _verticalPagePositionsListener.itemPositions.addListener(
       _onVerticalPagePositionsChanged,
@@ -365,6 +399,8 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
         _topBarStyle = topBarStyle;
         _readerSystemUiApplied = true;
       });
+      // 沉浸模式可能已在设置加载时就绪：统一走 _applyReaderSystemUi 收敛最终状态。
+      unawaited(_applyReaderSystemUi());
     });
     unawaited(_initialize());
   }
@@ -447,6 +483,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    ReplaceRuleService.instance.removeListener(_onReplaceRulesChanged);
     _downloadOverlay?.remove();
     _downloadOverlay = null;
     _openingLoaderTimer?.cancel();
@@ -454,6 +491,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     _progressSaveTimer?.cancel();
     _controlsTimer?.cancel();
     _pagedLayoutWarmTimer?.cancel();
+    _autoReadController?.dispose();
     _readerAloudController?.dispose();
     unawaited(_saveProgress());
     unawaited(_flushReadingSession());
@@ -482,13 +520,88 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
         transparentSystemBars: !GlassEffectConfig.shouldDisableBlur,
       );
 
-  Future<void> _applyReaderSystemUi() => ReaderSystemUiController.apply(
-    style: _topBarStyle,
-    overlayStyle: _readerSystemUiOverlayStyle,
-  );
+  Future<void> _applyReaderSystemUi() async {
+    // 沉浸模式覆盖顶部信息栏样式：全屏隐藏系统状态栏/导航栏（Web 条件禁用）。
+    if (!kIsWeb && _immersiveMode) {
+      await ReaderSystemUiController.apply(
+        style: ReaderTopBarStyle.hidden,
+        overlayStyle: _readerSystemUiOverlayStyle,
+      );
+      return;
+    }
+    await ReaderSystemUiController.apply(
+      style: _topBarStyle,
+      overlayStyle: _readerSystemUiOverlayStyle,
+    );
+  }
+
+  /// 护眼/暖光遮罩：半透明黑色层降低亮度、琥珀层叠加暖色（Web 条件禁用）。
+  /// 置于阅读栈最顶端并用 IgnorePointer 包裹，不拦截任何手势。
+  Widget? get _displayOverlay {
+    if (kIsWeb) return null;
+    if (_eyeCareBrightness <= 0 && _warmth <= 0) return null;
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Stack(
+          children: [
+            if (_eyeCareBrightness > 0)
+              DecoratedBox(
+                key: const ValueKey('book-source-eye-care-overlay'),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: _eyeCareBrightness * 0.35),
+                ),
+              ),
+            if (_warmth > 0)
+              DecoratedBox(
+                key: const ValueKey('book-source-warmth-overlay'),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFA726).withValues(
+                    alpha: _warmth * 0.22,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   void _onLeafStatusChanged() {
     if (mounted) setState(() {});
+  }
+
+  /// 加载全局替换净化规则并监听变更：规则列表变化时刷新，保证渲染/书签/
+  /// 页码/朗读始终基于同一份净化文本。
+  Future<void> _loadReplaceRules() async {
+    final service = ReplaceRuleService.instance;
+    await service.ensureLoaded();
+    if (!mounted) return;
+    final next = service.enabledRules;
+    if (!listEquals(_replaceRules.map((r) => r.id).toList(),
+        next.map((r) => r.id).toList())) {
+      setState(() {
+        _replaceRules = next;
+        _invalidateTextLayouts();
+      });
+    }
+    service.removeListener(_onReplaceRulesChanged);
+    service.addListener(_onReplaceRulesChanged);
+  }
+
+  void _onReplaceRulesChanged() {
+    if (!mounted) return;
+    setState(() {
+      _replaceRules = List.unmodifiable(ReplaceRuleService.instance.enabledRules);
+      _invalidateTextLayouts();
+    });
+  }
+
+  /// 替换净化变化后作废旧布局缓存，强制下一页/滚动重新分页。
+  void _invalidateTextLayouts() {
+    _pagedLayouts.clear();
+    _verticalLayouts.clear();
+    _readableChapterText.clear();
+    _paginatedPages = const [];
   }
 
   Future<void> _initialize() async {
@@ -526,8 +639,10 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       final customThemes = results[4] as List<ReaderCustomTheme>;
       final themeOrder = results[5] as List<String>;
       final tapZones = results[6] as ReaderTapZones;
-      var initialIndex = saved?.chapterIndex ?? 0;
-      if (saved != null && saved.chapterId.isNotEmpty) {
+      var initialIndex = widget.initialChapterIndex ?? saved?.chapterIndex ?? 0;
+      if (widget.initialChapterIndex == null &&
+          saved != null &&
+          saved.chapterId.isNotEmpty) {
         final byId = chapters.indexWhere(
           (chapter) => chapter.id == saved.chapterId,
         );
@@ -558,9 +673,17 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
         _tapPageAnimationEnabled = settings.tapPageAnimationEnabled;
         _tapZones = tapZones;
         _tabletTwoPageEnabled = settings.tabletTwoPageEnabled;
+        _punctuationCompression = settings.punctuationCompression;
+        _immersiveMode = settings.immersiveMode;
+        _eyeCareBrightness = settings.eyeCareBrightness;
+        _warmth = settings.warmth;
+        _chineseConversion = settings.chineseConversion;
+        _textBold = settings.textBold;
+        _autoReadSeconds = settings.autoReadSeconds;
         _scrollByChapter = scrollByChapter;
         _loadingCatalog = false;
       });
+      if (_readerSystemUiApplied) unawaited(_applyReaderSystemUi());
       unawaited(_syncVolumeKeyPaging());
       if (chapters.isNotEmpty) {
         unawaited(_resolveShelfBook());
@@ -672,6 +795,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
             chapterIndex: chapterIndex,
             chapterCount: chapterCount,
             chapterProgress: progress,
+            chapterTitle: _chapters[chapterIndex].title,
           );
         }
       } catch (error) {
@@ -1128,8 +1252,10 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
               final rendered = await readableBookSourceChapterTextAsync(
                 content,
                 fallbackTitle: _chapters[index].title,
+                replaceRules: _replaceRules,
               );
-              _readableChapterText[index] = rendered;
+              _readableChapterText[index] =
+                  ChineseConverter.convert(rendered, _chineseConversion);
               logger.log('reader', '_continuousContentFor:排版渲染完成',
                   details: {
                     'index': index,
@@ -1543,9 +1669,12 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
   String? get _currentBookmarkAnchorKey {
     final content = _content;
     if (content == null || _chapters.isEmpty) return null;
-    final text = readableBookSourceChapterText(
-      content,
-      fallbackTitle: _chapters[_chapterIndex].title,
+    final text = ChineseConverter.convert(
+      readableBookSourceChapterText(
+        content,
+        fallbackTitle: _chapters[_chapterIndex].title,
+      ),
+      _chineseConversion,
     );
     final offset = _currentBookmarkOffset(text);
     return '${_chapters[_chapterIndex].id}:$offset';
@@ -1565,9 +1694,13 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       );
       return;
     }
-    final text = readableBookSourceChapterText(
-      content,
-      fallbackTitle: _chapters[_chapterIndex].title,
+    final text = ChineseConverter.convert(
+      readableBookSourceChapterText(
+        content,
+        fallbackTitle: _chapters[_chapterIndex].title,
+        replaceRules: _replaceRules,
+      ),
+      _chineseConversion,
     );
     final offset = _currentBookmarkOffset(text);
     final anchorKey = '${_chapters[_chapterIndex].id}:$offset';
@@ -1660,6 +1793,58 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       context.l10n.bookmarkRemoved,
       duration: const Duration(milliseconds: 1600),
       icon: Icons.bookmark_remove_rounded,
+      kind: SideToastKind.success,
+    );
+  }
+
+  /// 编辑书签备注（对标 Legado BookmarkDialog 的备注编辑能力）。
+  Future<void> _editBookmarkNote(Bookmark bookmark) async {
+    final id = bookmark.id;
+    if (id == null) return;
+    final controller = TextEditingController(text: bookmark.note);
+    final saved = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(context.l10n.bookmarkEditNoteTitle),
+        content: TextField(
+          key: const ValueKey('bookmark-note-editor'),
+          controller: controller,
+          autofocus: true,
+          maxLines: 4,
+          minLines: 2,
+          decoration: InputDecoration(
+            hintText: context.l10n.bookmarkEditNoteHint,
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(MaterialLocalizations.of(dialogContext).cancelButtonLabel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+            child: Text(MaterialLocalizations.of(dialogContext).saveButtonLabel),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (saved == null) return;
+    await _bookmarkDao.updateBookmarkNote(id, saved.trim());
+    if (!mounted) return;
+    setState(() {
+      final index = _bookmarks.indexWhere((candidate) => candidate.id == id);
+      if (index >= 0) {
+        _bookmarks = List.of(_bookmarks);
+        _bookmarks[index] = _bookmarks[index].copyWith(note: saved.trim());
+      }
+    });
+    showSideToast(
+      context,
+      context.l10n.bookmarkNoteUpdated,
+      duration: const Duration(milliseconds: 1500),
+      icon: Icons.edit_note_rounded,
       kind: SideToastKind.success,
     );
   }
@@ -1758,6 +1943,10 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
               await _deleteBookmark(bookmark);
               if (mounted) setSheetState(() {});
             },
+            onBookmarkNoteEdited: (bookmark) async {
+              await _editBookmarkNote(bookmark);
+              if (mounted) setSheetState(() {});
+            },
             onAnnotationSelected: (annotation) {
               Navigator.of(sheetContext).pop();
               unawaited(_jumpToAnnotation(annotation));
@@ -1804,6 +1993,12 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     bool? pullBookmarkEnabled,
     bool? tapPageAnimationEnabled,
     bool? tabletTwoPageEnabled,
+    bool? punctuationCompression,
+    bool? immersiveMode,
+    double? eyeCareBrightness,
+    double? warmth,
+    ChineseConversionMode? chineseConversion,
+    bool? textBold,
   }) async {
     final repaginate =
         fontSize != null ||
@@ -1815,6 +2010,10 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
         horizontalMargin != null ||
         topMargin != null ||
         bottomMargin != null ||
+        (punctuationCompression != null &&
+            punctuationCompression != _punctuationCompression) ||
+        (chineseConversion != null && chineseConversion != _chineseConversion) ||
+        (textBold != null && textBold != _textBold) ||
         (tabletTwoPageEnabled != null &&
             tabletTwoPageEnabled != _tabletTwoPageEnabled) ||
         (pageMode != null && pageMode != _pageMode);
@@ -1848,6 +2047,16 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       _tapPageAnimationEnabled =
           tapPageAnimationEnabled ?? _tapPageAnimationEnabled;
       _tabletTwoPageEnabled = tabletTwoPageEnabled ?? _tabletTwoPageEnabled;
+      _punctuationCompression =
+          punctuationCompression ?? _punctuationCompression;
+      _immersiveMode = immersiveMode ?? _immersiveMode;
+      _eyeCareBrightness = (eyeCareBrightness ?? _eyeCareBrightness).clamp(
+        0.0,
+        1.0,
+      );
+      _warmth = (warmth ?? _warmth).clamp(0.0, 1.0);
+      _chineseConversion = chineseConversion ?? _chineseConversion;
+      _textBold = textBold ?? _textBold;
       if (repaginate) {
         _paginationKey = null;
         _paginatedPages = const [];
@@ -1861,7 +2070,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     });
     unawaited(_syncVolumeKeyPaging());
     await _readerSettingsStore.save(_readerSettings);
-    if (themeId != null && _readerSystemUiApplied) {
+    if ((themeId != null || immersiveMode != null) && _readerSystemUiApplied) {
       await _applyReaderSystemUi();
     }
     if (repaginate) _restoreScrollProgress(currentProgress);
@@ -1968,12 +2177,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
           }
           final chapterIndex = _chapterIndex.clamp(0, _chapters.length - 1);
           final content = await _continuousContentFor(chapterIndex);
-          final text =
-              _readableChapterText[chapterIndex] ??
-              await readableBookSourceChapterTextAsync(
-                content,
-                fallbackTitle: _chapters[chapterIndex].title,
-              );
+          final text = await _displayTextForChapter(chapterIndex, content);
           final offset =
               _currentTextOffset ??
               (text.length * _currentReadingProgress).round();
@@ -1985,12 +2189,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
         loadChapter: (index) async {
           if (index < 0 || index >= _chapters.length) return null;
           final content = await _continuousContentFor(index);
-          final text =
-              _readableChapterText[index] ??
-              await readableBookSourceChapterTextAsync(
-                content,
-                fallbackTitle: _chapters[index].title,
-              );
+          final text = await _displayTextForChapter(index, content);
           return ReaderAloudChapter(
             index: index,
             id: _chapters[index].id,
@@ -2019,17 +2218,28 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     });
   }
 
+  /// 章节显示文本：优先命中排版缓存，未缓存时现场渲染净化并应用简繁转换。
+  /// 与 [ChineseConverter] 一起保证正文/页码/朗读/书签基于同一份转换后文本。
+  Future<String> _displayTextForChapter(
+    int chapterIndex,
+    BookSourceChapterContent content,
+  ) async {
+    final cached = _readableChapterText[chapterIndex];
+    if (cached != null) return cached;
+    final rendered = await readableBookSourceChapterTextAsync(
+      content,
+      fallbackTitle: _chapters[chapterIndex].title,
+      replaceRules: _replaceRules,
+    );
+    return ChineseConverter.convert(rendered, _chineseConversion);
+  }
+
   Future<void> _revealReaderAloudPosition(ReaderAloudPosition position) async {
     if (!mounted || _chapters.isEmpty) return;
     final chapterIndex = position.chapterIndex.clamp(0, _chapters.length - 1);
     final content = await _continuousContentFor(chapterIndex);
     if (!mounted) return;
-    final text =
-        _readableChapterText[chapterIndex] ??
-        await readableBookSourceChapterTextAsync(
-          content,
-          fallbackTitle: _chapters[chapterIndex].title,
-        );
+    final text = await _displayTextForChapter(chapterIndex, content);
     final offset = position.offset.clamp(0, text.length);
     final progress = text.isEmpty ? 0.0 : offset / text.length;
 
@@ -2055,12 +2265,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     if (_chapters.isEmpty) return;
     final chapterIndex = position.chapterIndex.clamp(0, _chapters.length - 1);
     final content = await _continuousContentFor(chapterIndex);
-    final text =
-        _readableChapterText[chapterIndex] ??
-        await readableBookSourceChapterTextAsync(
-          content,
-          fallbackTitle: _chapters[chapterIndex].title,
-        );
+    final text = await _displayTextForChapter(chapterIndex, content);
     final progress = text.isEmpty
         ? 0.0
         : (position.offset / text.length).clamp(0.0, 1.0);
@@ -2085,6 +2290,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
             chapterIndex: chapterIndex,
             chapterCount: chapterCount,
             chapterProgress: progress,
+            chapterTitle: _chapters[chapterIndex].title,
           );
         }
       } catch (error) {
@@ -2104,6 +2310,110 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       controller: controller,
       ttsService: ttsService,
       aloudService: aloudService,
+      palette: _readerTheme,
+      themeData: _readerThemeData,
+    );
+  }
+
+  void _onAutoReadChanged() {
+    final controller = _autoReadController;
+    if (controller == null || !mounted) return;
+    if (controller.running && _controlsVisible) {
+      // 自动阅读开始后隐藏控制条，避免遮挡正文（对标 Legado 自动翻页时收菜单）。
+      setState(() => _controlsVisible = false);
+    } else if (!controller.running && !_controlsVisible) {
+      setState(() => _controlsVisible = true);
+    } else if (mounted) {
+      setState(() {});
+    }
+  }
+
+  ReaderAutoReadController _ensureAutoReadController() {
+    final existing = _autoReadController;
+    if (existing != null) {
+      existing.setSeconds(_autoReadSeconds);
+      return existing;
+    }
+    final controller = ReaderAutoReadController(
+      seconds: _autoReadSeconds,
+      store: _readerSettingsStore,
+      onTurn: () => unawaited(_autoReadTurn()),
+      onFinish: () {
+        if (!mounted) return;
+        showSideToast(
+          context,
+          context.l10n.autoReadStop,
+          duration: const Duration(milliseconds: 1200),
+          icon: Icons.stop_circle_outlined,
+        );
+      },
+      onPreviousChapter: () {
+        if (_chapters.isNotEmpty && _chapterIndex > 0) {
+          unawaited(_loadChapter(_chapterIndex - 1, restoreProgress: 1));
+        }
+      },
+      onNextChapter: () {
+        if (_chapters.isNotEmpty && _chapterIndex < _chapters.length - 1) {
+          unawaited(_loadChapter(_chapterIndex + 1, restoreProgress: 0));
+        }
+      },
+    );
+    controller.addListener(_onAutoReadChanged);
+    _autoReadController = controller;
+    return controller;
+  }
+
+  /// 自动阅读翻页回调（对标 Legado `AutoPager`）：驱动当前页面前进，
+  /// 到达章节/全书末尾时返回 false，让引擎收尾停止。
+  Future<bool> _autoReadTurn() async {
+    if (!mounted || _loadingCatalog || _loadingContent || _chapters.isEmpty) {
+      return true;
+    }
+    if (_pageMode == BookSourcePageMode.verticalScroll) {
+      // 上下滚动模式：把下一页拉到视口中心（依赖位置监听回调刷新页码）。
+      final next = _verticalPageIndex + 1;
+      if (next < _verticalPageCount) {
+        if (_scrollByChapter) {
+          if (!_verticalPageScrollController.isAttached) return true;
+          await _verticalPageScrollController.scrollTo(
+            index: next,
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.easeOutCubic,
+          );
+        } else {
+          if (!_verticalChapterScrollController.isAttached) return true;
+          await _verticalChapterOffsetController.animateScroll(
+            offset: next * _verticalPageExtentFor(_verticalViewportSize),
+            duration: const Duration(milliseconds: 260),
+          );
+        }
+        return true;
+      }
+      if (_chapterIndex + 1 < _chapters.length) {
+        await _jumpToVerticalChapter(_chapterIndex + 1, progress: 0);
+        return true;
+      }
+      return false;
+    }
+    // 分页模式：复用现有翻页前进逻辑。
+    final pageStep = _usesTwoPageLayout ? 2 : 1;
+    if (_pageIndex + pageStep < _pageCount) {
+      _setPagedIndex(_pageIndex + pageStep, jumpPageView: true);
+      return true;
+    }
+    if (_chapterIndex + 1 < _chapters.length) {
+      await _loadChapter(_chapterIndex + 1, restoreProgress: 0);
+      return true;
+    }
+    return false;
+  }
+
+  Future<void> _showAutoReadPanel() async {
+    _controlsTimer?.cancel();
+    final controller = _ensureAutoReadController();
+    await showReaderAutoReadPanelSheet(
+      context: context,
+      controller: controller,
       palette: _readerTheme,
       themeData: _readerThemeData,
     );
@@ -2239,6 +2549,30 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  // 正文搜索：全书章节全文关键词搜索（对标 Legado SearchContentActivity）。
+  Future<void> _openContentSearch() async {
+    if (_chapters.isEmpty || !mounted) return;
+    _controlsTimer?.cancel();
+    final source = _activeSource;
+    final bookId = _activeBook.id;
+    final chapters = _chapters;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => ContentSearchPage(
+          source: source,
+          bookId: bookId,
+          chapters: chapters,
+          client: _client,
+          onOpenChapter: (chapterIndex) {
+            unawaited(
+              _loadChapter(chapterIndex, restoreProgress: 0),
+            );
+          },
         ),
       ),
     );
@@ -2541,6 +2875,45 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
             unawaited(_updateReadingSettings(tapPageAnimationEnabled: value)),
         onTabletTwoPageChanged: (value) =>
             unawaited(_updateReadingSettings(tabletTwoPageEnabled: value)),
+        tabDisplayLabel: context.l10n.readerSettingsTabDisplay,
+        punctuationCompression: _punctuationCompression,
+        immersiveMode: _immersiveMode,
+        eyeCareBrightness: _eyeCareBrightness,
+        warmth: _warmth,
+        punctuationCompressionTitle:
+            context.l10n.readerPunctuationCompressionTitle,
+        punctuationCompressionHint: context.l10n.readerPunctuationCompressionHint,
+        immersiveModeTitle: context.l10n.readerImmersiveModeTitle,
+        immersiveModeHint: context.l10n.readerImmersiveModeHint,
+        eyeCareTitle: context.l10n.readerEyeCareTitle,
+        eyeCareOnLabel: context.l10n.readerEyeCareOnLabel,
+        eyeCareOffLabel: context.l10n.readerEyeCareOffLabel,
+        warmthTitle: context.l10n.readerWarmthTitle,
+        onPunctuationCompressionChanged: (value) => unawaited(
+          _updateReadingSettings(punctuationCompression: value),
+        ),
+        onImmersiveModeChanged: (value) =>
+            unawaited(_updateReadingSettings(immersiveMode: value)),
+        onEyeCareBrightnessChanged: (value) => unawaited(
+          _updateReadingSettings(eyeCareBrightness: value),
+        ),
+        onWarmthChanged: (value) =>
+            unawaited(_updateReadingSettings(warmth: value)),
+        // —— M7 阅读设置 ——
+        textBold: _textBold,
+        textBoldTitle: context.l10n.readerTextBoldTitle,
+        textBoldHint: context.l10n.readerTextBoldHint,
+        onTextBoldChanged: (value) =>
+            unawaited(_updateReadingSettings(textBold: value)),
+        chineseConversion: _chineseConversion,
+        chineseConversionTitle: context.l10n.readerChineseConversionTitle,
+        chineseConversionOffLabel: context.l10n.readerChineseConversionOff,
+        chineseConversionS2tLabel:
+            context.l10n.readerChineseConversionSimplifiedToTraditional,
+        chineseConversionT2sLabel:
+            context.l10n.readerChineseConversionTraditionalToSimplified,
+        onChineseConversionChanged: (value) =>
+            unawaited(_updateReadingSettings(chineseConversion: value)),
       ),
     );
     if (mounted) setState(() => _controlsVisible = false);
@@ -2742,6 +3115,12 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
                           : () => unawaited(_showReaderAloudPanel()),
                       readAloudTooltip: context.l10n.ttsReading,
                       readAloudActive: _readerAloudActive,
+                      onAutoRead:
+                          _chapters.isEmpty
+                          ? null
+                          : () => unawaited(_showAutoReadPanel()),
+                      autoReadTooltip: context.l10n.autoReadTitle,
+                      autoReadActive: _autoReadController?.running ?? false,
                       onDownload: _chapters.isEmpty
                           ? null
                           : () => unawaited(_downloadCurrentBook()),
@@ -2750,6 +3129,10 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
                           ? null
                           : _showSwitchSourcePanel,
                       switchSourceTooltip: '换源',
+                      onSearch: _chapters.isEmpty
+                          ? null
+                          : () => unawaited(_openContentSearch()),
+                      searchTooltip: context.l10n.contentSearchTitle,
                       onSettings: _showReadingSettings,
                       backTooltip: MaterialLocalizations.of(
                         context,
@@ -2808,6 +3191,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
                               setState(() => _tapZoneEditorVisible = false),
                         ),
                       ),
+                    if (_displayOverlay case final overlay?) overlay,
                   ],
                 ),
               ),
@@ -3016,6 +3400,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     fontSize: _fontSize,
     height: _lineHeight,
     letterSpacing: _letterSpacing,
+    fontWeight: _textBold ? FontWeight.w700 : null,
   );
 
   TextAlign get _bodyTextAlign => switch (_textAlignment) {
@@ -3145,6 +3530,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       firstLineIndent: _firstLineIndent,
       paragraphSpacing: _paragraphSpacing,
       includeChapterTitlePage: false,
+      punctuationCompression: _punctuationCompression,
     );
   }
 
@@ -3180,9 +3566,13 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     if (cached?.fingerprint == fingerprint) return cached!;
     final text =
         _readableChapterText[chapterIndex] ??
-        readableBookSourceChapterText(
-          content,
-          fallbackTitle: _chapters[chapterIndex].title,
+        ChineseConverter.convert(
+          readableBookSourceChapterText(
+            content,
+            fallbackTitle: _chapters[chapterIndex].title,
+            replaceRules: _replaceRules,
+          ),
+          _chineseConversion,
         );
     final pages = _continuousTextParts(
       text,
@@ -3389,9 +3779,13 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
         : content.title;
     final sourceText =
         _readableChapterText[chapterIndex] ??
-        readableBookSourceChapterText(
-          content,
-          fallbackTitle: _chapters[chapterIndex].title,
+        ChineseConverter.convert(
+          readableBookSourceChapterText(
+            content,
+            fallbackTitle: _chapters[chapterIndex].title,
+            replaceRules: _replaceRules,
+          ),
+          _chineseConversion,
         );
     return ReaderAnnotatedTextPage(
       key: ValueKey(
@@ -3633,15 +4027,22 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       firstLineIndent: _firstLineIndent,
       paragraphSpacing: _paragraphSpacing,
       textDirection: Directionality.of(context),
-      extra: '${_readerSafeArea.paginationSignature}:${_readerFont.id}',
+      extra:
+          '${_readerSafeArea.paginationSignature}:${_readerFont.id}:'
+          'pc=$_punctuationCompression:cc=${_chineseConversion.name}:'
+          'bold=$_textBold',
     ).cacheKey('book-source-line-v5');
     final cached = _pagedLayouts[chapterIndex];
     if (cached?.fingerprint == key) return cached!;
     final pages = paginateBookSourceText(
       _readableChapterText[chapterIndex] ??
-          readableBookSourceChapterText(
-            content,
-            fallbackTitle: _chapters[chapterIndex].title,
+          ChineseConverter.convert(
+            readableBookSourceChapterText(
+              content,
+              fallbackTitle: _chapters[chapterIndex].title,
+              replaceRules: _replaceRules,
+            ),
+            _chineseConversion,
           ),
       width: width,
       firstPageHeight: height,
@@ -3654,6 +4055,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       firstLineIndent: _firstLineIndent,
       paragraphSpacing: _paragraphSpacing,
       includeChapterTitlePage: true,
+      punctuationCompression: _punctuationCompression,
     );
     final layout = _BookSourcePagedLayout(fingerprint: key, pages: pages);
     _pagedLayouts[chapterIndex] = layout;

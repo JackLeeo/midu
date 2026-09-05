@@ -198,6 +198,7 @@ class _FakeSettingsStore implements ReaderAloudCloudSettingsStore {
   ReaderAloudEngineType type = ReaderAloudEngineType.system;
   ReaderAloudCloudSettings settings = const ReaderAloudCloudSettings();
   String? apiKey = 'test-key';
+  String? httpTtsEngineId;
 
   @override
   Future<void> clearApiKey() async => apiKey = null;
@@ -219,6 +220,14 @@ class _FakeSettingsStore implements ReaderAloudCloudSettingsStore {
   @override
   Future<void> saveSettings(ReaderAloudCloudSettings settings) async {
     this.settings = settings;
+  }
+
+  @override
+  Future<String?> loadHttpTtsEngineId() async => httpTtsEngineId;
+
+  @override
+  Future<void> saveHttpTtsEngineId(String? id) async {
+    httpTtsEngineId = id;
   }
 
   @override

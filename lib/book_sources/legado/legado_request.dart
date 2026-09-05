@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -8,6 +9,7 @@ import 'package:gbk_codec/gbk_codec.dart';
 
 import '../../utils/fast_gbk_decoder.dart';
 import '../protocol/book_source_protocol.dart';
+import '../services/book_source_cookie_store.dart';
 import '../services/book_source_network_policy.dart';
 
 enum LegadoRequestMethod { get, post }
@@ -19,6 +21,7 @@ class LegadoRequestTemplate {
     required this.headers,
     required this.charset,
     this.body,
+    this.useWebView = false,
   });
 
   final Uri url;
@@ -27,11 +30,16 @@ class LegadoRequestTemplate {
   final String charset;
   final String? body;
 
+  /// 是否走浏览器兜底（`@webBrowser:/@webView:` 前缀或请求选项 `webView:true`）。
+  /// 为 true 时调用方应交给 WebBrowserPool 执行，而不是普通 HTTP 传输。
+  final bool useWebView;
+
   static LegadoRequestTemplate parse(
     String template, {
     required Uri baseUri,
     Map<String, String> variables = const {},
     Map<String, String> sourceHeaders = const {},
+    bool forceWebView = false,
   }) {
     // 米读：先探测请求字符集（options 里的 charset），{{key}}/{{page}} 等变量
     // 按该字符集百分号编码——GBK 站点若用 UTF-8 编码关键词会搜索不到结果。
@@ -188,12 +196,19 @@ class LegadoRequestTemplate {
           ? 'application/json; charset=$resolvedCharset'
           : 'application/x-www-form-urlencoded; charset=$resolvedCharset';
     }
+    // 浏览器兜底标志：`@webBrowser:/@webView:` 前缀（forceWebView）或请求选项
+    // `webView:true` / `webBrowser:true`（兼容 bool 与字符串 "true" 两种写法）。
+    final webViewOption =
+        '${options['webView'] ?? options['webBrowser'] ?? ''}'
+            .trim()
+            .toLowerCase();
     return LegadoRequestTemplate(
       url: uri,
       method: method,
       headers: Map.unmodifiable(headers),
       charset: resolvedCharset,
       body: body,
+      useWebView: forceWebView || webViewOption == 'true',
     );
   }
 }
@@ -329,10 +344,21 @@ Map<String, String> _looseDecodeHeaderText(String raw) {
 }
 
 class LegadoResponse {
-  const LegadoResponse({required this.body, required this.finalUri});
+  const LegadoResponse({
+    required this.body,
+    required this.finalUri,
+    this.statusCode,
+    this.headers,
+  });
 
   final String body;
   final Uri finalUri;
+
+  /// 最终响应的 HTTP 状态码（调试记录用；未提供时为 null）。
+  final int? statusCode;
+
+  /// 最终响应头（调试记录用；未提供时为 null）。
+  final Map<String, String>? headers;
 }
 
 abstract interface class LegadoTransport {
@@ -350,6 +376,7 @@ class LegadoHttpTransport implements LegadoTransport {
     ),
     this.maxResponseBytes = 8 * 1024 * 1024,
     this.requestTimeout = const Duration(seconds: 8),
+    this.cookieStore,
   }) : _networkPolicy = networkPolicy,
        _dio = dio ?? _createDio(networkPolicy, requestTimeout);
 
@@ -357,6 +384,14 @@ class LegadoHttpTransport implements LegadoTransport {
   final BookSourceNetworkPolicy _networkPolicy;
   final int maxResponseBytes;
   final Duration requestTimeout;
+
+  /// 登录 Cookie 持久化后端；为空时保持纯会话内 Cookie（现状行为）。
+  /// 非空时按 host 种子化启动时的持久 Cookie，并在收到 Set-Cookie 后回写，
+  /// 让书源登录状态跨 App 重启保持。
+  final BookSourceCookieStore? cookieStore;
+
+  /// 已从持久化存储种子化的 host（避免每个请求都读一次 SharedPreferences）。
+  final Set<String> _seededHosts = {};
 
   /// 会话 Cookie jar（按 host 存储）。自动持久化响应里的 Set-Cookie 并在后续
   /// 请求携带——爱下网书等源的「正在验证浏览器」挑战页会先下发 PHPSESSID，
@@ -410,12 +445,43 @@ class LegadoHttpTransport implements LegadoTransport {
     return jar.entries.map((e) => '${e.key}=${e.value}').join('; ');
   }
 
+  /// 首次访问某 host 时，把持久化存储中的登录 cookie 种子化进会话 jar。
+  /// 每个 host 只在首次种子化一次，避免逐请求读磁盘。
+  Future<void> _loadPersistentJar(String host) async {
+    final store = cookieStore;
+    if (store == null || host.isEmpty || _persistedHosts.contains(host)) {
+      return;
+    }
+    _persistedHosts.add(host);
+    try {
+      final persisted = await store.loadCookieJar(host);
+      if (persisted.isEmpty) return;
+      final jar = _cookieJar.putIfAbsent(host, () => <String, String>{});
+      jar.addAll(persisted);
+    } catch (_) {
+      // 持久化读取失败不阻断请求
+    }
+  }
+
+  /// 把某 host 当前会话 jar 异步回写到持久化存储（不阻塞请求热路径）。
+  void _flushPersistentJar(String host) {
+    final store = cookieStore;
+    final jar = _cookieJar[host];
+    if (store == null || host.isEmpty || jar == null) return;
+    unawaited(store.saveCookieJar(host, Map<String, String>.from(jar)));
+  }
+
+  /// 已从持久化存储种子化的 host（见 [_loadPersistentJar]）。
+  final Set<String> _persistedHosts = {};
+
   @override
   Future<LegadoResponse> send(LegadoRequestTemplate request) async {
     final raw = await _requestBytesInner(request);
     return LegadoResponse(
       body: _decode(raw.bytes, request.charset, raw.headers),
       finalUri: raw.finalUri,
+      statusCode: raw.statusCode,
+      headers: _flattenHeaders(raw.headers),
     );
   }
 
@@ -424,13 +490,26 @@ class LegadoHttpTransport implements LegadoTransport {
     return (await _requestBytesInner(request)).bytes;
   }
 
+  /// 带响应头与最终地址的原始字节请求（HTTP TTS 需要 Content-Type 校验音频，
+  /// 且音频为二进制不能走 send 的文本解码）。
+  Future<LegadoRawResponse> sendRaw(LegadoRequestTemplate request) async {
+    final raw = await _requestBytesInner(request);
+    return LegadoRawResponse(
+      bytes: raw.bytes,
+      finalUri: raw.finalUri,
+      statusCode: raw.statusCode,
+      headers: _flattenHeaders(raw.headers),
+    );
+  }
+
   /// 带重定向与会话 Cookie 的原始字节请求：`send` 在它之上解码成文本，
   /// `sendBytes` 直接返回二进制（漫画图片等）。
   Future<_RawLegadoResponse> _requestBytesInner(
     LegadoRequestTemplate request,
   ) async {
-    var current = request.url;
+   var current = request.url;
     for (var redirects = 0; redirects <= 5; redirects++) {
+      await _loadPersistentJar(current.host);
       await _networkPolicy.validate(current);
       final cancelToken = CancelToken();
       // 自动携带会话 cookie；源自定义了 Cookie 头时以源的为准。
@@ -463,6 +542,7 @@ class LegadoHttpTransport implements LegadoTransport {
           },
         );
         _persistSetCookies(current.host, response.headers);
+        _flushPersistentJar(current.host);
         final status = response.statusCode ?? 0;
         if (status < 300) {
           final bytes = response.data ?? const <int>[];
@@ -475,6 +555,7 @@ class LegadoHttpTransport implements LegadoTransport {
             bytes: Uint8List.fromList(bytes),
             headers: response.headers,
             finalUri: current,
+            statusCode: status,
           );
         }
         if (redirects == 5) {
@@ -503,17 +584,47 @@ class LegadoHttpTransport implements LegadoTransport {
   }
 }
 
+/// 原始字节请求结果：最终 URL、响应头与原始字节（供二进制资源调用方使用）。
+class LegadoRawResponse {
+  const LegadoRawResponse({
+    required this.bytes,
+    required this.finalUri,
+    this.statusCode,
+    this.headers,
+  });
+
+  final Uint8List bytes;
+  final Uri finalUri;
+  final int? statusCode;
+  final Map<String, String>? headers;
+}
+
 /// 原始字节请求的结果：最终 URL、响应头与原始字节。
 class _RawLegadoResponse {
   const _RawLegadoResponse({
     required this.bytes,
     required this.headers,
     required this.finalUri,
+    this.statusCode,
   });
 
   final Uint8List bytes;
   final Headers headers;
   final Uri finalUri;
+
+  /// 最终响应的 HTTP 状态码（重定向后取下最终跳转目标的状态码）。
+  final int? statusCode;
+}
+
+/// 把 Dio Headers 扁平化为单值 Map（重名头取第一个），供调试记录展示。
+Map<String, String> _flattenHeaders(Headers headers) {
+  final out = <String, String>{};
+  headers.forEach((name, values) {
+    if (out.containsKey(name)) return;
+    if (values.isEmpty) return;
+    out[name] = values.first;
+  });
+  return out;
 }
 
 const _supportedCharsets = {'utf-8', 'utf8', 'gbk', 'gb2312', 'gb18030'};

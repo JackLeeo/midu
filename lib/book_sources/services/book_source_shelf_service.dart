@@ -121,6 +121,7 @@ class BookSourceShelfService {
     required int chapterIndex,
     required int chapterCount,
     required double chapterProgress,
+    String? chapterTitle,
   }) async {
     final currentUnits =
         chapterIndex * unitsPerChapter +
@@ -132,6 +133,12 @@ class BookSourceShelfService {
       readingProgress: totalUnits <= 0 ? 0 : currentUnits / totalUnits,
     );
     await _bookDao.updateBookTotalPages(shelfBookId, totalUnits);
+    await _bookDao.updateReadingPosition(
+      shelfBookId,
+      lastChapterIndex: chapterIndex,
+      lastChapterTitle: chapterTitle?.isEmpty ?? true ? null : chapterTitle,
+      readingProgress: totalUnits <= 0 ? 0 : currentUnits / totalUnits,
+    );
   }
 
   Future<Book> downloadToLocal({

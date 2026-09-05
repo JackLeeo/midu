@@ -2061,6 +2061,42 @@ abstract class AppLocalizations {
   /// **'Add this book to the shelf before saving bookmarks'**
   String get readerBookmarkRequiresShelf;
 
+  /// No description provided for @bookmarkEditNoteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit bookmark note'**
+  String get bookmarkEditNoteTitle;
+
+  /// No description provided for @bookmarkEditNoteHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a note (can be empty)'**
+  String get bookmarkEditNoteHint;
+
+  /// No description provided for @bookmarkNoteUpdated.
+  ///
+  /// In en, this message translates to:
+  /// **'Bookmark note updated'**
+  String get bookmarkNoteUpdated;
+
+  /// No description provided for @bookmarkManagerTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Bookmarks'**
+  String get bookmarkManagerTitle;
+
+  /// No description provided for @lastReadChapter.
+  ///
+  /// In en, this message translates to:
+  /// **'Last read chapter'**
+  String get lastReadChapter;
+
+  /// No description provided for @lastReadTime.
+  ///
+  /// In en, this message translates to:
+  /// **'Last read at'**
+  String get lastReadTime;
+
   /// Blue theme name
   ///
   /// In en, this message translates to:
@@ -3206,6 +3242,90 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Deleted {success}; {failed} failed'**
   String libraryBatchDeletePartial(int success, int failed);
+
+  /// Library group tab showing every book regardless of group
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get shelfGroupAll;
+
+  /// Action that opens the shelf group management page
+  ///
+  /// In en, this message translates to:
+  /// **'Manage groups'**
+  String get shelfGroupManage;
+
+  /// Long-press or batch action moving selected books into shelf groups
+  ///
+  /// In en, this message translates to:
+  /// **'Move to group'**
+  String get shelfGroupMoveTo;
+
+  /// Button creating a new shelf group
+  ///
+  /// In en, this message translates to:
+  /// **'New group'**
+  String get shelfGroupNewGroup;
+
+  /// Validation error when creating/renaming a group with an empty name
+  ///
+  /// In en, this message translates to:
+  /// **'Group name cannot be empty'**
+  String get shelfGroupNameEmpty;
+
+  /// Validation error when creating/renaming a group with a duplicate name
+  ///
+  /// In en, this message translates to:
+  /// **'A group named \"{name}\" already exists'**
+  String shelfGroupNameExists(String name);
+
+  /// Toast shown after books are moved into groups
+  ///
+  /// In en, this message translates to:
+  /// **'Groups updated'**
+  String get shelfGroupAssigned;
+
+  /// Action renaming a shelf group
+  ///
+  /// In en, this message translates to:
+  /// **'Rename group'**
+  String get shelfGroupRename;
+
+  /// Title of the confirm dialog when deleting a shelf group
+  ///
+  /// In en, this message translates to:
+  /// **'Delete group'**
+  String get shelfGroupDeleteTitle;
+
+  /// Confirm dialog body when deleting a shelf group
+  ///
+  /// In en, this message translates to:
+  /// **'Delete group \"{name}\"? Books in it will not be deleted.'**
+  String shelfGroupDeleteConfirm(String name);
+
+  /// Book count shown on a shelf group
+  ///
+  /// In en, this message translates to:
+  /// **'{count} books'**
+  String shelfGroupTabCount(int count);
+
+  /// Action hiding a shelf group from the library group tab bar
+  ///
+  /// In en, this message translates to:
+  /// **'Hide group'**
+  String get shelfGroupHide;
+
+  /// Action showing a hidden shelf group again
+  ///
+  /// In en, this message translates to:
+  /// **'Show group'**
+  String get shelfGroupShow;
+
+  /// Empty state hint in group picker and manage page
+  ///
+  /// In en, this message translates to:
+  /// **'No groups yet. Create one below.'**
+  String get shelfGroupEmptyHint;
 
   /// Chapter title for TXT content that appears before the first detected chapter heading
   ///
@@ -5372,6 +5492,36 @@ abstract class AppLocalizations {
   /// **'Online book data is invalid: {error}'**
   String bookSourceOnlineDataBroken(String error);
 
+  /// Title of the source login dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Log in'**
+  String get sourceLoginTitle;
+
+  /// Shown when a source declares login but defines no input fields
+  ///
+  /// In en, this message translates to:
+  /// **'This source has no login fields configured.'**
+  String get sourceLoginNoFields;
+
+  /// Submit button label for the source login form
+  ///
+  /// In en, this message translates to:
+  /// **'Log in'**
+  String get sourceLoginSubmit;
+
+  /// Confirm button label when a source has no fields to fill
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get sourceLoginDone;
+
+  /// Selection toolbar action that looks up a word in configured dictionaries
+  ///
+  /// In en, this message translates to:
+  /// **'Dictionary'**
+  String get dictLookUp;
+
   /// Title of the reader-only theme selector
   ///
   /// In en, this message translates to:
@@ -5383,6 +5533,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Only changes the reading page and its controls'**
   String get readerThemeDescription;
+
+  /// Settings entry that opens the reading theme management page
+  ///
+  /// In en, this message translates to:
+  /// **'Reading theme manager'**
+  String get readerThemeManagement;
+
+  /// No description provided for @readerThemeManagementSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Reorder themes, create or edit custom themes, or apply a selected theme'**
+  String get readerThemeManagementSubtitle;
 
   /// Reader settings sheet tab with the theme picker and top bar style
   ///
@@ -5413,6 +5575,96 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Advanced typography'**
   String get readerSettingsAdvancedTypography;
+
+  /// Reader settings sheet tab with punctuation compression, immersive mode, eye-care brightness and warmth
+  ///
+  /// In en, this message translates to:
+  /// **'Display'**
+  String get readerSettingsTabDisplay;
+
+  /// Reader display toggle that merges leading closing punctuation at line starts and moves trailing opening punctuation to the next line
+  ///
+  /// In en, this message translates to:
+  /// **'Punctuation compression'**
+  String get readerPunctuationCompressionTitle;
+
+  /// No description provided for @readerPunctuationCompressionHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Merge closing marks left at line starts and anchor opening marks to the following line'**
+  String get readerPunctuationCompressionHint;
+
+  /// Reader display toggle that hides the system status and navigation bars while reading
+  ///
+  /// In en, this message translates to:
+  /// **'Immersive mode'**
+  String get readerImmersiveModeTitle;
+
+  /// No description provided for @readerImmersiveModeHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide the system status and navigation bars while reading (desktop and web excluded)'**
+  String get readerImmersiveModeHint;
+
+  /// Reader display slider that dims the screen through a dark overlay
+  ///
+  /// In en, this message translates to:
+  /// **'Eye-care brightness'**
+  String get readerEyeCareTitle;
+
+  /// No description provided for @readerEyeCareOnLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'On'**
+  String get readerEyeCareOnLabel;
+
+  /// No description provided for @readerEyeCareOffLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get readerEyeCareOffLabel;
+
+  /// Reader display slider that tints the screen with an amber overlay
+  ///
+  /// In en, this message translates to:
+  /// **'Warmth'**
+  String get readerWarmthTitle;
+
+  /// Reader setting that renders the whole body text in bold
+  ///
+  /// In en, this message translates to:
+  /// **'Bold text'**
+  String get readerTextBoldTitle;
+
+  /// No description provided for @readerTextBoldHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Render the body text in bold to raise contrast and legibility'**
+  String get readerTextBoldHint;
+
+  /// Reader setting that converts the chapter text between simplified and traditional Chinese
+  ///
+  /// In en, this message translates to:
+  /// **'Chinese conversion'**
+  String get readerChineseConversionTitle;
+
+  /// No description provided for @readerChineseConversionOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get readerChineseConversionOff;
+
+  /// No description provided for @readerChineseConversionSimplifiedToTraditional.
+  ///
+  /// In en, this message translates to:
+  /// **'Simplified → Traditional'**
+  String get readerChineseConversionSimplifiedToTraditional;
+
+  /// No description provided for @readerChineseConversionTraditionalToSimplified.
+  ///
+  /// In en, this message translates to:
+  /// **'Traditional → Simplified'**
+  String get readerChineseConversionTraditionalToSimplified;
 
   /// Day reading theme name
   ///
@@ -5557,6 +5809,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Body text, headings, and primary icons'**
   String get readerCustomThemeTextColorHint;
+
+  /// No description provided for @readerCustomThemeSecondaryTextColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Secondary text color'**
+  String get readerCustomThemeSecondaryTextColor;
+
+  /// No description provided for @readerCustomThemeSecondaryTextColorHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Dedicated color for page numbers, chapter info and other secondary text'**
+  String get readerCustomThemeSecondaryTextColorHint;
 
   /// No description provided for @readerCustomThemeBackground.
   ///
@@ -7803,6 +8067,450 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Select text to highlight or add a comment. Tap an underlined comment to read it again.'**
   String get readerNoAnnotationsHint;
+
+  /// Label of the RSS destination in home navigation
+  ///
+  /// In en, this message translates to:
+  /// **'RSS'**
+  String get rss;
+
+  /// No description provided for @rssAddFeed.
+  ///
+  /// In en, this message translates to:
+  /// **'Add feed'**
+  String get rssAddFeed;
+
+  /// No description provided for @rssFeedUrlHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Feed URL (https://…)'**
+  String get rssFeedUrlHint;
+
+  /// No description provided for @rssNoFeeds.
+  ///
+  /// In en, this message translates to:
+  /// **'No feeds yet'**
+  String get rssNoFeeds;
+
+  /// No description provided for @rssNoFeedsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap “Add feed” to subscribe to an RSS / Atom / JSON Feed address.'**
+  String get rssNoFeedsHint;
+
+  /// No description provided for @rssFeedError.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to load this feed'**
+  String get rssFeedError;
+
+  /// No description provided for @rssRefresh.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh'**
+  String get rssRefresh;
+
+  /// No description provided for @rssRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Unsubscribe'**
+  String get rssRemove;
+
+  /// No description provided for @rssNoArticles.
+  ///
+  /// In en, this message translates to:
+  /// **'No articles yet'**
+  String get rssNoArticles;
+
+  /// No description provided for @rssUntitled.
+  ///
+  /// In en, this message translates to:
+  /// **'Untitled'**
+  String get rssUntitled;
+
+  /// No description provided for @rssSourceFeedsSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Source feeds'**
+  String get rssSourceFeedsSection;
+
+  /// No description provided for @rssMyFeedsSection.
+  ///
+  /// In en, this message translates to:
+  /// **'My feeds'**
+  String get rssMyFeedsSection;
+
+  /// No description provided for @autoTaskTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Automation tasks'**
+  String get autoTaskTitle;
+
+  /// No description provided for @autoTaskAddTask.
+  ///
+  /// In en, this message translates to:
+  /// **'New task'**
+  String get autoTaskAddTask;
+
+  /// No description provided for @autoTaskEditTask.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit task'**
+  String get autoTaskEditTask;
+
+  /// No description provided for @autoTaskDeleteTask.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete task'**
+  String get autoTaskDeleteTask;
+
+  /// No description provided for @autoTaskRunNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Run now'**
+  String get autoTaskRunNow;
+
+  /// No description provided for @autoTaskLogs.
+  ///
+  /// In en, this message translates to:
+  /// **'Run logs'**
+  String get autoTaskLogs;
+
+  /// No description provided for @autoTaskLogsEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No run logs yet'**
+  String get autoTaskLogsEmpty;
+
+  /// No description provided for @autoTaskEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No automation tasks yet'**
+  String get autoTaskEmptyTitle;
+
+  /// No description provided for @autoTaskEmptyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Create a task to run on a schedule or on an event: periodically fetch feeds, back up to WebDAV, or precache chapters.'**
+  String get autoTaskEmptyHint;
+
+  /// No description provided for @autoTaskLatestStatus.
+  ///
+  /// In en, this message translates to:
+  /// **'Last result'**
+  String get autoTaskLatestStatus;
+
+  /// No description provided for @autoTaskName.
+  ///
+  /// In en, this message translates to:
+  /// **'Task name'**
+  String get autoTaskName;
+
+  /// No description provided for @autoTaskTriggerLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Trigger'**
+  String get autoTaskTriggerLabel;
+
+  /// No description provided for @autoTaskTriggerInterval.
+  ///
+  /// In en, this message translates to:
+  /// **'Interval'**
+  String get autoTaskTriggerInterval;
+
+  /// No description provided for @autoTaskTriggerCron.
+  ///
+  /// In en, this message translates to:
+  /// **'Cron schedule'**
+  String get autoTaskTriggerCron;
+
+  /// No description provided for @autoTaskTriggerEvent.
+  ///
+  /// In en, this message translates to:
+  /// **'Event'**
+  String get autoTaskTriggerEvent;
+
+  /// No description provided for @autoTaskIntervalMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'Interval (min)'**
+  String get autoTaskIntervalMinutes;
+
+  /// No description provided for @autoTaskCronExpression.
+  ///
+  /// In en, this message translates to:
+  /// **'Cron expression'**
+  String get autoTaskCronExpression;
+
+  /// No description provided for @autoTaskEventName.
+  ///
+  /// In en, this message translates to:
+  /// **'Event name'**
+  String get autoTaskEventName;
+
+  /// No description provided for @autoTaskActionLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Action'**
+  String get autoTaskActionLabel;
+
+  /// No description provided for @autoTaskActionWeb.
+  ///
+  /// In en, this message translates to:
+  /// **'HTTP request'**
+  String get autoTaskActionWeb;
+
+  /// No description provided for @autoTaskActionBackup.
+  ///
+  /// In en, this message translates to:
+  /// **'WebDAV backup'**
+  String get autoTaskActionBackup;
+
+  /// No description provided for @autoTaskActionCache.
+  ///
+  /// In en, this message translates to:
+  /// **'Cache chapters'**
+  String get autoTaskActionCache;
+
+  /// No description provided for @autoTaskWebUrl.
+  ///
+  /// In en, this message translates to:
+  /// **'Request URL'**
+  String get autoTaskWebUrl;
+
+  /// No description provided for @autoTaskWebMethod.
+  ///
+  /// In en, this message translates to:
+  /// **'Method'**
+  String get autoTaskWebMethod;
+
+  /// No description provided for @autoTaskWebBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Body'**
+  String get autoTaskWebBody;
+
+  /// No description provided for @autoTaskWebBodyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Optional, used for POST'**
+  String get autoTaskWebBodyHint;
+
+  /// No description provided for @autoTaskBackupScope.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup scope'**
+  String get autoTaskBackupScope;
+
+  /// No description provided for @autoTaskCacheBook.
+  ///
+  /// In en, this message translates to:
+  /// **'Book ID'**
+  String get autoTaskCacheBook;
+
+  /// No description provided for @autoTaskSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get autoTaskSave;
+
+  /// No description provided for @contentSearchTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Search in book'**
+  String get contentSearchTitle;
+
+  /// No description provided for @contentSearchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search chapter content'**
+  String get contentSearchHint;
+
+  /// No description provided for @contentSearchRegex.
+  ///
+  /// In en, this message translates to:
+  /// **'Regex'**
+  String get contentSearchRegex;
+
+  /// No description provided for @contentSearchPurify.
+  ///
+  /// In en, this message translates to:
+  /// **'Purify'**
+  String get contentSearchPurify;
+
+  /// No description provided for @contentSearchClear.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get contentSearchClear;
+
+  /// No description provided for @contentSearchProgressLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Scanned {scanned}/{total} chapters'**
+  String contentSearchProgressLabel(Object scanned, Object total);
+
+  /// No description provided for @contentSearchHitCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} hits'**
+  String contentSearchHitCount(Object count);
+
+  /// No description provided for @contentSearchIdleHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a keyword to search the whole book'**
+  String get contentSearchIdleHint;
+
+  /// No description provided for @contentSearchEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No matches found'**
+  String get contentSearchEmpty;
+
+  /// No description provided for @contentSearchEmptyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Try a different keyword, or disable purification'**
+  String get contentSearchEmptyHint;
+
+  /// No description provided for @autoReadTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto Read'**
+  String get autoReadTitle;
+
+  /// No description provided for @autoReadSpeedLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Page interval'**
+  String get autoReadSpeedLabel;
+
+  /// No description provided for @autoReadSpeedHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Seconds per page; adjust while paused, playback reuses the latest value'**
+  String get autoReadSpeedHint;
+
+  /// No description provided for @autoReadStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Start'**
+  String get autoReadStart;
+
+  /// No description provided for @autoReadPause.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause'**
+  String get autoReadPause;
+
+  /// No description provided for @autoReadStop.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop auto read'**
+  String get autoReadStop;
+
+  /// No description provided for @webServerTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Web management server'**
+  String get webServerTitle;
+
+  /// No description provided for @webServerWebUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Web target does not support the local management server'**
+  String get webServerWebUnsupported;
+
+  /// No description provided for @webServerStatusRunning.
+  ///
+  /// In en, this message translates to:
+  /// **'Running'**
+  String get webServerStatusRunning;
+
+  /// No description provided for @webServerStatusStopped.
+  ///
+  /// In en, this message translates to:
+  /// **'Stopped'**
+  String get webServerStatusStopped;
+
+  /// No description provided for @webServerPortLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Port'**
+  String get webServerPortLabel;
+
+  /// No description provided for @webServerPortHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Default 18181. Restart the service to take effect'**
+  String get webServerPortHint;
+
+  /// No description provided for @webServerTokenLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Access token'**
+  String get webServerTokenLabel;
+
+  /// No description provided for @webServerTokenHint.
+  ///
+  /// In en, this message translates to:
+  /// **'All endpoints require this token (Authorization: Bearer)'**
+  String get webServerTokenHint;
+
+  /// No description provided for @webServerCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get webServerCopy;
+
+  /// No description provided for @webServerRegenerate.
+  ///
+  /// In en, this message translates to:
+  /// **'Regenerate'**
+  String get webServerRegenerate;
+
+  /// No description provided for @webServerStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Start service'**
+  String get webServerStart;
+
+  /// No description provided for @webServerStop.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop service'**
+  String get webServerStop;
+
+  /// No description provided for @webServerEndpointTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Available endpoints'**
+  String get webServerEndpointTitle;
+
+  /// No description provided for @webServerEndpointHint.
+  ///
+  /// In en, this message translates to:
+  /// **'REST /api/health /api/status /api/sources; WS /ws?token=… (JSON-RPC / MCP)'**
+  String get webServerEndpointHint;
+
+  /// No description provided for @webServerCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Copied'**
+  String get webServerCopied;
+
+  /// No description provided for @webServerStartFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Start failed'**
+  String get webServerStartFailed;
+
+  /// No description provided for @webServerRestartHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Port changes take effect after restarting the service'**
+  String get webServerRestartHint;
 }
 
 class _AppLocalizationsDelegate

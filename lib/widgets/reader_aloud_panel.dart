@@ -4,11 +4,20 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../core/reader/reader_aloud_controller.dart';
+import '../pages/settings/http_tts_engines_page.dart';
 import '../services/reader_aloud_service.dart';
 import '../services/tts_service.dart';
 import '../services/tts_service_translator.dart';
 import '../utils/localization_extension.dart';
 import '../utils/reader_themes.dart';
+
+/// 引擎选择底部面板的返回动作：选中某个引擎（id）或跳转管理页（manage）。
+class _HttpTtsPickerAction {
+  const _HttpTtsPickerAction({required this.id, required this.manage});
+
+  final String? id;
+  final bool manage;
+}
 
 Future<void> showReaderAloudPanelSheet({
   required BuildContext context,
@@ -173,6 +182,10 @@ class _ReaderAloudPanelState extends State<ReaderAloudPanel> {
                   const SizedBox(height: 12),
                   _cloudConfigurationCard(context, aloud),
                 ],
+                if (aloud.usesHttpTts) ...[
+                  const SizedBox(height: 12),
+                  _httpTtsEngineCard(context, aloud),
+                ],
                 const SizedBox(height: 20),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -231,24 +244,27 @@ class _ReaderAloudPanelState extends State<ReaderAloudPanel> {
                   min: 0.5,
                   max: 2,
                   valueLabel: pitch.toStringAsFixed(2),
-                  onChanged: aloud.usesCloud
+                  onChanged: aloud.usesCloud || aloud.usesHttpTts
                       ? null
                       : (value) => setState(() => _pendingPitch = value),
-                  onChangeEnd: aloud.usesCloud
+                  onChangeEnd: aloud.usesCloud || aloud.usesHttpTts
                       ? null
                       : (value) =>
                             unawaited(_commitPitch(value, controller, tts)),
                 ),
                 const SizedBox(height: 8),
-                if (!aloud.usesCloud) _voicePicker(context, tts, controller),
+                if (!aloud.usesCloud && !aloud.usesHttpTts)
+                  _voicePicker(context, tts, controller),
                 const SizedBox(height: 16),
                 _sleepTimerCard(context, controller),
                 if (errorCode != null ||
                     controller.lastError != null ||
-                    aloud.cloudError != null) ...[
+                    aloud.cloudError != null ||
+                    aloud.httpTtsError != null) ...[
                   const SizedBox(height: 16),
                   Text(
-                    aloud.cloudError ??
+                    aloud.httpTtsError ??
+                        aloud.cloudError ??
                         (errorCode == null
                             ? context.l10n.ttsPlaybackFailed
                             : translateTtsError(
@@ -358,8 +374,8 @@ class _ReaderAloudPanelState extends State<ReaderAloudPanel> {
     BuildContext context,
     ReaderAloudController controller,
     ReaderAloudService aloud,
-  ) => SegmentedButton<ReaderAloudEngineType>(
-    segments: [
+  ) {
+    final segments = [
       ButtonSegment(
         value: ReaderAloudEngineType.system,
         icon: const Icon(Icons.phone_android_rounded),
@@ -370,21 +386,135 @@ class _ReaderAloudPanelState extends State<ReaderAloudPanel> {
         icon: const Icon(Icons.cloud_outlined),
         label: Text(_copy(context, '云端 TTS', 'Cloud TTS', 'クラウド TTS')),
       ),
-    ],
-    selected: {aloud.engineType},
-    showSelectedIcon: false,
-    onSelectionChanged: (selection) {
-      final selected = selection.first;
-      if (selected == aloud.engineType) return;
-      unawaited(() async {
-        final resumeAfterChange =
-            controller.state == ReaderAloudPlaybackState.playing;
-        if (resumeAfterChange) await controller.pause();
-        await aloud.setEngineType(selected);
-        if (resumeAfterChange) await controller.resume();
-      }());
-    },
+      if (aloud.hasHttpTtsEngines)
+        ButtonSegment(
+          value: ReaderAloudEngineType.httpTts,
+          icon: const Icon(Icons.record_voice_over_outlined),
+          label: Text(_copy(context, '在线引擎', 'HTTP TTS', 'HTTP TTS')),
+        ),
+    ];
+    return SegmentedButton<ReaderAloudEngineType>(
+      segments: segments,
+      selected: {aloud.engineType},
+      showSelectedIcon: false,
+      onSelectionChanged: (selection) {
+        final selected = selection.first;
+        if (selected == aloud.engineType) return;
+        unawaited(() async {
+          final resumeAfterChange =
+              controller.state == ReaderAloudPlaybackState.playing;
+          if (resumeAfterChange) await controller.pause();
+          await aloud.setEngineType(selected);
+          if (resumeAfterChange) await controller.resume();
+        }());
+      },
+    );
+  }
+
+  Widget _httpTtsEngineCard(
+    BuildContext context,
+    ReaderAloudService aloud,
+  ) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: widget.palette.surface.withValues(alpha: 0.72),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: widget.palette.border.withValues(alpha: 0.72)),
+    ),
+    child: ListTile(
+      leading: Icon(
+        aloud.activeHttpTtsEngine != null
+            ? Icons.record_voice_over_rounded
+            : Icons.tune_rounded,
+        color: aloud.activeHttpTtsEngine != null
+            ? widget.palette.accent
+            : widget.palette.secondaryText,
+      ),
+      title: Text(
+        aloud.httpTtsEngineName ?? _copy(context, '未选择引擎', 'No engine', 'エンジン未選択'),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        aloud.activeHttpTtsEngine == null
+            ? _copy(
+                context,
+                '请选择一个在线朗读引擎',
+                'Choose an HTTP TTS engine',
+                'HTTP TTS エンジンを選択',
+              )
+            : '${aloud.activeHttpTtsEngine!.url.trim().isNotEmpty ? aloud.activeHttpTtsEngine!.url.trim() : ''}'
+                '${aloud.activeHttpTtsEngine!.pauseDuration > 0 ? '\n段落停顿 ${aloud.activeHttpTtsEngine!.pauseDuration}ms' : ''}',
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: const Icon(Icons.tune_rounded),
+      onTap: () => unawaited(_showHttpTtsEnginePicker(context, aloud)),
+    ),
   );
+
+  Future<void> _showHttpTtsEnginePicker(
+    BuildContext context,
+    ReaderAloudService aloud,
+  ) async {
+    final engines = aloud.httpTtsEnginesForPicker;
+    final action = await showModalBottomSheet<_HttpTtsPickerAction>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      backgroundColor: widget.palette.controlBar,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+          children: [
+            for (final engine in engines)
+              ListTile(
+                leading: Radio<String?>(
+                  value: engine.id,
+                  groupValue: aloud.httpTtsEngineId,
+                  onChanged: (id) async {
+                    Navigator.pop(sheetContext, _HttpTtsPickerAction(id: id, manage: false));
+                  },
+                ),
+                title: Text(engine.name),
+                subtitle: Text(
+                  engine.url.trim(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                onTap: () => Navigator.pop(
+                  sheetContext,
+                  _HttpTtsPickerAction(id: engine.id, manage: false),
+                ),
+              ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.settings_outlined),
+              title: Text(_copy(context, '管理在线朗读引擎', 'Manage HTTP TTS engines', 'エンジン管理')),
+              onTap: () => Navigator.pop(
+                sheetContext,
+                const _HttpTtsPickerAction(id: null, manage: true),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (action == null || !mounted) return;
+    if (action.manage) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => const HttpTtsEnginesPage(),
+        ),
+      );
+      return;
+    }
+    final resumeAfterChange =
+        widget.controller.state == ReaderAloudPlaybackState.playing;
+    if (resumeAfterChange) await widget.controller.pause();
+    await aloud.setHttpTtsEngine(action.id);
+    if (resumeAfterChange) await widget.controller.resume();
+  }
 
   Widget _cloudConfigurationCard(
     BuildContext context,

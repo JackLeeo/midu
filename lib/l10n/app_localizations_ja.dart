@@ -1030,6 +1030,24 @@ class AppLocalizationsJa extends AppLocalizations {
   String get readerBookmarkRequiresShelf => 'ブックマークを保存するには本棚に追加してください';
 
   @override
+  String get bookmarkEditNoteTitle => 'ブックマークのメモを編集';
+
+  @override
+  String get bookmarkEditNoteHint => 'メモを入力（空でも可）';
+
+  @override
+  String get bookmarkNoteUpdated => 'ブックマークのメモを更新しました';
+
+  @override
+  String get bookmarkManagerTitle => 'ブックマーク管理';
+
+  @override
+  String get lastReadChapter => '最後に読んだ章';
+
+  @override
+  String get lastReadTime => '最後に読んだ日時';
+
+  @override
   String get themeBlue => 'オーシャンブルー';
 
   @override
@@ -1687,6 +1705,54 @@ class AppLocalizationsJa extends AppLocalizations {
   String libraryBatchDeletePartial(int success, int failed) {
     return '$success 冊を削除、$failed 冊は失敗しました';
   }
+
+  @override
+  String get shelfGroupAll => 'すべて';
+
+  @override
+  String get shelfGroupManage => 'グループ管理';
+
+  @override
+  String get shelfGroupMoveTo => 'グループに移動';
+
+  @override
+  String get shelfGroupNewGroup => '新しいグループ';
+
+  @override
+  String get shelfGroupNameEmpty => 'グループ名を入力してください';
+
+  @override
+  String shelfGroupNameExists(String name) {
+    return '同名のグループ「$name」が既に存在します';
+  }
+
+  @override
+  String get shelfGroupAssigned => 'グループを更新しました';
+
+  @override
+  String get shelfGroupRename => 'グループ名を変更';
+
+  @override
+  String get shelfGroupDeleteTitle => 'グループを削除';
+
+  @override
+  String shelfGroupDeleteConfirm(String name) {
+    return 'グループ「$name」を削除しますか？グループ内の書籍は削除されません。';
+  }
+
+  @override
+  String shelfGroupTabCount(int count) {
+    return '$count 冊';
+  }
+
+  @override
+  String get shelfGroupHide => 'グループを非表示';
+
+  @override
+  String get shelfGroupShow => 'グループを表示';
+
+  @override
+  String get shelfGroupEmptyHint => 'グループはまだありません。下の「新しいグループ」から作成できます';
 
   @override
   String get readerPrefaceTitle => '前付';
@@ -2885,10 +2951,32 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String get sourceLoginTitle => 'ログイン';
+
+  @override
+  String get sourceLoginNoFields => 'このソースにはログイン項目が設定されていません。';
+
+  @override
+  String get sourceLoginSubmit => 'ログイン';
+
+  @override
+  String get sourceLoginDone => '完了';
+
+  @override
+  String get dictLookUp => '辞書';
+
+  @override
   String get readerThemeTitle => '読書テーマ';
 
   @override
   String get readerThemeDescription => '読書画面と読書コントロールだけを変更します';
+
+  @override
+  String get readerThemeManagement => '読書テーマ管理';
+
+  @override
+  String get readerThemeManagementSubtitle =>
+      'テーマの並べ替え、カスタムテーマの作成・編集、選択したテーマの適用';
 
   @override
   String get readerSettingsTabTheme => 'テーマ';
@@ -2904,6 +2992,53 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get readerSettingsAdvancedTypography => '詳細な組版';
+
+  @override
+  String get readerSettingsTabDisplay => '表示';
+
+  @override
+  String get readerPunctuationCompressionTitle => '句読点の圧縮';
+
+  @override
+  String get readerPunctuationCompressionHint =>
+      '誤った改行による行頭の閉じ記号を統合し、行末にぶら下がる開き記号を解消します';
+
+  @override
+  String get readerImmersiveModeTitle => '没入モード';
+
+  @override
+  String get readerImmersiveModeHint =>
+      '読書中はシステムのステータスバーとナビゲーションバーを非表示にします（デスクトップとWebを除く）';
+
+  @override
+  String get readerEyeCareTitle => '目に優しい明るさ';
+
+  @override
+  String get readerEyeCareOnLabel => 'オン';
+
+  @override
+  String get readerEyeCareOffLabel => 'オフ';
+
+  @override
+  String get readerWarmthTitle => '暖色光';
+
+  @override
+  String get readerTextBoldTitle => '文字を太字にする';
+
+  @override
+  String get readerTextBoldHint => '本文全体を太字にしてコントラストを高くし、読みやすくします';
+
+  @override
+  String get readerChineseConversionTitle => '簡体/繁体変換';
+
+  @override
+  String get readerChineseConversionOff => '変換しない';
+
+  @override
+  String get readerChineseConversionSimplifiedToTraditional => '簡体 → 繁体';
+
+  @override
+  String get readerChineseConversionTraditionalToSimplified => '繁体 → 簡体';
 
   @override
   String get readerThemeDay => '昼';
@@ -2978,6 +3113,13 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get readerCustomThemeTextColorHint => '本文、見出し、主要アイコン';
+
+  @override
+  String get readerCustomThemeSecondaryTextColor => '副文字色';
+
+  @override
+  String get readerCustomThemeSecondaryTextColorHint =>
+      'ページ番号や章情報など、補助テキスト専用の色';
 
   @override
   String get readerCustomThemeBackground => '読書背景';
@@ -4261,4 +4403,234 @@ class AppLocalizationsJa extends AppLocalizations {
   @override
   String get readerNoAnnotationsHint =>
       '文章を選択してハイライトやコメントを追加できます。下線付きのコメントをタップすると内容を確認できます。';
+
+  @override
+  String get rss => '購読';
+
+  @override
+  String get rssAddFeed => '購読を追加';
+
+  @override
+  String get rssFeedUrlHint => 'フィード URL（https://…）';
+
+  @override
+  String get rssNoFeeds => '購読フィードがありません';
+
+  @override
+  String get rssNoFeedsHint =>
+      '「購読を追加」から RSS / Atom / JSON Feed の URL を入力してください。';
+
+  @override
+  String get rssFeedError => 'フィードの読み込みに失敗しました';
+
+  @override
+  String get rssRefresh => '更新';
+
+  @override
+  String get rssRemove => '購読解除';
+
+  @override
+  String get rssNoArticles => '記事がまだありません';
+
+  @override
+  String get rssUntitled => '無題';
+
+  @override
+  String get rssSourceFeedsSection => '書源フィード';
+
+  @override
+  String get rssMyFeedsSection => 'マイフィード';
+
+  @override
+  String get autoTaskTitle => '自動化タスク';
+
+  @override
+  String get autoTaskAddTask => 'タスクを追加';
+
+  @override
+  String get autoTaskEditTask => 'タスクを編集';
+
+  @override
+  String get autoTaskDeleteTask => 'タスクを削除';
+
+  @override
+  String get autoTaskRunNow => '今すぐ実行';
+
+  @override
+  String get autoTaskLogs => '実行ログ';
+
+  @override
+  String get autoTaskLogsEmpty => '実行ログはまだありません';
+
+  @override
+  String get autoTaskEmptyTitle => '自動化タスクはまだありません';
+
+  @override
+  String get autoTaskEmptyHint =>
+      'スケジュールまたはイベントでタスクを実行：定時フィード取得、WebDAV バックアップ、章プリキャッシュなど。';
+
+  @override
+  String get autoTaskLatestStatus => '前回の結果';
+
+  @override
+  String get autoTaskName => 'タスク名';
+
+  @override
+  String get autoTaskTriggerLabel => 'トリガー';
+
+  @override
+  String get autoTaskTriggerInterval => '間隔';
+
+  @override
+  String get autoTaskTriggerCron => 'Cron スケジュール';
+
+  @override
+  String get autoTaskTriggerEvent => 'イベント';
+
+  @override
+  String get autoTaskIntervalMinutes => '間隔（分）';
+
+  @override
+  String get autoTaskCronExpression => 'Cron 式';
+
+  @override
+  String get autoTaskEventName => 'イベント名';
+
+  @override
+  String get autoTaskActionLabel => 'アクション';
+
+  @override
+  String get autoTaskActionWeb => 'HTTP リクエスト';
+
+  @override
+  String get autoTaskActionBackup => 'WebDAV バックアップ';
+
+  @override
+  String get autoTaskActionCache => '章をキャッシュ';
+
+  @override
+  String get autoTaskWebUrl => 'リクエスト URL';
+
+  @override
+  String get autoTaskWebMethod => 'メソッド';
+
+  @override
+  String get autoTaskWebBody => 'ボディ';
+
+  @override
+  String get autoTaskWebBodyHint => '任意、POST 時使用';
+
+  @override
+  String get autoTaskBackupScope => 'バックアップ範囲';
+
+  @override
+  String get autoTaskCacheBook => '書籍 ID';
+
+  @override
+  String get autoTaskSave => '保存';
+
+  @override
+  String get contentSearchTitle => '全文検索';
+
+  @override
+  String get contentSearchHint => '章節本文を検索';
+
+  @override
+  String get contentSearchRegex => '正規表現';
+
+  @override
+  String get contentSearchPurify => '浄化';
+
+  @override
+  String get contentSearchClear => 'クリア';
+
+  @override
+  String contentSearchProgressLabel(Object scanned, Object total) {
+    return '$total 章中 $scanned 章を検索済み';
+  }
+
+  @override
+  String contentSearchHitCount(Object count) {
+    return '$count 箇所ヒット';
+  }
+
+  @override
+  String get contentSearchIdleHint => 'キーワードを入力して全章を検索';
+
+  @override
+  String get contentSearchEmpty => '一致する内容が見つかりません';
+
+  @override
+  String get contentSearchEmptyHint => '別のキーワード、または浄化を無効にして再試行';
+
+  @override
+  String get autoReadTitle => '自動読書';
+
+  @override
+  String get autoReadSpeedLabel => 'ページ送り間隔';
+
+  @override
+  String get autoReadSpeedHint => '各ページの停留時間。一時停止中に調整でき、再生時に最新値を自動で使用します';
+
+  @override
+  String get autoReadStart => '開始';
+
+  @override
+  String get autoReadPause => '一時停止';
+
+  @override
+  String get autoReadStop => '自動読書を停止';
+
+  @override
+  String get webServerTitle => 'Web管理サーバー';
+
+  @override
+  String get webServerWebUnsupported => 'Web ターゲットではローカル管理サーバーを利用できません';
+
+  @override
+  String get webServerStatusRunning => '実行中';
+
+  @override
+  String get webServerStatusStopped => '停止中';
+
+  @override
+  String get webServerPortLabel => 'ポート';
+
+  @override
+  String get webServerPortHint => 'デフォルト 18181。変更後はサービスの再起動が必要です';
+
+  @override
+  String get webServerTokenLabel => 'アクセストークン';
+
+  @override
+  String get webServerTokenHint =>
+      'すべてのエンドポイントにこのトークンが必要です（Authorization: Bearer）';
+
+  @override
+  String get webServerCopy => 'コピー';
+
+  @override
+  String get webServerRegenerate => '再生成';
+
+  @override
+  String get webServerStart => 'サービスを開始';
+
+  @override
+  String get webServerStop => 'サービスを停止';
+
+  @override
+  String get webServerEndpointTitle => '利用可能なエンドポイント';
+
+  @override
+  String get webServerEndpointHint =>
+      'REST /api/health /api/status /api/sources；WebSocket /ws?token=…（JSON-RPC / MCP）';
+
+  @override
+  String get webServerCopied => 'コピーしました';
+
+  @override
+  String get webServerStartFailed => '開始に失敗しました';
+
+  @override
+  String get webServerRestartHint => 'ポートの変更はサービスの再起動後に反映されます';
 }

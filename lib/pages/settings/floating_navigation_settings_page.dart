@@ -512,6 +512,7 @@ String _destinationLabel(
     HomeNavigationDestination.home => l10n.home,
     HomeNavigationDestination.library => l10n.library,
     HomeNavigationDestination.discover => l10n.discover,
+    HomeNavigationDestination.rss => l10n.rss,
     HomeNavigationDestination.ai => l10n.navAi,
     HomeNavigationDestination.settings => l10n.settings,
   };
@@ -522,6 +523,7 @@ IconData _destinationIcon(HomeNavigationDestination destination) {
     HomeNavigationDestination.home => Icons.home_outlined,
     HomeNavigationDestination.library => Icons.library_books_outlined,
     HomeNavigationDestination.discover => Icons.explore_outlined,
+    HomeNavigationDestination.rss => Icons.rss_feed_rounded,
     HomeNavigationDestination.ai => Icons.auto_awesome_outlined,
     HomeNavigationDestination.settings => Icons.settings_outlined,
   };
@@ -532,6 +534,7 @@ IconData _destinationSelectedIcon(HomeNavigationDestination destination) {
     HomeNavigationDestination.home => Icons.home,
     HomeNavigationDestination.library => Icons.library_books,
     HomeNavigationDestination.discover => Icons.explore_rounded,
+    HomeNavigationDestination.rss => Icons.rss_feed_rounded,
     HomeNavigationDestination.ai => Icons.auto_awesome,
     HomeNavigationDestination.settings => Icons.settings,
   };

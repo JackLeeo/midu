@@ -49,6 +49,9 @@ dependencies:
   # HTML DOM 解析（Legado 声明式规则）
   html: ^0.15.6
 
+  # RSS/Atom XML 解析（正确处理 CDATA 与命名空间前缀，HTML 解析器不适合 XML）
+  xml: ^6.5.0
+
   # UI
   provider: ^6.1.5
   scrollable_positioned_list: ^0.3.8
@@ -73,6 +76,10 @@ dependencies:
   gbk_codec: ^0.4.0
   flutter_secure_storage: ^10.3.1
   audioplayers: ^6.8.1
+
+  # @webBrowser:/@webView: 浏览器兜底（仅 Android/iOS 使用真实 WebView；
+  # 桌面/Web 目标由 webview_guard 降级为不可用提示）
+  webview_flutter: ^4.10.0
 
   # fjs JS 引擎（QuickJS + Rust，全端统一）
   fjs: ^3.3.0

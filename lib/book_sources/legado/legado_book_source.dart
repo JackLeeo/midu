@@ -58,6 +58,71 @@ class LegadoBookSource {
   int get lastUpdateTime => _integer(raw['lastUpdateTime']);
   int get respondTime => _integer(raw['respondTime']);
 
+  // 米读：对标 Legado BaseSource/BookSource 的扩展字段。
+  // 这些字段参与书源加权排序、登录态、JS 预加载与规则配套，均以「存在即有
+  // 语义」方式读取，缺省时返回安全默认值，不影响老书源运行。
+
+  /// 书源权重：聚合搜索/书源排序时高权重优先展示。
+  int get weight => raw['weight'] == null ? 0 : _integer(raw['weight']);
+
+  /// 并发请求数（占位字段，对齐 Legado；当前实现暂不据此限制并发）。
+  int get concurrentRate => raw['concurrentRate'] == null ? 1 : _integer(raw['concurrentRate']);
+
+  /// 登录驱动脚本：同一源所有 JS 规则执行前预编译注册的公共脚本。
+  String get jsLib => _string(raw['jsLib']);
+
+  /// 自定义请求头（JSON 对象，如 {"User-Agent": "..."}）。空返回 Map。
+  Map<String, String> get header {
+    final value = raw['header'];
+    if (value is Map) {
+      return value.map((key, value) => MapEntry('$key', '$value'));
+    }
+    if (value is String) {
+      try {
+        final decoded = jsonDecode(value);
+        if (decoded is Map) {
+          return decoded.map((key, value) => MapEntry('$key', '$value'));
+        }
+      } on FormatException {
+        return const {};
+      }
+    }
+    return const {};
+  }
+
+  /// 登录页 URL（含登录 UI 探测规则时可联合使用）。
+  String get loginUrl => _string(raw['loginUrl']);
+  String get loginUi => _string(raw['loginUi']);
+
+  /// 登录校验 JS：登录后判断是否成功的脚本。
+  String get loginCheckJs => _string(raw['loginCheckJs']);
+
+  /// 正文段评规则（Legado ruleContent.think），用于段落间插入评论。
+  String get think => _string(raw['think'] ?? _string(raw['ruleThink']));
+
+  /// 书源式 RSS 规则（ruleRss / rssUrl）。
+  String get ruleRss {
+    final value = raw['ruleRss'];
+    if (value is Map && value.isNotEmpty) {
+      return value.entries.map((e) => '${e.key}=${e.value}').join('&&');
+    }
+    if (value is String) return value.trim();
+    return _string(raw['rssUrl']);
+  }
+
+  /// 图片规则（ruleImage，漫画/图集源，当前兼容性扫描已标记 image 类型）。
+  String get ruleImage => _string(raw['ruleImage']);
+
+  /// 序列化回写：编辑保存后需要保留全部原始字段（含扩展字段）。
+  Map<String, dynamic> toJson() => Map<String, dynamic>.unmodifiable(raw);
+
+  /// 以新原始数据生成新实例（保持强校验）。
+  LegadoBookSource copyWithRaw(Map<String, dynamic> nextRaw) {
+    return LegadoBookSource.fromJson(
+      Map<String, dynamic>.from(nextRaw),
+    );
+  }
+
   Uri get baseUri => Uri.parse(url.split('#').first);
 
   String get stableId =>

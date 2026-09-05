@@ -43,6 +43,9 @@ class BookDao implements BookImportStore {
           'last_canonical_locator',
           'last_rendered_locator',
           'layout_signature',
+          'last_chapter_index',
+          'last_chapter_title',
+          'last_read_at',
           'storage_type',
           'source_id',
           'source_book_id',
@@ -378,6 +381,9 @@ class BookDao implements BookImportStore {
     String? layoutSignature,
     int currentPage, {
     double? readingProgress,
+    int? lastChapterIndex,
+    String? lastChapterTitle,
+    int? lastReadAt,
   }) async {
     try {
       final db = await _dbService.database;
@@ -394,6 +400,14 @@ class BookDao implements BookImportStore {
       if (layoutSignature != null) {
         updates['layout_signature'] = layoutSignature;
       }
+      if (lastChapterIndex != null) {
+        updates['last_chapter_index'] = lastChapterIndex;
+      }
+      if (lastChapterTitle != null) {
+        updates['last_chapter_title'] = lastChapterTitle;
+      }
+      updates['last_read_at'] =
+          lastReadAt ?? DateTime.now().millisecondsSinceEpoch;
       final result = await db.update(
         'books',
         updates,
@@ -405,6 +419,46 @@ class BookDao implements BookImportStore {
       }
     } catch (e) {
       throw Exception('更新 CanonicalLocator 进度失败: $e');
+    }
+  }
+
+  /// 更新书籍的最后阅读章节与时间（对标 Legado BookProgress 回写）。
+  ///
+  /// 轻量级进度回写：不涉及 canonical 定位时，仅更新
+  /// last_chapter_index / last_chapter_title / last_read_at 与百分比。
+  Future<void> updateReadingPosition(
+    int bookId, {
+    int? lastChapterIndex,
+    String? lastChapterTitle,
+    int? lastReadAt,
+    double? readingProgress,
+  }) async {
+    try {
+      final db = await _dbService.database;
+      final updates = <String, dynamic>{
+        'last_read_at':
+            lastReadAt ?? DateTime.now().millisecondsSinceEpoch,
+      };
+      if (lastChapterIndex != null) {
+        updates['last_chapter_index'] = lastChapterIndex;
+      }
+      if (lastChapterTitle != null) {
+        updates['last_chapter_title'] = lastChapterTitle;
+      }
+      if (readingProgress != null) {
+        updates['reading_progress'] = readingProgress.clamp(0.0, 1.0);
+      }
+      final result = await db.update(
+        'books',
+        updates,
+        where: 'id = ?',
+        whereArgs: [bookId],
+      );
+      if (result == 0) {
+        throw Exception('书籍不存在');
+      }
+    } catch (e) {
+      throw Exception('更新阅读位置失败: $e');
     }
   }
 }

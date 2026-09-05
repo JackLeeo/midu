@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../../utils/source_protocol_meta.dart';
 import '../legado/legado_fjs_sandbox.dart';
@@ -12,6 +11,8 @@ import '../models/registered_book_source.dart';
 import '../protocol/book_source_protocol.dart';
 import 'book_download_cancellation.dart';
 import 'book_source_chapter_cache.dart';
+import 'book_source_cookie_store.dart';
+import 'book_source_debug_recorder.dart';
 import 'book_source_network_policy.dart';
 
 class DiscoveredBookSource {
@@ -37,6 +38,10 @@ class BookSourceClient {
   // 本机无 fjs.dll 时用 FlutterLegadoJsSandbox（flutter_js QuickJS）跑真实链路。
   final LegadoJsSandbox Function(String sourceId)? _sandboxFactory;
   final bool _enableAjaxBridge;
+
+  /// 书源调试记录器：由书源调试页注入（独立 BookSourceClient），共享实例为
+  /// null，正常阅读链路不记录任何请求日志。
+  final BookSourceDebugRecorder? debugRecorder;
 
   /// 单次响应体上限。书源返回的都是 JSON 元数据/章节文本，
   /// 超过该值基本可以判定为异常或恶意响应，中途截断防止 OOM。
@@ -69,6 +74,7 @@ class BookSourceClient {
     BookSourceNetworkPolicy networkPolicy = const BookSourceNetworkPolicy(),
     LegadoJsSandbox Function(String sourceId)? sandboxFactory,
     bool enableAjaxBridge = false,
+    this.debugRecorder,
   }) : _sandboxFactory = sandboxFactory,
        _enableAjaxBridge = enableAjaxBridge,
        _chapterCache = chapterCache ?? const BookSourceChapterCache(),
@@ -639,17 +645,23 @@ class BookSourceClient {
       () {
         final sandbox = _sandboxFactory?.call(source.id);
         return sandbox == null
-            ? LegadoRuntime(enableAjaxBridge: _enableAjaxBridge)
+            ? LegadoRuntime(
+                enableAjaxBridge: _enableAjaxBridge,
+                debugRecorder: debugRecorder,
+                cookieStore: BookSourceCookieStore.instance,
+              )
             : LegadoRuntime(
                 sandbox: sandbox,
                 enableAjaxBridge: _enableAjaxBridge,
+                debugRecorder: debugRecorder,
+                cookieStore: BookSourceCookieStore.instance,
               );
       },
     );
   }
 
-  /// 测试专用：暴露按源 runtime 解析，用于验证跨源隔离。
-  @visibleForTesting
+  /// 按源取 runtime：书源调试页（JS/规则单测需要访问沙箱）与测试共用。
+  /// 调试场景注入 debugRecorder，正常阅读链路不受影响。
   LegadoRuntime legadoRuntimeForSource(RegisteredBookSource source) =>
       _legadoFor(source);
 

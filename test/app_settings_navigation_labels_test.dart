@@ -92,6 +92,7 @@ void main() {
       HomeNavigationDestination.home,
       HomeNavigationDestination.library,
       HomeNavigationDestination.discover,
+      HomeNavigationDestination.rss,
     ]);
 
     final repairedPrefs = await SharedPreferences.getInstance();
@@ -100,6 +101,7 @@ void main() {
       'home',
       'library',
       'discover',
+      'rss',
     ]);
 
     await notifier.setHomeNavigationOrder(const [
@@ -115,6 +117,7 @@ void main() {
       'settings',
       'home',
       'library',
+      'rss',
     ]);
   });
 
@@ -164,6 +167,7 @@ void main() {
     expect(notifier.visibleHomeNavigationOrder, [
       HomeNavigationDestination.library,
       HomeNavigationDestination.discover,
+      HomeNavigationDestination.rss,
       HomeNavigationDestination.settings,
     ]);
   });

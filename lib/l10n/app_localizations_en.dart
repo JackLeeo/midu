@@ -1059,6 +1059,24 @@ class AppLocalizationsEn extends AppLocalizations {
       'Add this book to the shelf before saving bookmarks';
 
   @override
+  String get bookmarkEditNoteTitle => 'Edit bookmark note';
+
+  @override
+  String get bookmarkEditNoteHint => 'Enter a note (can be empty)';
+
+  @override
+  String get bookmarkNoteUpdated => 'Bookmark note updated';
+
+  @override
+  String get bookmarkManagerTitle => 'Bookmarks';
+
+  @override
+  String get lastReadChapter => 'Last read chapter';
+
+  @override
+  String get lastReadTime => 'Last read at';
+
+  @override
   String get themeBlue => 'Ocean Blue';
 
   @override
@@ -1744,6 +1762,54 @@ class AppLocalizationsEn extends AppLocalizations {
   String libraryBatchDeletePartial(int success, int failed) {
     return 'Deleted $success; $failed failed';
   }
+
+  @override
+  String get shelfGroupAll => 'All';
+
+  @override
+  String get shelfGroupManage => 'Manage groups';
+
+  @override
+  String get shelfGroupMoveTo => 'Move to group';
+
+  @override
+  String get shelfGroupNewGroup => 'New group';
+
+  @override
+  String get shelfGroupNameEmpty => 'Group name cannot be empty';
+
+  @override
+  String shelfGroupNameExists(String name) {
+    return 'A group named \"$name\" already exists';
+  }
+
+  @override
+  String get shelfGroupAssigned => 'Groups updated';
+
+  @override
+  String get shelfGroupRename => 'Rename group';
+
+  @override
+  String get shelfGroupDeleteTitle => 'Delete group';
+
+  @override
+  String shelfGroupDeleteConfirm(String name) {
+    return 'Delete group \"$name\"? Books in it will not be deleted.';
+  }
+
+  @override
+  String shelfGroupTabCount(int count) {
+    return '$count books';
+  }
+
+  @override
+  String get shelfGroupHide => 'Hide group';
+
+  @override
+  String get shelfGroupShow => 'Show group';
+
+  @override
+  String get shelfGroupEmptyHint => 'No groups yet. Create one below.';
 
   @override
   String get readerPrefaceTitle => 'Front Matter';
@@ -2996,11 +3062,34 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get sourceLoginTitle => 'Log in';
+
+  @override
+  String get sourceLoginNoFields =>
+      'This source has no login fields configured.';
+
+  @override
+  String get sourceLoginSubmit => 'Log in';
+
+  @override
+  String get sourceLoginDone => 'Done';
+
+  @override
+  String get dictLookUp => 'Dictionary';
+
+  @override
   String get readerThemeTitle => 'Reading theme';
 
   @override
   String get readerThemeDescription =>
       'Only changes the reading page and its controls';
+
+  @override
+  String get readerThemeManagement => 'Reading theme manager';
+
+  @override
+  String get readerThemeManagementSubtitle =>
+      'Reorder themes, create or edit custom themes, or apply a selected theme';
 
   @override
   String get readerSettingsTabTheme => 'Theme';
@@ -3016,6 +3105,56 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get readerSettingsAdvancedTypography => 'Advanced typography';
+
+  @override
+  String get readerSettingsTabDisplay => 'Display';
+
+  @override
+  String get readerPunctuationCompressionTitle => 'Punctuation compression';
+
+  @override
+  String get readerPunctuationCompressionHint =>
+      'Merge closing marks left at line starts and anchor opening marks to the following line';
+
+  @override
+  String get readerImmersiveModeTitle => 'Immersive mode';
+
+  @override
+  String get readerImmersiveModeHint =>
+      'Hide the system status and navigation bars while reading (desktop and web excluded)';
+
+  @override
+  String get readerEyeCareTitle => 'Eye-care brightness';
+
+  @override
+  String get readerEyeCareOnLabel => 'On';
+
+  @override
+  String get readerEyeCareOffLabel => 'Off';
+
+  @override
+  String get readerWarmthTitle => 'Warmth';
+
+  @override
+  String get readerTextBoldTitle => 'Bold text';
+
+  @override
+  String get readerTextBoldHint =>
+      'Render the body text in bold to raise contrast and legibility';
+
+  @override
+  String get readerChineseConversionTitle => 'Chinese conversion';
+
+  @override
+  String get readerChineseConversionOff => 'Off';
+
+  @override
+  String get readerChineseConversionSimplifiedToTraditional =>
+      'Simplified → Traditional';
+
+  @override
+  String get readerChineseConversionTraditionalToSimplified =>
+      'Traditional → Simplified';
 
   @override
   String get readerThemeDay => 'Day';
@@ -3092,6 +3231,13 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get readerCustomThemeTextColorHint =>
       'Body text, headings, and primary icons';
+
+  @override
+  String get readerCustomThemeSecondaryTextColor => 'Secondary text color';
+
+  @override
+  String get readerCustomThemeSecondaryTextColorHint =>
+      'Dedicated color for page numbers, chapter info and other secondary text';
 
   @override
   String get readerCustomThemeBackground => 'Reading background';
@@ -4427,4 +4573,240 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get readerNoAnnotationsHint =>
       'Select text to highlight or add a comment. Tap an underlined comment to read it again.';
+
+  @override
+  String get rss => 'RSS';
+
+  @override
+  String get rssAddFeed => 'Add feed';
+
+  @override
+  String get rssFeedUrlHint => 'Feed URL (https://…)';
+
+  @override
+  String get rssNoFeeds => 'No feeds yet';
+
+  @override
+  String get rssNoFeedsHint =>
+      'Tap “Add feed” to subscribe to an RSS / Atom / JSON Feed address.';
+
+  @override
+  String get rssFeedError => 'Failed to load this feed';
+
+  @override
+  String get rssRefresh => 'Refresh';
+
+  @override
+  String get rssRemove => 'Unsubscribe';
+
+  @override
+  String get rssNoArticles => 'No articles yet';
+
+  @override
+  String get rssUntitled => 'Untitled';
+
+  @override
+  String get rssSourceFeedsSection => 'Source feeds';
+
+  @override
+  String get rssMyFeedsSection => 'My feeds';
+
+  @override
+  String get autoTaskTitle => 'Automation tasks';
+
+  @override
+  String get autoTaskAddTask => 'New task';
+
+  @override
+  String get autoTaskEditTask => 'Edit task';
+
+  @override
+  String get autoTaskDeleteTask => 'Delete task';
+
+  @override
+  String get autoTaskRunNow => 'Run now';
+
+  @override
+  String get autoTaskLogs => 'Run logs';
+
+  @override
+  String get autoTaskLogsEmpty => 'No run logs yet';
+
+  @override
+  String get autoTaskEmptyTitle => 'No automation tasks yet';
+
+  @override
+  String get autoTaskEmptyHint =>
+      'Create a task to run on a schedule or on an event: periodically fetch feeds, back up to WebDAV, or precache chapters.';
+
+  @override
+  String get autoTaskLatestStatus => 'Last result';
+
+  @override
+  String get autoTaskName => 'Task name';
+
+  @override
+  String get autoTaskTriggerLabel => 'Trigger';
+
+  @override
+  String get autoTaskTriggerInterval => 'Interval';
+
+  @override
+  String get autoTaskTriggerCron => 'Cron schedule';
+
+  @override
+  String get autoTaskTriggerEvent => 'Event';
+
+  @override
+  String get autoTaskIntervalMinutes => 'Interval (min)';
+
+  @override
+  String get autoTaskCronExpression => 'Cron expression';
+
+  @override
+  String get autoTaskEventName => 'Event name';
+
+  @override
+  String get autoTaskActionLabel => 'Action';
+
+  @override
+  String get autoTaskActionWeb => 'HTTP request';
+
+  @override
+  String get autoTaskActionBackup => 'WebDAV backup';
+
+  @override
+  String get autoTaskActionCache => 'Cache chapters';
+
+  @override
+  String get autoTaskWebUrl => 'Request URL';
+
+  @override
+  String get autoTaskWebMethod => 'Method';
+
+  @override
+  String get autoTaskWebBody => 'Body';
+
+  @override
+  String get autoTaskWebBodyHint => 'Optional, used for POST';
+
+  @override
+  String get autoTaskBackupScope => 'Backup scope';
+
+  @override
+  String get autoTaskCacheBook => 'Book ID';
+
+  @override
+  String get autoTaskSave => 'Save';
+
+  @override
+  String get contentSearchTitle => 'Search in book';
+
+  @override
+  String get contentSearchHint => 'Search chapter content';
+
+  @override
+  String get contentSearchRegex => 'Regex';
+
+  @override
+  String get contentSearchPurify => 'Purify';
+
+  @override
+  String get contentSearchClear => 'Clear';
+
+  @override
+  String contentSearchProgressLabel(Object scanned, Object total) {
+    return 'Scanned $scanned/$total chapters';
+  }
+
+  @override
+  String contentSearchHitCount(Object count) {
+    return '$count hits';
+  }
+
+  @override
+  String get contentSearchIdleHint =>
+      'Enter a keyword to search the whole book';
+
+  @override
+  String get contentSearchEmpty => 'No matches found';
+
+  @override
+  String get contentSearchEmptyHint =>
+      'Try a different keyword, or disable purification';
+
+  @override
+  String get autoReadTitle => 'Auto Read';
+
+  @override
+  String get autoReadSpeedLabel => 'Page interval';
+
+  @override
+  String get autoReadSpeedHint =>
+      'Seconds per page; adjust while paused, playback reuses the latest value';
+
+  @override
+  String get autoReadStart => 'Start';
+
+  @override
+  String get autoReadPause => 'Pause';
+
+  @override
+  String get autoReadStop => 'Stop auto read';
+
+  @override
+  String get webServerTitle => 'Web management server';
+
+  @override
+  String get webServerWebUnsupported =>
+      'Web target does not support the local management server';
+
+  @override
+  String get webServerStatusRunning => 'Running';
+
+  @override
+  String get webServerStatusStopped => 'Stopped';
+
+  @override
+  String get webServerPortLabel => 'Port';
+
+  @override
+  String get webServerPortHint =>
+      'Default 18181. Restart the service to take effect';
+
+  @override
+  String get webServerTokenLabel => 'Access token';
+
+  @override
+  String get webServerTokenHint =>
+      'All endpoints require this token (Authorization: Bearer)';
+
+  @override
+  String get webServerCopy => 'Copy';
+
+  @override
+  String get webServerRegenerate => 'Regenerate';
+
+  @override
+  String get webServerStart => 'Start service';
+
+  @override
+  String get webServerStop => 'Stop service';
+
+  @override
+  String get webServerEndpointTitle => 'Available endpoints';
+
+  @override
+  String get webServerEndpointHint =>
+      'REST /api/health /api/status /api/sources; WS /ws?token=… (JSON-RPC / MCP)';
+
+  @override
+  String get webServerCopied => 'Copied';
+
+  @override
+  String get webServerStartFailed => 'Start failed';
+
+  @override
+  String get webServerRestartHint =>
+      'Port changes take effect after restarting the service';
 }

@@ -255,6 +255,7 @@ class BookSourceChapterContent {
     required this.content,
     required this.contentType,
     this.imageUrls = const [],
+    this.thinkList = const [],
   });
 
   factory BookSourceChapterContent.fromJson(Map<String, dynamic> json) {
@@ -265,6 +266,10 @@ class BookSourceChapterContent {
       content: _requireString(json, 'content'),
       contentType: json['contentType'] as String? ?? 'text/plain',
       imageUrls: _stringList(json['imageUrls']),
+      thinkList: [
+        for (final item in _jsonList(json['thinkList']))
+          BookSourceChapterThink.fromJson(item),
+      ],
     );
   }
 
@@ -278,6 +283,10 @@ class BookSourceChapterContent {
   /// 为空表示该章是纯文本正文，走常规文本排版渲染。
   final List<String> imageUrls;
 
+  /// 段评（Legado ruleContent.think）解析结果；正文已按段落物化插入评论块，
+  /// 该列表供调试页/后续 UI 直接取用原始结构。
+  final List<BookSourceChapterThink> thinkList;
+
   /// 是否为「漫画章节」：正文就是一张张图片，用图片翻页器渲染。
   bool get isImageChapter => imageUrls.isNotEmpty;
 
@@ -288,7 +297,92 @@ class BookSourceChapterContent {
     'content': content,
     'contentType': contentType,
     if (imageUrls.isNotEmpty) 'imageUrls': imageUrls,
+    if (thinkList.isNotEmpty)
+      'thinkList': [for (final think in thinkList) think.toJson()],
   };
+}
+
+/// 章内段评（对标 Legado ruleContent.think）。
+///
+/// 字段与 Legado ThinkItem 对齐：`title`/`content`/`user`/`date`/`likes`，
+/// 其余字段宽松忽略。仅文本渲染需要 content/user/title。
+class BookSourceChapterThink {
+  const BookSourceChapterThink({
+    this.id = '',
+    this.title = '',
+    this.content = '',
+    this.user = '',
+    this.date = '',
+    this.likes = '',
+  });
+
+  factory BookSourceChapterThink.fromJson(dynamic item) {
+    if (item is! Map) return const BookSourceChapterThink();
+    String field(String key, [String fallback = '']) {
+      final value = item[key];
+      return value == null ? fallback : value.toString().trim();
+    }
+
+    return BookSourceChapterThink(
+      id: field('id'),
+      title: field('title'),
+      content: field('content'),
+      user: field('user'),
+      date: field('date'),
+      likes: field('likes'),
+    );
+  }
+
+  final String id;
+  final String title;
+  final String content;
+  final String user;
+  final String date;
+  final String likes;
+
+  Map<String, dynamic> toJson() => {
+    if (id.isNotEmpty) 'id': id,
+    if (title.isNotEmpty) 'title': title,
+    if (content.isNotEmpty) 'content': content,
+    if (user.isNotEmpty) 'user': user,
+    if (date.isNotEmpty) 'date': date,
+    if (likes.isNotEmpty) 'likes': likes,
+  };
+
+  /// 物化后用于正文段落间展示的文本块（受 `content` 字数上限保护）。
+  String get displayBlock {
+    final text = content.trim();
+    if (text.isEmpty) return '';
+    final suffix = user.trim().isEmpty ? '' : ' — ${user.trim()}';
+    return '\n【段评】$text$suffix';
+  }
+}
+
+/// 把段评论物化插入正文段落间：第 i 条评论挂到第 i 行（段落）之后；段落
+/// 不足时余下的评论依次拼到文末。保持换行总数不变（只在行尾追加块），
+/// 分页/书签/朗读偏移仍然一致。
+String attachChapterThink(
+  String content,
+  List<BookSourceChapterThink> thinks,
+) {
+  final valid = <BookSourceChapterThink>[
+    for (final think in thinks)
+      if (think.content.trim().isNotEmpty) think,
+  ];
+  if (valid.isEmpty || content.isEmpty) return content;
+  final lines = content.split('\n');
+  final buffer = StringBuffer();
+  for (var index = 0; index < lines.length; index++) {
+    buffer.write(lines[index]);
+    if (index < valid.length && lines[index].isNotEmpty) {
+      buffer.write(valid[index].displayBlock);
+    }
+    if (index != lines.length - 1) buffer.write('\n');
+  }
+  for (var index = lines.length; index < valid.length; index++) {
+    buffer.write(valid[index].displayBlock);
+  }
+  return buffer.toString();
 }
 
 // ============================================================
@@ -410,12 +504,16 @@ class SourcedBookPointer {
     required this.sourceName,
     required this.bookId,
     this.book,
+    this.sourceWeight = 0,
   });
 
   final String sourceId;
   final String sourceName;
   final String bookId;
   final BookSourceBook? book; // 原始单源书籍元信息（完整可选）
+
+  /// 该来源书的权重（对标 Legado `weight`），用于源间排序。
+  final int sourceWeight;
 }
 
 /// 聚合搜索结果中的一本书：去重合并后的多源视图
@@ -426,6 +524,7 @@ class AggregatedSearchHit {
     required this.sources,
     required this.tier,
     required this.score,
+    this.weightSum = 0,
     this.coverUrl,
     this.description,
     this.latestChapter,
@@ -438,6 +537,9 @@ class AggregatedSearchHit {
   final List<SourcedBookPointer> sources; // 可切换的多个源（至少 1 个）
   final int tier; // 0=书名+作者完全匹配; 1=书名完全匹配; 2=模糊匹配
   final double score; // 同 tier 内的精细排序分（字符重合度）
+
+  /// 命中各源权重总和（对标 Legado 加权聚合；平局排序键）。
+  final int weightSum;
   final Uri? coverUrl;
   final String? description;
   final String? latestChapter;
@@ -489,6 +591,12 @@ List<String> _stringList(Object? value) {
       .whereType<String>()
       .where((s) => s.trim().isNotEmpty)
       .toList(growable: false);
+}
+
+/// 把 JSON 里的数组字段归一成动态列表；缺失/非数组返回空列表。
+List<Object?> _jsonList(Object? value) {
+  if (value is! List) return const [];
+  return value.whereType<Object?>().toList(growable: false);
 }
 
 Uri? _optionalUri(Object? value) {

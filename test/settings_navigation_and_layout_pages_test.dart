@@ -125,6 +125,7 @@ void main() {
       HomeNavigationDestination.library,
       HomeNavigationDestination.discover,
       HomeNavigationDestination.home,
+      HomeNavigationDestination.rss,
       HomeNavigationDestination.settings,
     ]);
 
@@ -133,6 +134,7 @@ void main() {
       'library',
       'discover',
       'home',
+      'rss',
       'settings',
     ]);
 

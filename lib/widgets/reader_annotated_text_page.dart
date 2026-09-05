@@ -42,6 +42,8 @@ class ReaderAnnotatedTextPage extends StatefulWidget {
     required this.flowStyle,
     required this.annotations,
     required this.onSaveTextAnnotation,
+    this.onAskAiSelection,
+    this.onLookUpWord,
     this.spokenHighlight,
     this.baseSourceSpanBuilder,
     this.onAnnotationUnavailable,
@@ -66,6 +68,11 @@ class ReaderAnnotatedTextPage extends StatefulWidget {
   final TextSpan Function(int start, int end)? baseSourceSpanBuilder;
   final VoidCallback? onAnnotationUnavailable;
   final ReaderTextAnnotationSaveCallback onSaveTextAnnotation;
+  final ValueChanged<ReaderSelectionSnapshot>? onAskAiSelection;
+
+  /// 长按选区工具栏的「查词」动作：选中文本被转换为
+  /// [ReaderSelectionSnapshot] 后回调，由阅读页打开词典查询面板。
+  final ValueChanged<ReaderSelectionSnapshot>? onLookUpWord;
   final ValueChanged<bool>? onInteractionChanged;
   final bool fillAvailableSpace;
 
@@ -232,7 +239,31 @@ class _ReaderAnnotatedTextPageState extends State<ReaderAnnotatedTextPage> {
       onHighlight: () => unawaited(_createHighlight(regionState)),
       onNote: () => unawaited(_createNote(regionState)),
       onCopy: copyItem?.onPressed,
+      onLookUp: widget.onLookUpWord == null
+          ? null
+          : () => unawaited(_lookUpWord(regionState)),
+      onAskAi: widget.onAskAiSelection == null
+          ? null
+          : () => unawaited(_askAi(regionState)),
     );
+  }
+
+  Future<void> _lookUpWord(SelectableRegionState regionState) async {
+    final selection = _selectionSnapshot;
+    if (selection == null) return;
+    widget.onInteractionChanged?.call(true);
+    _clearSelection(regionState);
+    widget.onLookUpWord?.call(selection);
+    widget.onInteractionChanged?.call(false);
+  }
+
+  Future<void> _askAi(SelectableRegionState regionState) async {
+    final selection = _selectionSnapshot;
+    if (selection == null) return;
+    widget.onInteractionChanged?.call(true);
+    _clearSelection(regionState);
+    widget.onAskAiSelection?.call(selection);
+    widget.onInteractionChanged?.call(false);
   }
 
   @override
@@ -264,6 +295,8 @@ class ReaderSelectionToolbar extends StatelessWidget {
     required this.onHighlight,
     required this.onNote,
     required this.onCopy,
+    this.onLookUp,
+    this.onAskAi,
   });
 
   final ReaderThemePalette palette;
@@ -271,6 +304,8 @@ class ReaderSelectionToolbar extends StatelessWidget {
   final VoidCallback onHighlight;
   final VoidCallback onNote;
   final VoidCallback? onCopy;
+  final VoidCallback? onLookUp;
+  final VoidCallback? onAskAi;
 
   @override
   Widget build(BuildContext context) {
@@ -321,6 +356,20 @@ class ReaderSelectionToolbar extends StatelessWidget {
           color: palette.text,
           onPressed: onCopy,
         ),
+        if (onLookUp != null)
+          _ReaderSelectionAction(
+            icon: Icons.menu_book_outlined,
+            label: context.l10n.dictLookUp,
+            color: palette.text,
+            onPressed: onLookUp,
+          ),
+        if (onAskAi != null)
+          _ReaderSelectionAction(
+            icon: Icons.auto_awesome_rounded,
+            label: context.l10n.readerAskAi,
+            color: palette.accent,
+            onPressed: onAskAi,
+          ),
       ],
     );
   }

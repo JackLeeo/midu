@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:midu/core/reader/native_text_paginator.dart';
+import 'package:midu/core/reader/reader_punctuation_compressor.dart';
 import 'package:midu/core/reader/reader_text_pagination.dart';
 
 typedef BookSourceTextPage = ReaderTextPage;
@@ -43,7 +44,13 @@ List<BookSourceTextPage> paginateBookSourceText(
   int firstLineIndent = 0,
   int paragraphSpacing = 0,
   bool includeChapterTitlePage = true,
+  bool punctuationCompression = false,
 }) {
+  // 标点压缩：消除错误断行导致的行首闭式标点/行尾开式标点。
+  // 仅在书源阅读路径生效（原生 TXT/EPUB 走 ReaderTextLayout 保证批注偏移一致）。
+  final prepared = punctuationCompression
+      ? applyPunctuationCompression(text)
+      : text;
   final flowStyle = NativeTextFlowStyle(
     textDirection: textDirection,
     textScaler: textScaler,
@@ -53,7 +60,7 @@ List<BookSourceTextPage> paginateBookSourceText(
     textAlign: textAlign,
   );
   return paginateReaderText(
-    text: text,
+    text: prepared,
     maxWidth: width,
     maxHeight: pageHeight,
     firstPageHeight: firstPageHeight,

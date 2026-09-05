@@ -11,6 +11,7 @@ class ReaderCustomTheme {
     required this.background,
     required this.text,
     required this.controlBar,
+    this.secondaryText,
     this.backgroundImagePath,
     this.backgroundImageOpacity = defaultBackgroundImageOpacity,
   });
@@ -31,11 +32,23 @@ class ReaderCustomTheme {
   final Color background;
   final Color text;
   final Color controlBar;
+
+  /// 副文字颜色（对标 Legado BgTextConfigDialog 的副字体颜色）。
+  /// 为空时由 [text] 推导（正文同基调的半透明混合色）。
+  final Color? secondaryText;
   final String? backgroundImagePath;
   final double backgroundImageOpacity;
 
   bool get hasBackgroundImage =>
       backgroundImagePath != null && backgroundImagePath!.isNotEmpty;
+
+  /// 实际生效的副文字颜色（可能来自派生计算）。
+  Color get effectiveSecondaryText => secondaryText ?? _derivedSecondaryText();
+
+  Color _derivedSecondaryText() => Color.alphaBlend(
+    text.withValues(alpha: 0.68),
+    background,
+  );
 
   static bool isCustomThemeId(String? id) =>
       id == legacyThemeId || (id?.startsWith(themeIdPrefix) ?? false);
@@ -46,6 +59,7 @@ class ReaderCustomTheme {
     Color? background,
     Color? text,
     Color? controlBar,
+    Object? secondaryText = _unchanged,
     Object? backgroundImagePath = _unchanged,
     double? backgroundImageOpacity,
   }) {
@@ -55,6 +69,9 @@ class ReaderCustomTheme {
       background: background ?? this.background,
       text: text ?? this.text,
       controlBar: controlBar ?? this.controlBar,
+      secondaryText: identical(secondaryText, _unchanged)
+          ? this.secondaryText
+          : secondaryText as Color?,
       backgroundImagePath: identical(backgroundImagePath, _unchanged)
           ? this.backgroundImagePath
           : backgroundImagePath as String?,
@@ -72,6 +89,7 @@ class ReaderCustomTheme {
     'background': background.toARGB32(),
     'text': text.toARGB32(),
     'controlBar': controlBar.toARGB32(),
+    'secondaryText': secondaryText?.toARGB32(),
     'backgroundImagePath': backgroundImagePath,
     'backgroundImageOpacity': backgroundImageOpacity,
   };
@@ -83,6 +101,7 @@ class ReaderCustomTheme {
     }
 
     final storedOpacity = map['backgroundImageOpacity'];
+    final storedSecondary = map['secondaryText'];
     return ReaderCustomTheme(
       id: switch (map['id']) {
         final String value when value.isNotEmpty => value,
@@ -92,6 +111,7 @@ class ReaderCustomTheme {
       background: Color(colorValue('background', defaults.background)),
       text: Color(colorValue('text', defaults.text)),
       controlBar: Color(colorValue('controlBar', defaults.controlBar)),
+      secondaryText: storedSecondary is int ? Color(storedSecondary) : null,
       backgroundImagePath: switch (map['backgroundImagePath']) {
         final String value when value.isNotEmpty => value,
         _ => null,

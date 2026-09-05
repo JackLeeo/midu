@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
@@ -58,6 +59,40 @@ class LegadoRuleEngine {
     final transformed = _splitTransform(rule);
     if (transformed.selector.trimLeft().startsWith(':')) {
       return _evaluateRegexList(document, context, transformed.selector);
+    }
+    // 米读：%% 运算符（对齐 Legado）：把选择器按顶层 %% 拆成多条独立规则，各自
+    // 求值成列表后按下标「逐行交错」拼接——常用于目录中把两个同源列表配对
+    // （如 "title@text%%link@href" → 每行 = (title[i], link[i])）。
+    // 仅当 %% 存在且各段求值为字符串列表时启用；若命中元素上下文则退化回常规路径
+    // （当前逻辑下 %% 无法命中任何选择器，本分支只会增加兼容性、不会回归）。
+    final topLevel = _splitTopLevel(transformed.selector, '%%');
+    if (topLevel.length > 1 &&
+        !topLevel.any((part) => part.trim().isEmpty) &&
+        _looksLikeComposableParts(topLevel)) {
+      final groups = <List<Object?>>[];
+      var hasElement = false;
+      for (final part in topLevel) {
+        final values = await _evaluateAlternatives(
+          document,
+          context,
+          part.trim(),
+          listMode: true,
+        );
+        groups.add(values);
+        if (values.any((value) => value is Element)) hasElement = true;
+      }
+      // %% 只作用于「逐行求值的字符串列表」；任一段命中元素上下文（需保留结构
+      // 供上层按行建对象）时退让给常规路径，避免行结构错乱。
+      if (!hasElement && groups.any((g) => g.isNotEmpty)) {
+        final interleaved = <Object?>[];
+        final maxLen = groups.map((g) => g.length).reduce(math.max);
+        for (var i = 0; i < maxLen; i++) {
+          for (final group in groups) {
+            if (i < group.length) interleaved.add(group[i]);
+          }
+        }
+        return interleaved;
+      }
     }
     // 米读：列表规则中的 @put:{...} 需要对列表的每个元素求值后存变量
     // （如 chapterList: "$..list[*]@put:{bid:$.info.articleid}"）。
@@ -1639,7 +1674,9 @@ final _singleBraceTemplate = RegExp(r'\{(\s*\$[^{}]+|[A-Za-z_][A-Za-z0-9_]*)\}')
 List<String> _splitTopLevel(String input, String delimiter) {
   final result = <String>[];
   var start = 0;
-  var brace = 0;
+  var brace = 0; // {} 深度
+  var paren = 0; // () 深度（XPath/CSS 函数/jsoup 伪类）
+  var square = 0; // [] 深度（XPath 谓词/属性选择器 [attr=="a&&b"]）
   var quote = 0; // 0=无引号, 1=双引号, 2=单引号
   for (var i = 0; i < input.length; i++) {
     final ch = input[i];
@@ -1656,7 +1693,18 @@ List<String> _splitTopLevel(String input, String delimiter) {
         brace++;
       } else if (ch == '}') {
         if (brace > 0) brace--;
-      } else if (brace == 0 && input.startsWith(delimiter, i)) {
+      } else if (ch == '(') {
+        paren++;
+      } else if (ch == ')') {
+        if (paren > 0) paren--;
+      } else if (ch == '[') {
+        square++;
+      } else if (ch == ']') {
+        if (square > 0) square--;
+      } else if (brace == 0 &&
+          paren == 0 &&
+          square == 0 &&
+          input.startsWith(delimiter, i)) {
         result.add(input.substring(start, i));
         i += delimiter.length - 1;
         start = i + 1;
@@ -1677,6 +1725,25 @@ _RuleTransform _splitTransform(String rule) {
         ? parts[2].replaceFirst(RegExp(r'###$'), '')
         : '',
   );
+}
+
+/// %% 各段是否「可按行求值的字符串规则」。命中以下场景不启用 %%：
+/// - 段内含 @put/@get 副作用操作（由其它路径处理，避免变量求值次序混乱）；
+/// - 段是 JSON 路径 / 顶层 JS 规则（返回结构化对象，非纯字符串列表）。
+/// 其余 HTML/@text/@attr 等文本规则段才参与 %% 交错拼接。
+bool _looksLikeComposableParts(List<String> parts) {
+  for (final part in parts) {
+    final trimmed = part.trim();
+    if (trimmed.contains('@put:') || trimmed.contains('@get:')) return false;
+    final lower = trimmed.toLowerCase();
+    if (lower.startsWith('@js:') ||
+        lower.startsWith('<js>') ||
+        lower.startsWith('@xpath:') ||
+        trimmed.startsWith(r'$.')) {
+      return false;
+    }
+  }
+  return true;
 }
 
 class _LegacySelector {

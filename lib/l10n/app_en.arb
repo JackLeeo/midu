@@ -947,6 +947,12 @@
   "readerNoBookmarks": "No bookmarks yet",
   "readerNoBookmarksHint": "Tap the bookmark button in the top-right corner to save your place.",
   "readerBookmarkRequiresShelf": "Add this book to the shelf before saving bookmarks",
+  "bookmarkEditNoteTitle": "Edit bookmark note",
+  "bookmarkEditNoteHint": "Enter a note (can be empty)",
+  "bookmarkNoteUpdated": "Bookmark note updated",
+  "bookmarkManagerTitle": "Bookmarks",
+  "lastReadChapter": "Last read chapter",
+  "lastReadTime": "Last read at",
   "themeBlue": "Ocean Blue",
   "@themeBlue": {
     "description": "Blue theme name"
@@ -1808,6 +1814,65 @@
   "@libraryBatchDeleteSuccess": {"placeholders": {"count": {"type": "int"}}},
   "libraryBatchDeletePartial": "Deleted {success}; {failed} failed",
   "@libraryBatchDeletePartial": {"placeholders": {"success": {"type": "int"}, "failed": {"type": "int"}}},
+  "shelfGroupAll": "All",
+  "@shelfGroupAll": {
+    "description": "Library group tab showing every book regardless of group"
+  },
+  "shelfGroupManage": "Manage groups",
+  "@shelfGroupManage": {
+    "description": "Action that opens the shelf group management page"
+  },
+  "shelfGroupMoveTo": "Move to group",
+  "@shelfGroupMoveTo": {
+    "description": "Long-press or batch action moving selected books into shelf groups"
+  },
+  "shelfGroupNewGroup": "New group",
+  "@shelfGroupNewGroup": {
+    "description": "Button creating a new shelf group"
+  },
+  "shelfGroupNameEmpty": "Group name cannot be empty",
+  "@shelfGroupNameEmpty": {
+    "description": "Validation error when creating/renaming a group with an empty name"
+  },
+  "shelfGroupNameExists": "A group named \"{name}\" already exists",
+  "@shelfGroupNameExists": {
+    "description": "Validation error when creating/renaming a group with a duplicate name",
+    "placeholders": {"name": {"type": "String"}}
+  },
+  "shelfGroupAssigned": "Groups updated",
+  "@shelfGroupAssigned": {
+    "description": "Toast shown after books are moved into groups"
+  },
+  "shelfGroupRename": "Rename group",
+  "@shelfGroupRename": {
+    "description": "Action renaming a shelf group"
+  },
+  "shelfGroupDeleteTitle": "Delete group",
+  "@shelfGroupDeleteTitle": {
+    "description": "Title of the confirm dialog when deleting a shelf group"
+  },
+  "shelfGroupDeleteConfirm": "Delete group \"{name}\"? Books in it will not be deleted.",
+  "@shelfGroupDeleteConfirm": {
+    "description": "Confirm dialog body when deleting a shelf group",
+    "placeholders": {"name": {"type": "String"}}
+  },
+  "shelfGroupTabCount": "{count} books",
+  "@shelfGroupTabCount": {
+    "description": "Book count shown on a shelf group",
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "shelfGroupHide": "Hide group",
+  "@shelfGroupHide": {
+    "description": "Action hiding a shelf group from the library group tab bar"
+  },
+  "shelfGroupShow": "Show group",
+  "@shelfGroupShow": {
+    "description": "Action showing a hidden shelf group again"
+  },
+  "shelfGroupEmptyHint": "No groups yet. Create one below.",
+  "@shelfGroupEmptyHint": {
+    "description": "Empty state hint in group picker and manage page"
+  },
   "@libraryDeleteComplete": {
     "description": "Deletion progress step: finished"
   },
@@ -3077,6 +3142,26 @@
       }
     }
   },
+  "sourceLoginTitle": "Log in",
+  "@sourceLoginTitle": {
+    "description": "Title of the source login dialog"
+  },
+  "sourceLoginNoFields": "This source has no login fields configured.",
+  "@sourceLoginNoFields": {
+    "description": "Shown when a source declares login but defines no input fields"
+  },
+  "sourceLoginSubmit": "Log in",
+  "@sourceLoginSubmit": {
+    "description": "Submit button label for the source login form"
+  },
+  "sourceLoginDone": "Done",
+  "@sourceLoginDone": {
+    "description": "Confirm button label when a source has no fields to fill"
+  },
+  "dictLookUp": "Dictionary",
+  "@dictLookUp": {
+    "description": "Selection toolbar action that looks up a word in configured dictionaries"
+  },
   "readerThemeTitle": "Reading theme",
   "@readerThemeTitle": {
     "description": "Title of the reader-only theme selector"
@@ -3085,6 +3170,11 @@
   "@readerThemeDescription": {
     "description": "Explains that reading themes are independent from the app theme"
   },
+  "readerThemeManagement": "Reading theme manager",
+  "@readerThemeManagement": {
+    "description": "Settings entry that opens the reading theme management page"
+  },
+  "readerThemeManagementSubtitle": "Reorder themes, create or edit custom themes, or apply a selected theme",
   "readerSettingsTabTheme": "Theme",
   "@readerSettingsTabTheme": {
     "description": "Reader settings sheet tab with the theme picker and top bar style"
@@ -3105,6 +3195,42 @@
   "@readerSettingsAdvancedTypography": {
     "description": "Collapsed section holding letter spacing, first-line indent and paragraph spacing"
   },
+  "readerSettingsTabDisplay": "Display",
+  "@readerSettingsTabDisplay": {
+    "description": "Reader settings sheet tab with punctuation compression, immersive mode, eye-care brightness and warmth"
+  },
+  "readerPunctuationCompressionTitle": "Punctuation compression",
+  "@readerPunctuationCompressionTitle": {
+    "description": "Reader display toggle that merges leading closing punctuation at line starts and moves trailing opening punctuation to the next line"
+  },
+  "readerPunctuationCompressionHint": "Merge closing marks left at line starts and anchor opening marks to the following line",
+  "readerImmersiveModeTitle": "Immersive mode",
+  "@readerImmersiveModeTitle": {
+    "description": "Reader display toggle that hides the system status and navigation bars while reading"
+  },
+  "readerImmersiveModeHint": "Hide the system status and navigation bars while reading (desktop and web excluded)",
+  "readerEyeCareTitle": "Eye-care brightness",
+  "@readerEyeCareTitle": {
+    "description": "Reader display slider that dims the screen through a dark overlay"
+  },
+  "readerEyeCareOnLabel": "On",
+  "readerEyeCareOffLabel": "Off",
+  "readerWarmthTitle": "Warmth",
+  "@readerWarmthTitle": {
+    "description": "Reader display slider that tints the screen with an amber overlay"
+  },
+  "readerTextBoldTitle": "Bold text",
+  "@readerTextBoldTitle": {
+    "description": "Reader setting that renders the whole body text in bold"
+  },
+  "readerTextBoldHint": "Render the body text in bold to raise contrast and legibility",
+  "readerChineseConversionTitle": "Chinese conversion",
+  "@readerChineseConversionTitle": {
+    "description": "Reader setting that converts the chapter text between simplified and traditional Chinese"
+  },
+  "readerChineseConversionOff": "Off",
+  "readerChineseConversionSimplifiedToTraditional": "Simplified → Traditional",
+  "readerChineseConversionTraditionalToSimplified": "Traditional → Simplified",
   "readerThemeDay": "Day",
   "@readerThemeDay": {
     "description": "Day reading theme name"
@@ -3144,6 +3270,8 @@
   "readerCustomThemeColors": "Theme colors",
   "readerCustomThemeTextColor": "Text color",
   "readerCustomThemeTextColorHint": "Body text, headings, and primary icons",
+  "readerCustomThemeSecondaryTextColor": "Secondary text color",
+  "readerCustomThemeSecondaryTextColorHint": "Dedicated color for page numbers, chapter info and other secondary text",
   "readerCustomThemeBackground": "Reading background",
   "readerCustomThemeBackgroundHint": "The paper and reading canvas color",
   "readerCustomThemeControlBar": "Control bar color",
@@ -4306,5 +4434,80 @@
   "readerAnnotationDeleted": "Annotation deleted",
   "readerAnnotationShelfRequired": "Add this book to the shelf before saving annotations",
   "readerNoAnnotations": "No annotations yet",
-  "readerNoAnnotationsHint": "Select text to highlight or add a comment. Tap an underlined comment to read it again."
+  "readerNoAnnotationsHint": "Select text to highlight or add a comment. Tap an underlined comment to read it again.",
+  "rss": "RSS",
+  "@rss": {"description": "Label of the RSS destination in home navigation"},
+  "rssAddFeed": "Add feed",
+  "rssFeedUrlHint": "Feed URL (https://…)",
+  "rssNoFeeds": "No feeds yet",
+  "rssNoFeedsHint": "Tap “Add feed” to subscribe to an RSS / Atom / JSON Feed address.",
+  "rssFeedError": "Failed to load this feed",
+  "rssRefresh": "Refresh",
+  "rssRemove": "Unsubscribe",
+  "rssNoArticles": "No articles yet",
+  "rssUntitled": "Untitled",
+  "rssSourceFeedsSection": "Source feeds",
+  "rssMyFeedsSection": "My feeds",
+  "autoTaskTitle": "Automation tasks",
+  "autoTaskAddTask": "New task",
+  "autoTaskEditTask": "Edit task",
+  "autoTaskDeleteTask": "Delete task",
+  "autoTaskRunNow": "Run now",
+  "autoTaskLogs": "Run logs",
+  "autoTaskLogsEmpty": "No run logs yet",
+  "autoTaskEmptyTitle": "No automation tasks yet",
+  "autoTaskEmptyHint": "Create a task to run on a schedule or on an event: periodically fetch feeds, back up to WebDAV, or precache chapters.",
+  "autoTaskLatestStatus": "Last result",
+  "autoTaskName": "Task name",
+  "autoTaskTriggerLabel": "Trigger",
+  "autoTaskTriggerInterval": "Interval",
+  "autoTaskTriggerCron": "Cron schedule",
+  "autoTaskTriggerEvent": "Event",
+  "autoTaskIntervalMinutes": "Interval (min)",
+  "autoTaskCronExpression": "Cron expression",
+  "autoTaskEventName": "Event name",
+  "autoTaskActionLabel": "Action",
+  "autoTaskActionWeb": "HTTP request",
+  "autoTaskActionBackup": "WebDAV backup",
+  "autoTaskActionCache": "Cache chapters",
+  "autoTaskWebUrl": "Request URL",
+  "autoTaskWebMethod": "Method",
+  "autoTaskWebBody": "Body",
+  "autoTaskWebBodyHint": "Optional, used for POST",
+  "autoTaskBackupScope": "Backup scope",
+  "autoTaskCacheBook": "Book ID",
+  "autoTaskSave": "Save",
+  "contentSearchTitle": "Search in book",
+  "contentSearchHint": "Search chapter content",
+  "contentSearchRegex": "Regex",
+  "contentSearchPurify": "Purify",
+  "contentSearchClear": "Clear",
+  "contentSearchProgressLabel": "Scanned {scanned}/{total} chapters",
+  "contentSearchHitCount": "{count} hits",
+  "contentSearchIdleHint": "Enter a keyword to search the whole book",
+  "contentSearchEmpty": "No matches found",
+  "contentSearchEmptyHint": "Try a different keyword, or disable purification",
+  "autoReadTitle": "Auto Read",
+  "autoReadSpeedLabel": "Page interval",
+  "autoReadSpeedHint": "Seconds per page; adjust while paused, playback reuses the latest value",
+  "autoReadStart": "Start",
+  "autoReadPause": "Pause",
+  "autoReadStop": "Stop auto read",
+  "webServerTitle": "Web management server",
+  "webServerWebUnsupported": "Web target does not support the local management server",
+  "webServerStatusRunning": "Running",
+  "webServerStatusStopped": "Stopped",
+  "webServerPortLabel": "Port",
+  "webServerPortHint": "Default 18181. Restart the service to take effect",
+  "webServerTokenLabel": "Access token",
+  "webServerTokenHint": "All endpoints require this token (Authorization: Bearer)",
+  "webServerCopy": "Copy",
+  "webServerRegenerate": "Regenerate",
+  "webServerStart": "Start service",
+  "webServerStop": "Stop service",
+  "webServerEndpointTitle": "Available endpoints",
+  "webServerEndpointHint": "REST /api/health /api/status /api/sources; WS /ws?token=… (JSON-RPC / MCP)",
+  "webServerCopied": "Copied",
+  "webServerStartFailed": "Start failed",
+  "webServerRestartHint": "Port changes take effect after restarting the service"
 }

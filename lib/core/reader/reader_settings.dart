@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'chinese_converter.dart';
 import 'reader_layout.dart';
 import 'reader_margin_settings.dart';
 import 'reader_tap_zones.dart';
@@ -23,6 +24,11 @@ class ReaderSettings {
   static const ReaderPageMode defaultPageMode = ReaderPageMode.horizontalSlide;
   static const bool defaultTabletTwoPageEnabled = true;
 
+  /// 默认自动阅读翻页间隔（秒），对标 Legado `ReadBookConfig.autoReadSpeed`。
+  static const int defaultAutoReadSeconds = 15;
+  static const int minAutoReadSeconds = 1;
+  static const int maxAutoReadSeconds = 60;
+
   const ReaderSettings({
     required this.fontSize,
     required this.lineHeight,
@@ -38,6 +44,13 @@ class ReaderSettings {
     this.pullBookmarkEnabled = false,
     this.tapPageAnimationEnabled = true,
     this.tabletTwoPageEnabled = defaultTabletTwoPageEnabled,
+    this.punctuationCompression = false,
+    this.immersiveMode = false,
+    this.eyeCareBrightness = 0,
+    this.warmth = 0,
+    this.chineseConversion = ChineseConversionMode.off,
+    this.textBold = false,
+    this.autoReadSeconds = defaultAutoReadSeconds,
   });
 
   final double fontSize;
@@ -55,6 +68,28 @@ class ReaderSettings {
   final bool tapPageAnimationEnabled;
   final bool tabletTwoPageEnabled;
 
+  /// 标点压缩：行首不出现闭式标点、行尾不悬挂开式标点（对标 Legado）。
+  final bool punctuationCompression;
+
+  /// 沉浸模式：阅读时隐藏系统状态栏/导航栏（移动端生效，Web 条件禁用）。
+  final bool immersiveMode;
+
+  /// 护眼亮度（0..1）：以半透明遮罩降低整体亮度，0 表示关闭。
+  final double eyeCareBrightness;
+
+  /// 暖光（0..1）：琥珀色调叠加，0 表示关闭。
+  final double warmth;
+
+  /// 正文简繁转换（对标 Legado 中文转换）：off/简体→繁体/繁体→简体。
+  final ChineseConversionMode chineseConversion;
+
+  /// 字体加粗（对标 Legado 字体加粗开关）。
+  final bool textBold;
+
+  /// 自动阅读翻页间隔（秒），对标 Legado `ReadBookConfig.autoReadSpeed`。
+  /// 仅在用户开启自动阅读时生效。
+  final int autoReadSeconds;
+
   ReaderSettings copyWith({
     double? fontSize,
     double? lineHeight,
@@ -70,6 +105,13 @@ class ReaderSettings {
     bool? pullBookmarkEnabled,
     bool? tapPageAnimationEnabled,
     bool? tabletTwoPageEnabled,
+    bool? punctuationCompression,
+    bool? immersiveMode,
+    double? eyeCareBrightness,
+    double? warmth,
+    ChineseConversionMode? chineseConversion,
+    bool? textBold,
+    int? autoReadSeconds,
   }) {
     return ReaderSettings(
       fontSize: (fontSize ?? this.fontSize).clamp(14, 32),
@@ -99,6 +141,20 @@ class ReaderSettings {
       tapPageAnimationEnabled:
           tapPageAnimationEnabled ?? this.tapPageAnimationEnabled,
       tabletTwoPageEnabled: tabletTwoPageEnabled ?? this.tabletTwoPageEnabled,
+      punctuationCompression:
+          punctuationCompression ?? this.punctuationCompression,
+      immersiveMode: immersiveMode ?? this.immersiveMode,
+      eyeCareBrightness: (eyeCareBrightness ?? this.eyeCareBrightness).clamp(
+        0.0,
+        1.0,
+      ),
+      warmth: (warmth ?? this.warmth).clamp(0.0, 1.0),
+      chineseConversion: chineseConversion ?? this.chineseConversion,
+      textBold: textBold ?? this.textBold,
+      autoReadSeconds: (autoReadSeconds ?? this.autoReadSeconds).clamp(
+        minAutoReadSeconds,
+        maxAutoReadSeconds,
+      ),
     );
   }
 }
@@ -125,6 +181,13 @@ class ReaderSettingsStore {
       'native_reader_txt_chapter_title_page_enabled';
   static const tapZonesKey = 'reader_tap_zones_v1';
   static const legacyBookSourceLineHeightKey = 'book_source_reader_line_height';
+  static const punctuationCompressionKey = 'native_reader_punctuation_compression';
+  static const immersiveModeKey = 'native_reader_immersive_mode';
+  static const eyeCareBrightnessKey = 'native_reader_eye_care_brightness';
+  static const warmthKey = 'native_reader_warmth';
+  static const chineseConversionKey = 'native_reader_chinese_conversion';
+  static const textBoldKey = 'native_reader_text_bold';
+  static const autoReadSecondsKey = 'reader_auto_read_seconds';
 
   const ReaderSettingsStore();
 
@@ -200,6 +263,23 @@ class ReaderSettingsStore {
       tabletTwoPageEnabled:
           prefs.getBool(tabletTwoPageKey) ??
           ReaderSettings.defaultTabletTwoPageEnabled,
+      punctuationCompression:
+          prefs.getBool(punctuationCompressionKey) ?? false,
+      immersiveMode: prefs.getBool(immersiveModeKey) ?? false,
+      eyeCareBrightness:
+          (prefs.getDouble(eyeCareBrightnessKey) ?? 0).clamp(0.0, 1.0),
+      warmth: (prefs.getDouble(warmthKey) ?? 0).clamp(0.0, 1.0),
+      chineseConversion: ChineseConversionMode.fromName(
+        prefs.getString(chineseConversionKey),
+      ),
+      textBold: prefs.getBool(textBoldKey) ?? false,
+      autoReadSeconds:
+          (prefs.getInt(autoReadSecondsKey) ??
+                  ReaderSettings.defaultAutoReadSeconds)
+              .clamp(
+                ReaderSettings.minAutoReadSeconds,
+                ReaderSettings.maxAutoReadSeconds,
+              ),
     );
   }
 
@@ -220,6 +300,16 @@ class ReaderSettingsStore {
       prefs.setBool(pullBookmarkKey, settings.pullBookmarkEnabled),
       prefs.setBool(tapPageAnimationKey, settings.tapPageAnimationEnabled),
       prefs.setBool(tabletTwoPageKey, settings.tabletTwoPageEnabled),
+      prefs.setBool(
+        punctuationCompressionKey,
+        settings.punctuationCompression,
+      ),
+      prefs.setBool(immersiveModeKey, settings.immersiveMode),
+      prefs.setDouble(eyeCareBrightnessKey, settings.eyeCareBrightness),
+      prefs.setDouble(warmthKey, settings.warmth),
+      prefs.setString(chineseConversionKey, settings.chineseConversion.name),
+      prefs.setBool(textBoldKey, settings.textBold),
+      prefs.setInt(autoReadSecondsKey, settings.autoReadSeconds),
     ]);
   }
 
