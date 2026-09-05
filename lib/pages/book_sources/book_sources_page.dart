@@ -15,6 +15,7 @@ import 'package:midu/models/home_navigation_destination.dart';
 import 'package:midu/pages/home/home_mobile_chrome.dart';
 import 'package:midu/pages/home/home_shell_page.dart';
 import 'package:midu/pages/home/widgets/home_page_wrappers.dart';
+import 'package:midu/utils/debug_logger.dart';
 import 'package:midu/utils/localization_extension.dart';
 import 'package:midu/utils/page_style_helper.dart';
 import 'package:midu/widgets/generated_book_cover.dart';
@@ -258,6 +259,17 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       _selectedSourceId == null || source.id == _selectedSourceId;
 
   Future<void> _loadBookStore({bool force = false}) async {
+    // 调试埋点：记录全量聚合事件轴（开始/跳过/完成/耗时），与帧尖峰对齐，
+    // 用于定位“聚合引发主线程卡顿”的时间段。
+    final watch = Stopwatch()..start();
+    final legMs = <String, int>{};
+    void logAggregate(String event, [Map<String, dynamic> extra = const {}]) {
+      DebugLogger.instance.log('discover', event, details: {
+        'force': force,
+        'ms': watch.elapsedMilliseconds,
+        ...extra,
+      });
+    }
     // 后台自动刷新节流：非手动（force）且已有数据、且 12 小时内已自动刷新过则
     // 直接跳过，避免每次页面可见/重新进入都重新拉全量聚合请求。手动下拉刷新、
     // 以及数据被清空需要补拉（如源变更后的重载）不受此限制。
@@ -266,6 +278,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         _hasAnyBookStore() &&
         DateTime.now().difference(_lastBackgroundRefreshAt!) <
             backgroundRefreshInterval) {
+      logAggregate('全量聚合跳过-内存12h节流');
       return;
     }
     if (!force && !_loadingBookStore && _hasAnyBookStore()) return;
@@ -290,8 +303,13 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
             if (grouped.isNotEmpty) {
               unawaited(_refreshSectionBooks(grouped.first.key));
             }
+            logAggregate('命中新鲜缓存，跳过全量拉取', {
+              'cacheAgeMs':
+                  DateTime.now().difference(_lastBackgroundRefreshAt!).inMilliseconds,
+            });
             return;
           }
+          logAggregate('命中缓存但超12h，转全量拉取');
         }
       } catch (_) {}
     }
@@ -309,16 +327,29 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       });
     }
     try {
-      final results = await Future.wait<Object>([
-        _safelyFetchShelves(onBatch: (items) {
+      Future<List<_DiscoveryShelf>> fetchShelves() async {
+        final leg = Stopwatch()..start();
+        final r = await _safelyFetchShelves(onBatch: (items) {
           shelvesAcc.addAll(items);
           update({'shelves'});
-        }),
-        _safelyFetchCategories(onBatch: (items) {
+        });
+        legMs['shelvesMs'] = leg.elapsedMilliseconds;
+        return r;
+      }
+
+      Future<List<_SourcedCategory>> fetchCategories() async {
+        final leg = Stopwatch()..start();
+        final r = await _safelyFetchCategories(onBatch: (items) {
           categoriesAcc.addAll(items);
           update({'categories'});
-        }),
-        _safelyFetchLatest(onBatch: (items) {
+        });
+        legMs['categoriesMs'] = leg.elapsedMilliseconds;
+        return r;
+      }
+
+      Future<List<SourcedBook>> fetchLatest() async {
+        final leg = Stopwatch()..start();
+        final r = await _safelyFetchLatest(onBatch: (items) {
           if (latestAcc.length >= BookSourcesPage.maxLatestTotal) return;
           latestAcc.addAll(items);
           // 流式截断：与 _fetchLatest 的最终 take 保持一致，避免 onBatch 期间
@@ -330,7 +361,15 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
             );
           }
           update({'latest'});
-        }),
+        });
+        legMs['latestMs'] = leg.elapsedMilliseconds;
+        return r;
+      }
+
+      final results = await Future.wait<Object>([
+        fetchShelves(),
+        fetchCategories(),
+        fetchLatest(),
       ]);
       if (!mounted) return;
       // 记录本次后台自动刷新时间，供 12 小时节流判定。
@@ -342,6 +381,13 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         // 最新榜单总量已截断到 maxLatestTotal，全部展示，不再分页展开。
         _latestVisibleCount = latest.length;
         _loadingBookStore = false;
+      });
+      logAggregate('全量聚合完成', {
+        'shelves': shelves.length,
+        'categories': categories.length,
+        'latest': latest.length,
+        'enabledSources': _sources.where((s) => s.enabled).length,
+        ...legMs,
       });
       // 有栏目缓存的默认栏目，后台静默刷新替换，保证与「最新」一样新鲜。
       final groupedFresh = _groupCategorySections(_aggregatedCategories);
@@ -364,6 +410,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         unawaited(DiscoveryCacheService.instance.write(freshCache));
       }
     } catch (error) {
+      logAggregate('全量聚合失败', {'error': '$error'});
       if (!mounted) return;
       setState(() {
         _loadingBookStore = false;
@@ -840,6 +887,10 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     );
     final cached = _sectionCache[key];
     if (cached != null && cached.isNotEmpty) {
+      DebugLogger.instance.log('discover', '切换栏目-命中缓存', details: {
+        'section': active.template.title,
+        'books': cached.length,
+      });
       // 命中缓存：避免闪烁，直接复用旧数据。
       final isSwitch = _selectedSectionKey != key || _sectionBooks.isEmpty;
       if (isSwitch) {
@@ -857,6 +908,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       if (stale) unawaited(_refreshSectionBooks(key));
       return;
     }
+    final loadWatch = Stopwatch()..start();
     setState(() {
       _selectedSectionKey = key;
       _loadingSectionBooks = true;
@@ -885,6 +937,11 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       _sectionCache[key] = books;
       _sectionFetchedAt[key] = DateTime.now();
       _persistDiscoveryCache();
+      DebugLogger.instance.log('discover', '切换栏目-网络加载完成', details: {
+        'section': active.template.title,
+        'ms': loadWatch.elapsedMilliseconds,
+        'books': books.length,
+      });
       setState(() {
         _sectionBooks = books;
         _loadingSectionBooks = false;
@@ -914,6 +971,11 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         )
         .toList(growable: false);
     if (pending.isEmpty) return;
+    final warmWatch = Stopwatch()..start();
+    DebugLogger.instance.log('discover', '栏目后台预热开始', details: {
+      'pending': pending.length,
+      'sections': sections.length,
+    });
     const int parallelism = 2;
     for (var i = 0; i < pending.length; i += parallelism) {
       // 预热中途切走了页面：立即暂停剩余栏目，留待回到前台再续。
@@ -927,17 +989,26 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         chunk.map((section) async {
           if (!_isPageActive) return null;
           try {
+            final leg = Stopwatch()..start();
             final books = await _fetchSectionBooks(section);
             if (!mounted || !_isPageActive) return null;
             _sectionCache[section.key] = books;
             _sectionFetchedAt[section.key] = DateTime.now();
             _persistDiscoveryCache();
+            DebugLogger.instance.log('discover', '栏目预热完成', details: {
+              'section': section.template.title,
+              'ms': leg.elapsedMilliseconds,
+              'books': books.length,
+            });
           } catch (_) {}
           return null;
         }),
       );
       if (!mounted) return;
     }
+    DebugLogger.instance.log('discover', '栏目后台预热结束', details: {
+      'totalMs': warmWatch.elapsedMilliseconds,
+    });
   }
 
   /// 后台静默刷新某个栏目：拉新数据替换缓存与当前展示（不显示加载态）。
@@ -958,12 +1029,23 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       (s) => s.key == key,
       orElse: () => sections.first,
     );
+    final refreshWatch = Stopwatch()..start();
+    DebugLogger.instance.log('discover', '栏目后台刷新开始', details: {
+      'section': active.template.title,
+      'key': key,
+    });
     try {
       final books = await _fetchSectionBooks(active);
       if (!mounted) return;
       _sectionCache[key] = books;
       _sectionFetchedAt[key] = DateTime.now();
       _persistDiscoveryCache();
+      DebugLogger.instance.log('discover', '栏目后台刷新完成', details: {
+        'section': active.template.title,
+        'key': key,
+        'ms': refreshWatch.elapsedMilliseconds,
+        'books': books.length,
+      });
       // 仍停留在该栏目，或当前无数据时，用新数据替换展示。
       if (_selectedSectionKey == key || _sectionBooks.isEmpty) {
         setState(() {

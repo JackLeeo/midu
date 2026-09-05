@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 
+import '../../utils/debug_logger.dart';
 import '../../utils/source_protocol_meta.dart';
 import '../legado/legado_fjs_sandbox.dart';
 import '../legado/legado_runtime.dart';
@@ -659,7 +660,14 @@ class BookSourceClient {
     }
     if (_legadoRuntimes.length >= maxCachedLegadoRuntimes) {
       final oldestId = _legadoRuntimes.keys.first;
-      _legadoRuntimes.remove(oldestId)?.close();
+      final evicted = _legadoRuntimes.remove(oldestId);
+      evicted?.close();
+      // 调试埋点：记录池满淘汰。若淘汰频率异常高（池顶格运行、引擎频繁
+      // 新建即淘汰），说明高并发访问在反复重建引擎，是潜在卡顿来源。
+      DebugLogger.instance.log('runtime', '引擎池满，淘汰最久未用引擎', details: {
+        'evicted': oldestId,
+        'newPoolSize': _legadoRuntimes.length,
+      });
     }
     final sandbox = _sandboxFactory?.call(source.id);
     final runtime = sandbox == null
@@ -675,6 +683,14 @@ class BookSourceClient {
             cookieStore: BookSourceCookieStore.instance,
           );
     _legadoRuntimes[source.id] = runtime;
+    // 调试埋点：引擎新建事件。对齐发现页聚合/栏目刷新时间点即可看出某次
+    // 拉取创建了多少个新引擎（churn），以及池是否触顶。
+    DebugLogger.instance.log('runtime', '新建书源引擎', details: {
+      'source': source.name,
+      'sourceId': source.id,
+      'poolSize': _legadoRuntimes.length,
+      'poolFull': _legadoRuntimes.length >= maxCachedLegadoRuntimes,
+    });
     return runtime;
   }
 
