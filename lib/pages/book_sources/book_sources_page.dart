@@ -116,6 +116,14 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   /// 观察到 active 后再补跑。
   bool _pendingWarmUp = false;
 
+  /// 首次全量数据（书城书架/分类/最新 + 默认栏目聚合）是否已启动。
+  /// 控制在页面真正激活前不发起任何聚合请求，避免 PageView 预构建或
+  /// 上次停留在发现页时启动即并发拉取全部书源导致全局卡顿。
+  bool _startedInitialLoad = false;
+
+  /// 页面不可见时是否欠着首次全量加载，待激活后补跑。
+  bool _pendingInitialLoad = false;
+
   // 书城聚合数据：一次性拉取 推荐(书源书架) / 分类频道 / 最新榜单，
   // 渲染成单一滚动 feed（横幅轮播 + 分类条 + 排行榜 + 书源书架 + 最新更新）。
   List<_DiscoveryShelf> _shelves = const [];
@@ -166,10 +174,16 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     final nowActive = active == HomeNavigationDestination.discover;
     if (nowActive == _isPageActive) return;
     _isPageActive = nowActive;
-    if (nowActive && _pendingWarmUp) {
-      _pendingWarmUp = false;
-      // 页面重新可见时，补跑尚未完成的栏目预热。
-      unawaited(_warmUpAllSections());
+    if (nowActive) {
+      if (_pendingInitialLoad || !_startedInitialLoad) {
+        // 页面重新可见时，补跑尚未启动的首轮全量加载。
+        _maybeStartInitialLoad();
+      }
+      if (_pendingWarmUp) {
+        _pendingWarmUp = false;
+        // 页面重新可见时，补跑尚未完成的栏目预热。
+        unawaited(_warmUpAllSections());
+      }
     }
   }
 
@@ -186,9 +200,25 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       _sources = sources;
       _loadingSources = false;
     });
-    await _loadBookStore();
+    // 书城聚合（推荐/分类/最新）、默认栏目聚合与栏目预热只在页面激活时启动，
+    // 避免 PageView 预构建相邻页或上次停留在发现页时，启动即对全部书源
+    // 并发拉取（每个源都会创建 LegadoRuntime/JS 引擎并解析），把主线程与
+    // 网络打满导致整个 App 从启动就高延迟。
+    _maybeStartInitialLoad();
+  }
+
+  /// 启动首次全量数据加载。页面未激活时挂起，待 [didChangeDependencies]
+  /// 观察到 discover 可见后再补跑（与栏目预热同样的前台节流策略）。
+  void _maybeStartInitialLoad() {
+    if (_startedInitialLoad) return;
+    if (!_isPageActive) {
+      _pendingInitialLoad = true;
+      return;
+    }
+    _startedInitialLoad = true;
+    _pendingInitialLoad = false;
     // 分类数据就绪后，默认选中第一个栏目并聚合其书籍。
-    await _autoSelectSection();
+    unawaited(_loadBookStore().then((_) => _autoSelectSection()));
     // 后台静默预热其余栏目并缓存，使切换分类可无感秒出。
     unawaited(_warmUpAllSections());
   }
@@ -202,6 +232,9 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     _sectionBooks = const [];
     _loadingSectionBooks = false;
     _latestVisibleCount = 0;
+    // 重置首轮加载标记，让刷新后的数据按激活态重新决定是否立即拉取。
+    _startedInitialLoad = false;
+    _pendingInitialLoad = false;
     await _loadSources();
   }
 
@@ -685,17 +718,31 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     Future<List<T>> Function(RegisteredBookSource source) fetch, {
     void Function(List<T> items)? onBatch,
   }) async {
-    // 每个源完成后立即回调 onBatch，供发现页流式实时上屏（不必等全部源完成）。
-    final futures = sources.map((source) async {
-      try {
-        final items = await fetch(source);
-        if (onBatch != null && items.isNotEmpty) onBatch(items);
-        return _SourceFetchResult<T>.success(source, items);
-      } catch (error) {
-        return _SourceFetchResult<T>.failure(source, error);
+    // 并发限流：同时只跑 few 个源的请求。每个源都会初始化独立的
+    // LegadoRuntime/JS 引擎、请求并解析，启用源很多时无界并发（原 Future.wait
+    // 全发）会把主线程与网络打满造成全局卡顿；小并发下流式 onBatch 依然
+    // 先返回先上屏，用户感知不变。
+    const int concurrency = 3;
+    final results = <_SourceFetchResult<T>>[];
+    var cursor = 0;
+    Future<void> worker() async {
+      while (true) {
+        final index = cursor++;
+        if (index >= sources.length) return;
+        final source = sources[index];
+        try {
+          final items = await fetch(source);
+          if (onBatch != null && items.isNotEmpty) onBatch(items);
+          results.add(_SourceFetchResult<T>.success(source, items));
+        } catch (error) {
+          results.add(_SourceFetchResult<T>.failure(source, error));
+        }
       }
-    });
-    final results = await Future.wait(futures);
+    }
+
+    await Future.wait([
+      for (var i = 0; i < math.min(concurrency, sources.length); i++) worker(),
+    ]);
     final batches = results
         .where((result) => result.error == null)
         .map((result) => result.items)
@@ -918,29 +965,41 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     }
     if (pairs.isEmpty) return const [];
 
-    // 与 _fetchLatest 一致：所有对同时发起，每个完成即流式回调上屏。
-    final futures = pairs.map((pair) async {
-      try {
-        final page = await _client.getDiscovery(
-          pair.$1,
-          exploreUrlOverride: pair.$2.id,
-        );
-        final books = <SourcedBook>[];
-        for (final section in page.sections) {
-          for (final item in section.items) {
-            if (item.book != null) {
-              books.add(SourcedBook(source: pair.$1, book: item.book!));
+    // 与 _fetchLatest 一致：并发限流拉取（同时 few 个「源+分类」对），
+    // 每个完成即流式回调上屏。无界并发会因源多而打满主线程与网络。
+    const int concurrency = 3;
+    final results = <({RegisteredBookSource source, List<SourcedBook> books})>[];
+    var cursor = 0;
+    Future<void> worker() async {
+      while (true) {
+        final index = cursor++;
+        if (index >= pairs.length) return;
+        final pair = pairs[index];
+        try {
+          final page = await _client.getDiscovery(
+            pair.$1,
+            exploreUrlOverride: pair.$2.id,
+          );
+          final books = <SourcedBook>[];
+          for (final section in page.sections) {
+            for (final item in section.items) {
+              if (item.book != null) {
+                books.add(SourcedBook(source: pair.$1, book: item.book!));
+              }
             }
           }
+          // 流式回调：每个对完成后立即把原始结果推给 UI，不等全部对完成。
+          if (onBatch != null && books.isNotEmpty) onBatch(books);
+          results.add((source: pair.$1, books: books));
+        } catch (_) {
+          results.add((source: pair.$1, books: const <SourcedBook>[]));
         }
-        // 流式回调：每个对完成后立即把原始结果推给 UI，不等全部完成。
-        if (onBatch != null && books.isNotEmpty) onBatch(books);
-        return (source: pair.$1, books: books);
-      } catch (_) {
-        return (source: pair.$1, books: const <SourcedBook>[]);
       }
-    });
-    final results = await Future.wait(futures);
+    }
+
+    await Future.wait([
+      for (var i = 0; i < math.min(concurrency, pairs.length); i++) worker(),
+    ]);
 
     // 全部完成后：跨来源交错混排（与最新版块一致），再按书名去重截断。
     final batches = results
