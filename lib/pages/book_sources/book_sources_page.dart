@@ -155,9 +155,32 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   static const Duration backgroundRefreshInterval = Duration(hours: 12);
   DateTime? _lastBackgroundRefreshAt;
 
+  // 全源扫描软截止：网络里存在大量连不通/超时的源，无截止的扫描会按
+  // “并发 3 × 每源 8s 连接超时 × 全部启用源”拖到数分钟不结束，期间持续
+  // 占满网络并反复初始化引擎。到点即停止调度新源、返回已得结果，把单轮
+  // 最坏耗时从“数分钟”收敛到秒级。
+  static const Duration fullStoreSweepDeadline = Duration(seconds: 20);
+  static const Duration sectionBooksDeadline = Duration(seconds: 15);
+
   /// 源变更（注册表变化）触发的重载标记：本次重载应绕过「缓存仍新鲜」跳过逻辑
   /// 强制重新聚合，否则源增删/启停后仍沿用旧缓存。
   bool _reloadPending = false;
+
+  // 全量聚合单飞：同一时刻只允许一轮全源聚合在跑。此前下拉刷新/重载/自动加载
+  // 在上一轮未结束时又开新轮，可叠挂到数十路并发的全源扫描，把网络与引擎池
+  // 顶满导致“用久了变卡”。新触发直接加入在途那一轮，不再另开。
+  Future<void>? _activeStoreLoad;
+
+  // 栏目级在途拉取去重：同一栏目只允许一个“展示加载”或一个“后台刷新”在跑
+  // （覆盖切栏目、预热、后台刷新三条路径），避免对同一栏目的“源×分类”请求
+  // 成倍重复叠加。展示加载与后台任务分开计数：后台在跑时用户点开同一栏目
+  // 仍需展示加载（负责流式上屏），只是不再额外叠加第二个后台刷新。
+
+  /// 正在为用户展示而拉取的栏目 key 集合。
+  final Set<String> _displaySectionKeys = {};
+
+  /// 正在后台刷新/预热中拉取的栏目 key 集合。
+  final Set<String> _backgroundSectionKeys = {};
 
   // 最新榜单分页：默认展示一页，点击"下一页"再展开，避免无限下滑。
   static const int latestPageSize = 10;
@@ -258,7 +281,27 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   bool _matchesSelectedSource(RegisteredBookSource source) =>
       _selectedSourceId == null || source.id == _selectedSourceId;
 
+  /// 全量聚合入口（单飞）。
+  ///
+  /// 已有在途聚合时，后续触发（下拉刷新/源变更重载/自动加载）直接 await 同一
+  /// 轮，而不是再开新轮——这是多轮全源扫描叠挂、引擎池持续顶满的根本修复。
   Future<void> _loadBookStore({bool force = false}) async {
+    final running = _activeStoreLoad;
+    if (running != null) {
+      // 合并进在途那一轮。已在跑的是 force 或更早的自动轮，结果同样会更新
+      // 页面与缓存；新触发无需再复制一份全源扫描。
+      return running;
+    }
+    final job = _runLoadBookStore(force: force);
+    _activeStoreLoad = job;
+    try {
+      await job;
+    } finally {
+      if (identical(_activeStoreLoad, job)) _activeStoreLoad = null;
+    }
+  }
+
+  Future<void> _runLoadBookStore({bool force = false}) async {
     // 调试埋点：记录全量聚合事件轴（开始/跳过/完成/耗时），与帧尖峰对齐，
     // 用于定位“聚合引发主线程卡顿”的时间段。
     final watch = Stopwatch()..start();
@@ -864,16 +907,25 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     List<RegisteredBookSource> sources,
     Future<List<T>> Function(RegisteredBookSource source) fetch, {
     void Function(List<T> items)? onBatch,
+    Duration deadline = fullStoreSweepDeadline,
   }) async {
     // 并发限流：同时只跑 few 个源的请求。每个源都会初始化独立的
     // LegadoRuntime/JS 引擎、请求并解析，启用源很多时无界并发（原 Future.wait
     // 全发）会把主线程与网络打满造成全局卡顿；小并发下流式 onBatch 依然
     // 先返回先上屏，用户感知不变。
     const int concurrency = 3;
+    final sweep = Stopwatch()..start();
+    var deadlineHit = false;
     final results = <_SourceFetchResult<T>>[];
     var cursor = 0;
     Future<void> worker() async {
       while (true) {
+        // 软截止：网络中存在大量连不通/超时的源，无截止会拖到数分钟；到点
+        // 停止调度新源，已得结果照常返回（流式内容早已上屏）。
+        if (sweep.elapsed >= deadline) {
+          deadlineHit = true;
+          return;
+        }
         final index = cursor++;
         if (index >= sources.length) return;
         final source = sources[index];
@@ -890,6 +942,13 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     await Future.wait([
       for (var i = 0; i < math.min(concurrency, sources.length); i++) worker(),
     ]);
+    if (deadlineHit) {
+      DebugLogger.instance.log('discover', '全源扫描达软截止，提前返回', details: {
+        'attempted': results.length,
+        'sources': sources.length,
+        'ms': sweep.elapsedMilliseconds,
+      });
+    }
     final batches = results
         .where((result) => result.error == null)
         .map((result) => result.items)
@@ -953,6 +1012,9 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       if (stale) unawaited(_refreshSectionBooks(key));
       return;
     }
+    // 同一栏目的展示加载已在进行（可能是之前快速重复点击）：合并到在途加载，
+    // 不重复发“源×分类”请求；选中态已在首次加载时切好，结果完成后统一上屏。
+    if (!_displaySectionKeys.add(key)) return;
     final loadWatch = Stopwatch()..start();
     setState(() {
       _selectedSectionKey = key;
@@ -994,6 +1056,8 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     } catch (_) {
       if (!mounted || _selectedSectionKey != key) return;
       setState(() => _loadingSectionBooks = false);
+    } finally {
+      _displaySectionKeys.remove(key);
     }
   }
 
@@ -1009,10 +1073,14 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     }
     final sections = _groupCategorySections(_aggregatedCategories);
     if (sections.isEmpty) return;
-    // 只补还没缓存的栏目；已命中缓存的不重复请求。
+    // 只补还没缓存的栏目；已命中缓存的不重复请求。正在被展示加载或后台刷新
+    // 覆盖的栏目同样跳过（加载完成后会写缓存并上屏，预热无需再发一次）。
     final pending = sections
         .where(
-          (s) => (_sectionCache[s.key] ?? const []).isEmpty,
+          (s) =>
+              (_sectionCache[s.key] ?? const []).isEmpty &&
+              !_displaySectionKeys.contains(s.key) &&
+              !_backgroundSectionKeys.contains(s.key),
         )
         .toList(growable: false);
     if (pending.isEmpty) return;
@@ -1068,8 +1136,16 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         DateTime.now().difference(lastFetched) < sectionCacheFreshness) {
       return;
     }
+    // 同一栏目已有后台刷新在跑，或正被用户展示加载覆盖（加载完成后会写入
+    // 缓存并上屏），无需再叠发第二个刷新，避免对同一栏目重复全源请求。
+    if (_backgroundSectionKeys.contains(key)) return;
+    if (_displaySectionKeys.contains(key)) return;
+    _backgroundSectionKeys.add(key);
     final sections = _groupCategorySections(_aggregatedCategories);
-    if (sections.isEmpty) return;
+    if (sections.isEmpty) {
+      _backgroundSectionKeys.remove(key);
+      return;
+    }
     final active = sections.firstWhere(
       (s) => s.key == key,
       orElse: () => sections.first,
@@ -1100,6 +1176,8 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       }
     } catch (_) {
       // 刷新失败保留旧数据即可。
+    } finally {
+      _backgroundSectionKeys.remove(key);
     }
   }
 
@@ -1161,10 +1239,17 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     // 与 _fetchLatest 一致：并发限流拉取（同时 few 个「源+分类」对），
     // 每个完成即流式回调上屏。无界并发会因源多而打满主线程与网络。
     const int concurrency = 3;
+    final sweep = Stopwatch()..start();
+    var deadlineHit = false;
     final results = <({RegisteredBookSource source, List<SourcedBook> books})>[];
     var cursor = 0;
     Future<void> worker() async {
       while (true) {
+        // 软截止：切栏目/预热/刷新不该因慢源拖住交互，到点停止调度新对。
+        if (sweep.elapsed >= sectionBooksDeadline) {
+          deadlineHit = true;
+          return;
+        }
         final index = cursor++;
         if (index >= pairs.length) return;
         final pair = pairs[index];
@@ -1193,6 +1278,13 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     await Future.wait([
       for (var i = 0; i < math.min(concurrency, pairs.length); i++) worker(),
     ]);
+    if (deadlineHit) {
+      DebugLogger.instance.log('discover', '栏目聚合达软截止，提前返回', details: {
+        'attempted': results.length,
+        'pairs': pairs.length,
+        'ms': sweep.elapsedMilliseconds,
+      });
+    }
 
     // 全部完成后：跨来源交错混排（与最新版块一致），再按书名去重截断。
     final batches = results

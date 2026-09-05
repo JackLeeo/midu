@@ -49,7 +49,11 @@ class DebugLogger {
   static final DebugLogger instance = DebugLogger._();
 
   final List<DebugLogEntry> _entries = [];
-  final int _maxEntries = 5000;
+
+  /// 环形缓冲上限。此前 5000 在长会话里被 getDiscovery 等高频事件快速打满，
+  /// 会挤掉「全量聚合开始/完成」等定位卡顿的关键标记；加大容量让整段会话的
+  /// 事件轴完整可回溯（getDiscovery 的 exploreUrl 字段已做截断控制内存）。
+  final int _maxEntries = 30000;
   bool _enabled = false;
 
   /// 调试模式开关。开启后同步启动帧耗时监控（见 [FrameJankMonitor]），

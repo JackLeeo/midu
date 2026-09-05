@@ -1415,10 +1415,19 @@ class LegadoRuntime {
     _ensureRunnable(source);
     await _ensureJsLib(source);
     final urlText = exploreUrlOverride ?? source.exploreUrl;
+    // 调试降噪：exploreUrl 常常是数百行 JSON/URL 文本，全量打进日志会把环形
+    // 缓冲快速打满、挤掉聚合 start/stop 等关键事件。只保留前 400/300 字符预览。
+    final explorePreview = source.exploreUrl.length > 400
+        ? '${source.exploreUrl.substring(0, 400)}…(${source.exploreUrl.length})'
+        : source.exploreUrl;
+    final overridePreview = (exploreUrlOverride == null ||
+            exploreUrlOverride.length <= 300)
+        ? exploreUrlOverride
+        : '${exploreUrlOverride.substring(0, 300)}…(${exploreUrlOverride.length})';
     logger.log('discover', 'getDiscovery 调用', details: {
       'source': source.name,
-      'exploreUrl': source.exploreUrl,
-      'override': exploreUrlOverride,
+      'exploreUrl': explorePreview,
+      'override': overridePreview,
       'hasRuleExplore': source.rule('ruleExplore').isNotEmpty,
     });
     if (urlText.trim().isEmpty) {
