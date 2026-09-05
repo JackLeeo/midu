@@ -154,6 +154,10 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   static const Duration backgroundRefreshInterval = Duration(hours: 12);
   DateTime? _lastBackgroundRefreshAt;
 
+  /// 源变更（注册表变化）触发的重载标记：本次重载应绕过「缓存仍新鲜」跳过逻辑
+  /// 强制重新聚合，否则源增删/启停后仍沿用旧缓存。
+  bool _reloadPending = false;
+
   // 最新榜单分页：默认展示一页，点击"下一页"再展开，避免无限下滑。
   static const int latestPageSize = 10;
   int _latestVisibleCount = 0;
@@ -217,8 +221,13 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     }
     _startedInitialLoad = true;
     _pendingInitialLoad = false;
+    final forceReload = _reloadPending;
+    _reloadPending = false;
     // 分类数据就绪后，默认选中第一个栏目并聚合其书籍。
-    unawaited(_loadBookStore().then((_) => _autoSelectSection()));
+    // 源变更重载时强制重新聚合，否则命中新鲜缓存直接跳过。
+    unawaited(
+      _loadBookStore(force: forceReload).then((_) => _autoSelectSection()),
+    );
     // 后台静默预热其余栏目并缓存，使切换分类可无感秒出。
     unawaited(_warmUpAllSections());
   }
@@ -235,6 +244,8 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     // 重置首轮加载标记，让刷新后的数据按激活态重新决定是否立即拉取。
     _startedInitialLoad = false;
     _pendingInitialLoad = false;
+    // 源变更重载需要强制重新聚合，绕过「缓存仍新鲜」跳过逻辑。
+    _reloadPending = true;
     await _loadSources();
   }
 
@@ -269,6 +280,18 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         final cached = await DiscoveryCacheService.instance.read();
         if (cached != null && mounted && _applyDiscoveryCache(cached)) {
           setState(() => _loadingBookStore = false);
+          // 磁盘缓存命中新鲜窗口时，用缓存时间戳恢复节流基准，跳过本次全量
+          // 重拉（后台仍会按各自节流静默刷新栏目）。这样冷启动进入发现页不再
+          // 每次都重新并发聚合所有书源——12h 节流真正跨会话生效。
+          if (_lastBackgroundRefreshAt != null &&
+              DateTime.now().difference(_lastBackgroundRefreshAt!) <
+                  backgroundRefreshInterval) {
+            final grouped = _groupCategorySections(_aggregatedCategories);
+            if (grouped.isNotEmpty) {
+              unawaited(_refreshSectionBooks(grouped.first.key));
+            }
+            return;
+          }
         }
       } catch (_) {}
     }
@@ -402,7 +425,17 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         }).toList();
       });
       return jsonEncode(<String, dynamic>{
-        'version': 1,
+        'version': 2,
+        // 本轮聚合成品时间。页面用它与 12h 节流窗口对比，重启后据此跳过
+        // 「缓存仍新鲜」时的重复全量拉取，避免每次冷启动进入发现页都重新
+        // 并发聚合所有书源。
+        'fetchedAt': _lastBackgroundRefreshAt?.toIso8601String() ??
+            DateTime.now().toIso8601String(),
+        // 各栏目最近成功拉取时间，持久化后栏目 12h 节流跨会话生效，冷启动
+        // 不会因内存时间戳丢失而对所有栏目重新拉取/预热。
+        'sectionFetchedAt': {
+          for (final e in _sectionFetchedAt.entries) e.key: e.value.toIso8601String(),
+        },
         'sources': sources,
         'shelves': shelfJson,
         'categories': categoryJson,
@@ -479,6 +512,28 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       _shelves = shelves;
       _categories = categories;
       _latest = latest;
+
+      // 还原节流基准：缓存成品时间与各栏目拉取时间。冷启动命中缓存后，
+      // 全量聚合与栏目刷新都按这些时间戳走 12h 节流，不重复并发拉取。
+      final fetchedAt = root['fetchedAt'];
+      // 仅 v2 缓存带聚合时间。旧格式缺失该字段时保持 null，视为"从未聚合过"，
+      // 让 _loadBookStore 走一次正常全量重拉并升级为 v2，而不是把过期的老
+      // 缓存误判成刚聚合过再白等 12 小时。
+      if (fetchedAt is String) {
+        _lastBackgroundRefreshAt = DateTime.tryParse(fetchedAt);
+      } else {
+        _lastBackgroundRefreshAt = null;
+      }
+      final rawSectionFetchedAt = root['sectionFetchedAt'];
+      _sectionFetchedAt.clear();
+      if (rawSectionFetchedAt is Map) {
+        rawSectionFetchedAt.forEach((key, value) {
+          if (key is String && value is String) {
+            final time = DateTime.tryParse(value);
+            if (time != null) _sectionFetchedAt[key] = time;
+          }
+        });
+      }
 
       // 还原各栏目聚合书籍缓存（内存），并预填默认栏目的展示列表。
       final rawSections = root['sections'];
