@@ -41,6 +41,38 @@ class BookSourceClient {
   // 登录 Cookie 由 BookSourceCookieStore 持久化，runtime 重建后会重新种子化，
   // 淘汰引擎不影响登录态。
   static const int maxCachedLegadoRuntimes = 32;
+
+  /// 批处理窗口（发现页全源扫描等）内放宽到的引擎池上限。
+  ///
+  /// 常规上限 32 面对 149 个启用源的全源扫描时，每一轮都会“新建即淘汰、
+  /// 淘汰即重建”，把引擎初始化开销成倍放大。批处理期间临时放宽到 64，
+  /// 让同一轮扫描尽量复用刚建好的引擎；批处理结束后不强制收缩（避免误关
+  /// 仍在途请求正在使用的引擎），由常规 LRU 在新访问发生时自然回落。
+  static const int _batchCachedLegadoRuntimes = 64;
+  int _batchDepth = 0;
+
+  int get _engineLimit =>
+      _batchDepth > 0 ? _batchCachedLegadoRuntimes : maxCachedLegadoRuntimes;
+
+  /// 进入引擎池批处理窗口。可嵌套；与 [exitBatch] 成对使用。
+  void enterBatch() => _batchDepth++;
+
+  /// 退出一次批处理窗口。仅做深度递减，不主动关闭引擎。
+  void exitBatch() {
+    if (_batchDepth <= 0) return;
+    _batchDepth--;
+  }
+
+  /// 在批处理窗口内执行 [action]，异常时也会正常退出窗口。
+  Future<T> withinBatch<T>(Future<T> Function() action) async {
+    enterBatch();
+    try {
+      return await action();
+    } finally {
+      exitBatch();
+    }
+  }
+
   final Map<String, LegadoRuntime> _legadoRuntimes = {};
 
   // 测试/诊断注入：为每个源构造 JS 沙箱。生产为 null 时用默认 fjs；
@@ -658,7 +690,7 @@ class BookSourceClient {
       _legadoRuntimes[source.id] = cached;
       return cached;
     }
-    if (_legadoRuntimes.length >= maxCachedLegadoRuntimes) {
+    if (_legadoRuntimes.length >= _engineLimit) {
       final oldestId = _legadoRuntimes.keys.first;
       final evicted = _legadoRuntimes.remove(oldestId);
       evicted?.close();
@@ -667,6 +699,8 @@ class BookSourceClient {
       DebugLogger.instance.log('runtime', '引擎池满，淘汰最久未用引擎', details: {
         'evicted': oldestId,
         'newPoolSize': _legadoRuntimes.length,
+        'limit': _engineLimit,
+        'batch': _batchDepth,
       });
     }
     final sandbox = _sandboxFactory?.call(source.id);
@@ -689,7 +723,7 @@ class BookSourceClient {
       'source': source.name,
       'sourceId': source.id,
       'poolSize': _legadoRuntimes.length,
-      'poolFull': _legadoRuntimes.length >= maxCachedLegadoRuntimes,
+      'poolFull': _legadoRuntimes.length >= _engineLimit,
     });
     return runtime;
   }

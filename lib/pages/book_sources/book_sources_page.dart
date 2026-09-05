@@ -313,6 +313,14 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         }
       } catch (_) {}
     }
+    // 聚合窗口：整轮全源扫描放宽引擎池上限，避免 149 源每轮“新建即淘汰、
+    // 淘汰即重建”的初始化风暴（与 BookSourceClient.enterBatch 成对）。
+    logAggregate('全量聚合开始', {'hasData': _hasAnyBookStore()});
+    _client.enterBatch();
+    // 每源默认发现页在本轮聚合内只拉一次：shelves/分类/最新三路原本都会对
+    // 同一源请求同一默认 exploreUrl（约 3 倍重复 + 各自初始化引擎），这里
+    // 共享同一个 Future，谁先到谁拉取，其余路直接复用响应。
+    final sharedDiscovery = <String, Future<BookSourceDiscoveryPage>>{};
     // 流式聚合：三路各自在所有源返回后才做最终合并，但每个源一完成就通过
     // onBatch 增量写入 state，让用户先看到先返回的内容，而不是等全部源完成。
     final shelvesAcc = <_DiscoveryShelf>[];
@@ -329,39 +337,48 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     try {
       Future<List<_DiscoveryShelf>> fetchShelves() async {
         final leg = Stopwatch()..start();
-        final r = await _safelyFetchShelves(onBatch: (items) {
-          shelvesAcc.addAll(items);
-          update({'shelves'});
-        });
+        final r = await _safelyFetchShelves(
+          sharedDiscovery,
+          onBatch: (items) {
+            shelvesAcc.addAll(items);
+            update({'shelves'});
+          },
+        );
         legMs['shelvesMs'] = leg.elapsedMilliseconds;
         return r;
       }
 
       Future<List<_SourcedCategory>> fetchCategories() async {
         final leg = Stopwatch()..start();
-        final r = await _safelyFetchCategories(onBatch: (items) {
-          categoriesAcc.addAll(items);
-          update({'categories'});
-        });
+        final r = await _safelyFetchCategories(
+          sharedDiscovery,
+          onBatch: (items) {
+            categoriesAcc.addAll(items);
+            update({'categories'});
+          },
+        );
         legMs['categoriesMs'] = leg.elapsedMilliseconds;
         return r;
       }
 
       Future<List<SourcedBook>> fetchLatest() async {
         final leg = Stopwatch()..start();
-        final r = await _safelyFetchLatest(onBatch: (items) {
-          if (latestAcc.length >= BookSourcesPage.maxLatestTotal) return;
-          latestAcc.addAll(items);
-          // 流式截断：与 _fetchLatest 的最终 take 保持一致，避免 onBatch 期间
-          // latestAcc 膨胀到上千条再一次性截断，降低中间状态内存与渲染压力。
-          if (latestAcc.length > BookSourcesPage.maxLatestTotal) {
-            latestAcc.removeRange(
-              BookSourcesPage.maxLatestTotal,
-              latestAcc.length,
-            );
-          }
-          update({'latest'});
-        });
+        final r = await _safelyFetchLatest(
+          sharedDiscovery,
+          onBatch: (items) {
+            if (latestAcc.length >= BookSourcesPage.maxLatestTotal) return;
+            latestAcc.addAll(items);
+            // 流式截断：与 _fetchLatest 的最终 take 保持一致，避免 onBatch 期间
+            // latestAcc 膨胀到上千条再一次性截断，降低中间状态内存与渲染压力。
+            if (latestAcc.length > BookSourcesPage.maxLatestTotal) {
+              latestAcc.removeRange(
+                BookSourcesPage.maxLatestTotal,
+                latestAcc.length,
+              );
+            }
+            update({'latest'});
+          },
+        );
         legMs['latestMs'] = leg.elapsedMilliseconds;
         return r;
       }
@@ -371,7 +388,10 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         fetchCategories(),
         fetchLatest(),
       ]);
-      if (!mounted) return;
+      if (!mounted) {
+        _client.exitBatch();
+        return;
+      }
       // 记录本次后台自动刷新时间，供 12 小时节流判定。
       _lastBackgroundRefreshAt = DateTime.now();
       final shelves = results[0] as List<_DiscoveryShelf>;
@@ -411,12 +431,17 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       }
     } catch (error) {
       logAggregate('全量聚合失败', {'error': '$error'});
-      if (!mounted) return;
+      if (!mounted) {
+        _client.exitBatch();
+        return;
+      }
       setState(() {
         _loadingBookStore = false;
         _bookStoreError = error;
       });
     }
+    // 聚合结束：归还引擎池批处理窗口（正常路径与 catch 继续执行均经过这里）。
+    _client.exitBatch();
   }
 
   bool _hasAnyBookStore() =>
@@ -667,37 +692,55 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     });
   }
 
-  Future<List<_DiscoveryShelf>> _safelyFetchShelves({
+  /// 返回某源在本轮聚合内的默认发现页（跨 shelves/分类/最新三路共享）。
+  ///
+  /// 三路原本各自对每个源请求一遍相同的默认 exploreUrl，同一 URL 被重复请求
+  /// 约 3 倍并各自初始化 JS 引擎。改为以 sourceId 为键共享同一个 Future：
+  /// 谁先访问谁真正发起请求，其余路直接 await 同一结果，消除重复网络与
+  /// 引擎初始化。失败源的共享 Future 会抛出，由各路的 `_fetchSourceBatches`
+  /// 按源兜底为失败，不影响整轮聚合。
+  Future<BookSourceDiscoveryPage> _sharedDiscoveryPage(
+    RegisteredBookSource source,
+    Map<String, Future<BookSourceDiscoveryPage>> shared,
+  ) {
+    return shared.putIfAbsent(source.id, () => _client.getDiscovery(source));
+  }
+
+  Future<List<_DiscoveryShelf>> _safelyFetchShelves(
+    Map<String, Future<BookSourceDiscoveryPage>> shared, {
     void Function(List<_DiscoveryShelf> items)? onBatch,
   }) async {
     try {
-      return await _fetchShelves(onBatch: onBatch);
+      return await _fetchShelves(shared, onBatch: onBatch);
     } catch (_) {
       return const [];
     }
   }
 
-  Future<List<_SourcedCategory>> _safelyFetchCategories({
+  Future<List<_SourcedCategory>> _safelyFetchCategories(
+    Map<String, Future<BookSourceDiscoveryPage>> shared, {
     void Function(List<_SourcedCategory> items)? onBatch,
   }) async {
     try {
-      return await _fetchCategories(onBatch: onBatch);
+      return await _fetchCategories(shared, onBatch: onBatch);
     } catch (_) {
       return const [];
     }
   }
 
-  Future<List<SourcedBook>> _safelyFetchLatest({
+  Future<List<SourcedBook>> _safelyFetchLatest(
+    Map<String, Future<BookSourceDiscoveryPage>> shared, {
     void Function(List<SourcedBook> items)? onBatch,
   }) async {
     try {
-      return await _fetchLatest(onBatch: onBatch);
+      return await _fetchLatest(shared, onBatch: onBatch);
     } catch (_) {
       return const [];
     }
   }
 
-  Future<List<_DiscoveryShelf>> _fetchShelves({
+  Future<List<_DiscoveryShelf>> _fetchShelves(
+    Map<String, Future<BookSourceDiscoveryPage>> shared, {
     void Function(List<_DiscoveryShelf> items)? onBatch,
   }) async {
     final batches = await _fetchSourceBatches(
@@ -705,7 +748,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       (
         source,
       ) async {
-        final page = await _client.getDiscovery(source);
+        final page = await _sharedDiscoveryPage(source, shared);
         final shelves = <_DiscoveryShelf>[];
         for (final section in page.sections) {
           if (section.items.isEmpty) continue;
@@ -743,7 +786,8 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     return batches.expand((items) => items).toList(growable: false);
   }
 
-  Future<List<_SourcedCategory>> _fetchCategories({
+  Future<List<_SourcedCategory>> _fetchCategories(
+    Map<String, Future<BookSourceDiscoveryPage>> shared, {
     void Function(List<_SourcedCategory> items)? onBatch,
   }) async {
     final batches = await _fetchSourceBatches(
@@ -751,7 +795,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       (
         source,
       ) async {
-        final page = await _client.getDiscovery(source);
+        final page = await _sharedDiscoveryPage(source, shared);
         final categories = <_SourcedCategory>[];
         for (final section in page.sections) {
           for (final item in section.items) {
@@ -772,7 +816,8 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     return batches.expand((items) => items).toList(growable: false);
   }
 
-  Future<List<SourcedBook>> _fetchLatest({
+  Future<List<SourcedBook>> _fetchLatest(
+    Map<String, Future<BookSourceDiscoveryPage>> shared, {
     void Function(List<SourcedBook> items)? onBatch,
   }) async {
     final batches = await _fetchSourceBatches(
@@ -780,7 +825,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       (
         source,
       ) async {
-        final categoryPage = await _client.getDiscovery(source);
+        final categoryPage = await _sharedDiscoveryPage(source, shared);
         String? firstCategoryUrl;
         for (final section in categoryPage.sections) {
           for (final item in section.items) {
@@ -1074,6 +1119,17 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   /// 对后一次性全发起请求，每个完成后流式回调 [onBatch] 实时上屏；最终跨来源
   /// 交错混排并截断到 [maxBooksPerSection] 本，避免列表无限膨胀。
   Future<List<SourcedBook>> _fetchSectionBooks(
+    _CategorySection section, {
+    void Function(List<SourcedBook> items)? onBatch,
+  }) {
+    // 栏目聚合会对「源×分类」并发打大量请求：整个拉取窗口内放宽引擎池，
+    // 让先返回的源的引擎不被后来请求顶掉，避免一轮栏目加载反复重建引擎。
+    return _client.withinBatch(
+      () => _fetchSectionBooksInner(section, onBatch: onBatch),
+    );
+  }
+
+  Future<List<SourcedBook>> _fetchSectionBooksInner(
     _CategorySection section, {
     void Function(List<SourcedBook> items)? onBatch,
   }) async {
