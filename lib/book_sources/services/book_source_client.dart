@@ -32,6 +32,14 @@ class BookSourceClient {
   // 米读：按源隔离 Legado runtime。健康检测/聚合搜索会并发请求多个源，
   // 若共享单个 runtime（单 JS 引擎 + 单变量空间），不同源的 @put/@get 变量
   // 与 document 状态会互相污染，导致大量源解析失败。
+  //
+  // 该池带 LRU 上限：发现页/健康检查等批处理会一次性访问全部启用源，若每个
+  // 源的 fjs QuickJS 引擎都永久常驻，内存随使用持续累积（源多时可到数百 MB），
+  // 表现为「用一会就变卡、杀掉重开才恢复」。现限制只保留最近使用的一批引擎，
+  // 超限时释放最久未用的（LegadoRuntime.close 释放对应的 fjs 引擎）。
+  // 登录 Cookie 由 BookSourceCookieStore 持久化，runtime 重建后会重新种子化，
+  // 淘汰引擎不影响登录态。
+  static const int maxCachedLegadoRuntimes = 32;
   final Map<String, LegadoRuntime> _legadoRuntimes = {};
 
   // 测试/诊断注入：为每个源构造 JS 沙箱。生产为 null 时用默认 fjs；
@@ -639,25 +647,35 @@ class BookSourceClient {
   }
 
   /// 按源获取独立 runtime（跨源隔离变量与 JS 引擎状态）。
+  ///
+  /// LRU：命中时刷新为最近使用；未命中且池已满时，释放最久未使用的引擎
+  /// 以控制常驻内存上界（bounded LRU）。
   LegadoRuntime _legadoFor(RegisteredBookSource source) {
-    return _legadoRuntimes.putIfAbsent(
-      source.id,
-      () {
-        final sandbox = _sandboxFactory?.call(source.id);
-        return sandbox == null
-            ? LegadoRuntime(
-                enableAjaxBridge: _enableAjaxBridge,
-                debugRecorder: debugRecorder,
-                cookieStore: BookSourceCookieStore.instance,
-              )
-            : LegadoRuntime(
-                sandbox: sandbox,
-                enableAjaxBridge: _enableAjaxBridge,
-                debugRecorder: debugRecorder,
-                cookieStore: BookSourceCookieStore.instance,
-              );
-      },
-    );
+    // Dart Map 保持插入序：remove 后重插即是“最近使用”。
+    final cached = _legadoRuntimes.remove(source.id);
+    if (cached != null) {
+      _legadoRuntimes[source.id] = cached;
+      return cached;
+    }
+    if (_legadoRuntimes.length >= maxCachedLegadoRuntimes) {
+      final oldestId = _legadoRuntimes.keys.first;
+      _legadoRuntimes.remove(oldestId)?.close();
+    }
+    final sandbox = _sandboxFactory?.call(source.id);
+    final runtime = sandbox == null
+        ? LegadoRuntime(
+            enableAjaxBridge: _enableAjaxBridge,
+            debugRecorder: debugRecorder,
+            cookieStore: BookSourceCookieStore.instance,
+          )
+        : LegadoRuntime(
+            sandbox: sandbox,
+            enableAjaxBridge: _enableAjaxBridge,
+            debugRecorder: debugRecorder,
+            cookieStore: BookSourceCookieStore.instance,
+          );
+    _legadoRuntimes[source.id] = runtime;
+    return runtime;
   }
 
   /// 按源取 runtime：书源调试页（JS/规则单测需要访问沙箱）与测试共用。
