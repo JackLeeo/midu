@@ -270,7 +270,8 @@ class ReaderChromeOverlay extends StatelessWidget {
                   ),
                   _ReaderProgressSlider(
                     palette: palette,
-                    value: chapterProgress.clamp(0.0, 1.0),
+                    // 进度条与右侧百分比、onSliderSeek 语义一致：均为整本进度。
+                    value: bookProgress.clamp(0.0, 1.0),
                     onChangeEnd: onSliderSeek,
                   ),
                   const SizedBox(height: 18),

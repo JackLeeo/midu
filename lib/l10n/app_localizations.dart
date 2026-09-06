@@ -7141,7 +7141,7 @@ abstract class AppLocalizations {
   /// User agreement V2 source boundary point 1
   ///
   /// In en, this message translates to:
-  /// **'The official project provides open-source reader software and the MiDu Source Protocol only. It provides no source addresses or official source directory.'**
+  /// **'The official project provides open-source reader software only. It provides no source addresses or official source directory.'**
   String get agreementV2SourceBoundaryPoint1;
 
   /// User agreement V2 source boundary point 2
@@ -7177,7 +7177,7 @@ abstract class AppLocalizations {
   /// User agreement V2 section 2 body
   ///
   /// In en, this message translates to:
-  /// **'Future MiDu versions are released under the GNU Affero General Public License v3.0. You may use, copy, modify, distribute, or sell the software under that license. A distributed modified version must provide its complete corresponding source under AGPL-3.0, and a modified version used to provide a network service must also offer corresponding source to users interacting with it. MIT rights already granted for v1.0.0 and earlier versions remain valid and are not revoked. These terms do not restrict rights granted by the open-source license. Third-party components remain subject to their own licenses.'**
+  /// **'You may use, copy, modify, distribute, or sell the software under that license. A distributed modified version must provide its complete corresponding source under AGPL-3.0, and a modified version used to provide a network service must also offer corresponding source to users interacting with it. MIT rights already granted for v1.0.0 and earlier versions remain valid and are not revoked. These terms do not restrict rights granted by the open-source license. Third-party components remain subject to their own licenses.'**
   String get agreementV2Section2Body;
 
   /// User agreement V2 section 3 title
@@ -7213,7 +7213,7 @@ abstract class AppLocalizations {
   /// User agreement V2 section 5 body
   ///
   /// In en, this message translates to:
-  /// **'The official app does not preinstall, distribute, or recommend book sources and does not operate an official source directory. Sources, network APIs, external links, online content, system text-to-speech, AI services, and other integrations you add are independently provided and controlled by third parties. They are not operated, represented, licensed, endorsed, or reviewed by the developers. Source operators are legally responsible for the content they provide. Before adding one, you must review its origin, content rights, privacy policy, and terms, and you are responsible for your own access, downloads, caching, distribution, and other use. To the fullest extent permitted by applicable law, the developers are not liable for third-party content, charges, data practices, outages, or infringement disputes.'**
+  /// **'This version does not preinstall, distribute, or recommend book sources and does not operate an official source directory. Sources, network APIs, external links, online content, system text-to-speech, AI services, and other integrations you add are independently provided and controlled by third parties. They are not operated, represented, licensed, endorsed, or reviewed by the developers. Source operators are legally responsible for the content they provide. Before adding one, you must review its origin, content rights, privacy policy, and terms, and you are responsible for your own access, downloads, caching, distribution, and other use. To the fullest extent permitted by applicable law, the developers are not liable for third-party content, charges, data practices, outages, or infringement disputes.'**
   String get agreementV2Section5Body;
 
   /// User agreement V2 section 6 title
@@ -7225,7 +7225,7 @@ abstract class AppLocalizations {
   /// User agreement V2 section 6 body
   ///
   /// In en, this message translates to:
-  /// **'MiDu is local-first. Books, reading progress, notes, and settings are normally stored on your device. Unless you enable a network book source, AI, sync, or another online feature, the app does not need to send book text to the developers to provide local reading. Automatic and manual update checks contact GitHub and the official site at github.com/JackLeeo/midu with necessary technical parameters such as platform, processor architecture, and release channel; their servers process your IP address and User-Agent as part of ordinary network communication. When you download an installer from the official site, the backend records the version, architecture, download time, IP address, and User-Agent for download counts, security protection, and troubleshooting. Download-event records containing a raw IP are retained for no more than 30 days and then deleted; only aggregate statistics without raw IP addresses are kept longer. Update requests do not include book text, your library, notes, an account, or a unique device identifier. GitHub requests are also governed by GitHub’s privacy terms. When another online feature is used, queries, selected text, network information, or necessary parameters may be sent to the provider you selected under that provider’s policies. Protect your device, API keys, and backups; uninstalling, clearing data, device failure, or user error may permanently erase data.'**
+  /// **'MiDu is local-first. Books, reading progress, notes, and settings are normally stored on your device. Unless you enable a network book source, AI, sync, or another online feature, the app does not need to send book text to the developers to provide local reading. Servers and network services process your IP address and User-Agent as part of ordinary network communication. When another online feature is used, queries, selected text, network information, or necessary parameters may be sent to the provider you selected under that provider’s policies. Protect your device, API keys, and backups; uninstalling, clearing data, device failure, or user error may permanently erase data.'**
   String get agreementV2Section6Body;
 
   /// User agreement V2 section 8 title

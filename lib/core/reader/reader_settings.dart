@@ -169,6 +169,7 @@ class ReaderSettingsStore {
   static const bottomMarginKey = 'native_reader_bottom_margin';
   static const legacyVerticalMarginKey = 'native_reader_vertical_margin';
   static const themeKey = 'native_reader_theme';
+  static const manualThemeKey = 'reader_theme_manual_selected';
   static const pageModeKey = 'native_reader_page_mode';
   static const firstLineIndentKey = 'native_reader_first_line_indent';
   static const paragraphSpacingKey = 'native_reader_paragraph_spacing';
@@ -194,6 +195,25 @@ class ReaderSettingsStore {
   Future<String> loadThemeId() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(themeKey) ?? ReaderSettings.defaultThemeId;
+  }
+
+  /// 用户是否已手动指定阅读器主题。
+  ///
+  /// 迁移约定（老版本没有此标记）：
+  /// - 从未存过主题（首次启动）→ false，阅读器主题跟随应用主题；
+  /// - 存过非默认主题 → true，尊重历史上的手动选择；
+  /// - 仅存过默认主题（牛皮纸）→ false，仍视为跟随应用主题的默认态。
+  Future<bool> loadThemeManual() async {
+    final prefs = await SharedPreferences.getInstance();
+    final flag = prefs.getBool(manualThemeKey);
+    if (flag != null) return flag;
+    final storedTheme = prefs.getString(themeKey);
+    return storedTheme != null && storedTheme != ReaderSettings.defaultThemeId;
+  }
+
+  Future<void> saveThemeManual(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(manualThemeKey, value);
   }
 
   Future<ReaderSettings> load({

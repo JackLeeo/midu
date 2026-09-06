@@ -189,20 +189,40 @@ class ReaderThemes {
     );
   }
 
+  /// 阅读器未手动选择主题时，跟随应用主题的自动默认：
+  /// 应用浅色主题 → 牛皮纸；应用夜间主题 → 黑夜。
+  static ReaderThemePalette autoDefaultFor(Brightness appBrightness) =>
+      appBrightness == Brightness.dark ? night : parchment;
+
+  /// [autoDefaultFor] 对应的主题 id（'parchment' / 'night'）。
+  static String autoDefaultThemeIdFor(Brightness appBrightness) =>
+      autoDefaultFor(appBrightness).id;
+
   /// Loads the palette that should be visible from the first reader frame.
   ///
   /// Reader pages finish loading the rest of their settings after navigation,
   /// while the book-opening transition needs the saved canvas color before it
   /// starts. Resolve custom themes here as well so the transition never falls
   /// back to the day palette on a cold open.
-  static Future<ReaderThemePalette> loadSavedPalette() async {
+  ///
+  /// [appBrightness] 传入应用当前主题亮度时，未手动选择主题的用户会命中
+  /// 跟随应用主题的自动默认（浅色→牛皮纸，夜间→黑夜）；不传则保持旧逻辑，
+  /// 按已保存主题解析。
+  static Future<ReaderThemePalette> loadSavedPalette({
+    Brightness? appBrightness,
+  }) async {
     try {
       final results = await Future.wait<Object>([
         const ReaderSettingsStore().loadThemeId(),
         const ReaderCustomThemeStore().loadAll(),
+        const ReaderSettingsStore().loadThemeManual(),
       ]);
       final themeId = results[0] as String;
       final customThemes = results[1] as List<ReaderCustomTheme>;
+      final manual = results[2] as bool;
+      if (!manual && appBrightness != null) {
+        return autoDefaultFor(appBrightness);
+      }
 
       for (final theme in customThemes) {
         if (theme.id == themeId) return fromCustomTheme(theme);

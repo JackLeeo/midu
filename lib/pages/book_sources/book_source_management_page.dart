@@ -172,7 +172,6 @@ class _BookSourceManagementPageState extends State<BookSourceManagementPage> {
                       else
                         ..._buildSourceGroups(additionalProtocolsEnabled),
                       const SizedBox(height: 22),
-                      _buildProtocolCard(),
                     ],
                   ),
                 ),
@@ -1085,62 +1084,6 @@ class _BookSourceManagementPageState extends State<BookSourceManagementPage> {
     );
   }
 
-  Widget _buildProtocolCard() {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: _panelDecoration(radius: 20),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.api_rounded, color: scheme.primary),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  context.l10n.bookSourcesProtocolTitle,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  context.l10n.bookSourcesProtocolDescription,
-                  style: TextStyle(
-                    color: scheme.onSurfaceVariant,
-                    height: 1.45,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    TextButton.icon(
-                      onPressed: _showProtocolDialog,
-                      icon: const Icon(Icons.schema_outlined, size: 18),
-                      label: Text(context.l10n.bookSourcesProtocolDetails),
-                    ),
-                    TextButton.icon(
-                      onPressed: _openProtocolRepository,
-                      icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                      label: Text(context.l10n.bookSourcesProtocolRepository),
-                    ),
-                    TextButton.icon(
-                      onPressed: _openRightsReport,
-                      icon: const Icon(Icons.report_outlined, size: 18),
-                      label: Text(context.l10n.bookSourcesRightsReport),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   BoxDecoration _panelDecoration({required double radius}) {
     final palette = PageStyleHelper.palette(context);
     return BoxDecoration(
@@ -1971,60 +1914,6 @@ class _BookSourceManagementPageState extends State<BookSourceManagementPage> {
 
   bool _additionalProtocolsEnabled() {
     return true; // 米读：Legado 原生支持，始终启用
-  }
-
-  void _showProtocolDialog() {
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.l10n.bookSourcesProtocolDialogTitle),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                context.l10n.bookSourcesProtocolDialogBody,
-                style: const TextStyle(height: 1.5),
-              ),
-              const SizedBox(height: 18),
-              SelectableText(
-                openReadingSourceProtocolRepositoryUrl,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.primary,
-                  fontSize: 13,
-                  height: 1.4,
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton.icon(
-            onPressed: _openProtocolRepository,
-            icon: const Icon(Icons.open_in_new_rounded, size: 18),
-            label: Text(context.l10n.bookSourcesProtocolRepositoryOpen),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(context.l10n.bookSourcesClose),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _openProtocolRepository() async {
-    final opened = await _openExternalUrl(
-      Uri.parse(openReadingSourceProtocolRepositoryUrl),
-    );
-    if (!opened && mounted) {
-      showSideToast(
-        context,
-        context.l10n.bookSourcesProtocolRepositoryOpenFailed,
-        kind: SideToastKind.error,
-      );
-    }
   }
 
   Future<void> _openRightsReport() async {

@@ -156,7 +156,9 @@ class _LibraryPageState extends State<LibraryPage> {
       if (fullBook == null || !mounted) return;
       if (fullBook.isOnline) {
         try {
-          final initialTheme = await ReaderThemes.loadSavedPalette();
+          final initialTheme = await ReaderThemes.loadSavedPalette(
+            appBrightness: Theme.of(context).brightness,
+          );
           if (!mounted) return;
           final source = _sourceShelfService.sourceFrom(fullBook);
           final sourceBook = _sourceShelfService.sourceBookFrom(fullBook);
@@ -2218,7 +2220,9 @@ class _LibraryPageState extends State<LibraryPage> {
   Future<void> _openBookmarkManager(Book book) async {
     final fullBook = await _bookDao.getBookById(book.id!);
     if (fullBook == null || !mounted) return;
-    final initialTheme = await ReaderThemes.loadSavedPalette();
+    final initialTheme = await ReaderThemes.loadSavedPalette(
+      appBrightness: Theme.of(context).brightness,
+    );
     if (!mounted) return;
     final result = await Navigator.of(context).push<BookmarkManagerResult>(
       MaterialPageRoute(

@@ -3844,8 +3844,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get agreementV2SourceBoundaryTitle => '第三方书源责任边界';
 
   @override
-  String get agreementV2SourceBoundaryPoint1 =>
-      '官方只提供开源阅读软件和米读书源协议，不提供书源地址或官方书源目录。';
+  String get agreementV2SourceBoundaryPoint1 => '官方只提供开源阅读软件，不提供书源地址或官方书源目录。';
 
   @override
   String get agreementV2SourceBoundaryPoint2 =>
@@ -3867,7 +3866,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get agreementV2Section2Body =>
-      '开源阅读后续版本按 GNU Affero General Public License v3.0 发布。你可以依许可证使用、复制、修改、分发或销售软件；分发修改版时必须按 AGPL-3.0 提供完整对应源代码，修改版通过网络向用户提供服务时也必须按许可证向这些用户提供对应源代码。v1.0.0 及更早版本已经获得的 MIT 授权继续有效且不会撤回。本协议不限制开源许可证已经授予的权利；第三方组件仍适用各自许可证。';
+      '你可以依许可证使用、复制、修改、分发或销售软件；分发修改版时必须按 AGPL-3.0 提供完整对应源代码，修改版通过网络向用户提供服务时也必须按许可证向这些用户提供对应源代码。v1.0.0 及更早版本已经获得的 MIT 授权继续有效且不会撤回。本协议不限制开源许可证已经授予的权利；第三方组件仍适用各自许可证。';
 
   @override
   String get agreementV2Section3Title => '用户内容与版权责任';
@@ -3888,14 +3887,14 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get agreementV2Section5Body =>
-      '官方版本不预装、不分发、不推荐书源，也不运营官方书源目录。你添加的书源、网络接口、外部链接、在线内容、系统 TTS、AI 服务及其他第三方能力均由独立第三方提供和控制，与开发者不存在运营、代理、授权、背书或内容审核关系。书源运营者依法负责其提供的内容；你须在添加前审查来源、内容授权、隐私政策和使用条款，并对自己的访问、下载、缓存、传播及其他使用行为负责。在适用法律允许的最大范围内，开发者不对第三方内容、收费、数据处理、服务中断或侵权争议承担责任。';
+      '版本不预装、不分发、不推荐书源，也不运营官方书源目录。你添加的书源、网络接口、外部链接、在线内容、系统 TTS、AI 服务及其他第三方能力均由独立第三方提供和控制，与开发者不存在运营、代理、授权、背书或内容审核关系。书源运营者依法负责其提供的内容；你须在添加前审查来源、内容授权、隐私政策和使用条款，并对自己的访问、下载、缓存、传播及其他使用行为负责。在适用法律允许的最大范围内，开发者不对第三方内容、收费、数据处理、服务中断或侵权争议承担责任。';
 
   @override
   String get agreementV2Section6Title => '数据与隐私';
 
   @override
   String get agreementV2Section6Body =>
-      '本软件采用本地优先设计，书籍、阅读进度、笔记和设置通常保存在你的设备。除非你主动启用联网书源、AI、同步或其他联网功能，本软件不会为了提供本地阅读而主动将书籍正文发送给开发者。应用自动或手动检查更新时，会访问 GitHub 和官方站点 github.com/JackLeeo/midu，并发送平台、处理器架构、发布渠道等必要技术参数；服务器和网络服务会按正常通信处理你的 IP 地址与 User-Agent。你从官方站点下载安装包时，后台会记录版本、架构、下载时间、IP 和 User-Agent，用于下载次数统计、安全防护和故障排查；原始 IP 下载明细最多保留 30 天，之后删除，长期仅保留不含原始 IP 的汇总统计。上述更新请求不包含书籍正文、书架、笔记、账户或设备唯一标识；访问 GitHub 时还适用 GitHub 的隐私规则。启用其他联网功能时，相关查询、文本片段、设备网络信息或必要参数可能发送给你选择的第三方服务，具体以该服务规则为准。你应自行保护设备、访问密钥和备份；卸载、清理数据、设备故障或误操作可能导致数据永久丢失。';
+      '本软件采用本地优先设计，书籍、阅读进度、笔记和设置通常保存在你的设备。除非你主动启用联网书源、AI、同步或其他联网功能，本软件不会为了提供本地阅读而主动将书籍正文发送给开发者。服务器和网络服务会按正常通信处理你的 IP 地址与 User-Agent。启用其他联网功能时，相关查询、文本片段、设备网络信息或必要参数可能发送给你选择的第三方服务，具体以该服务规则为准。你应自行保护设备、访问密钥和备份；卸载、清理数据、设备故障或误操作可能导致数据永久丢失。';
 
   @override
   String get agreementV2Section8Title => '无担保声明';
@@ -8380,8 +8379,7 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
   String get agreementV2SourceBoundaryTitle => '第三方書源責任邊界';
 
   @override
-  String get agreementV2SourceBoundaryPoint1 =>
-      '官方只提供開源閱讀軟體和米讀書源協議，不提供書源位址或官方書源目錄。';
+  String get agreementV2SourceBoundaryPoint1 => '官方只提供開源閱讀軟體，不提供書源位址或官方書源目錄。';
 
   @override
   String get agreementV2SourceBoundaryPoint2 =>
@@ -8403,7 +8401,7 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
 
   @override
   String get agreementV2Section2Body =>
-      '米讀後續版本依 GNU Affero General Public License v3.0 發布。你可以依授權條款使用、複製、修改、散布或銷售軟體；散布修改版時必須依 AGPL-3.0 提供完整對應原始碼，修改版透過網路向使用者提供服務時也必須依授權條款向這些使用者提供對應原始碼。v1.0.0 及更早版本已取得的 MIT 授權繼續有效且不會撤回。本協議不限制開源授權已授予的權利；第三方元件仍適用各自授權條款。';
+      '你可以依授權條款使用、複製、修改、散布或銷售軟體；散布修改版時必須依 AGPL-3.0 提供完整對應原始碼，修改版透過網路向使用者提供服務時也必須依授權條款向這些使用者提供對應原始碼。v1.0.0 及更早版本已取得的 MIT 授權繼續有效且不會撤回。本協議不限制開源授權已授予的權利；第三方元件仍適用各自授權條款。';
 
   @override
   String get agreementV2Section3Title => '使用者內容與著作權責任';
@@ -8424,14 +8422,14 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
 
   @override
   String get agreementV2Section5Body =>
-      '官方版本不預載、不散布、不推薦書源，也不營運官方書源目錄。你新增的書源、網路介面、外部連結、線上內容、系統 TTS、AI 服務及其他第三方能力均由獨立第三方提供和控制，與開發者不存在營運、代理、授權、背書或內容審核關係。書源營運者依法負責其提供的內容；你須在新增前審查來源、內容授權、隱私政策和使用條款，並對自己的存取、下載、快取、散布及其他使用行為負責。在適用法律允許的最大範圍內，開發者不對第三方內容、收費、資料處理、服務中斷或侵權爭議承擔責任。';
+      '版本不預載、不散布、不推薦書源，也不營運官方書源目錄。你新增的書源、網路介面、外部連結、線上內容、系統 TTS、AI 服務及其他第三方能力均由獨立第三方提供和控制，與開發者不存在營運、代理、授權、背書或內容審核關係。書源營運者依法負責其提供的內容；你須在新增前審查來源、內容授權、隱私政策和使用條款，並對自己的存取、下載、快取、散布及其他使用行為負責。在適用法律允許的最大範圍內，開發者不對第三方內容、收費、資料處理、服務中斷或侵權爭議承擔責任。';
 
   @override
   String get agreementV2Section6Title => '資料與隱私';
 
   @override
   String get agreementV2Section6Body =>
-      '本軟體採用本機優先設計，書籍、閱讀進度、筆記和設定通常儲存在你的裝置。除非你主動啟用連網書源、AI、同步或其他連網功能，本軟體不會為了提供本機閱讀而主動將書籍內文傳送給開發者。應用程式自動或手動檢查更新時，會存取 GitHub 和官方網站 github.com/JackLeeo/midu，並傳送平台、處理器架構、發布頻道等必要技術參數；伺服器和網路服務會依正常通訊處理你的 IP 位址與 User-Agent。你從官方網站下載安裝套件時，後台會記錄版本、架構、下載時間、IP 和 User-Agent，用於下載次數統計、安全防護和故障排除；原始 IP 下載明細最多保留 30 天，之後刪除，長期僅保留不含原始 IP 的彙總統計。上述更新請求不包含書籍內文、書庫、筆記、帳戶或裝置唯一識別碼；存取 GitHub 時亦適用 GitHub 的隱私規則。啟用其他連網功能時，相關查詢、文字片段、裝置網路資訊或必要參數可能傳送給你選擇的第三方服務，具體以該服務規則為準。你應自行保護裝置、存取金鑰和備份；解除安裝、清除資料、裝置故障或誤操作可能導致資料永久遺失。';
+      '本軟體採用本機優先設計，書籍、閱讀進度、筆記和設定通常儲存在你的裝置。除非你主動啟用連網書源、AI、同步或其他連網功能，本軟體不會為了提供本機閱讀而主動將書籍內文傳送給開發者。伺服器和網路服務會依正常通訊處理你的 IP 位址與 User-Agent。啟用其他連網功能時，相關查詢、文字片段、裝置網路資訊或必要參數可能傳送給你選擇的第三方服務，具體以該服務規則為準。你應自行保護裝置、存取金鑰和備份；解除安裝、清除資料、裝置故障或誤操作可能導致資料永久遺失。';
 
   @override
   String get agreementV2Section8Title => '無擔保聲明';

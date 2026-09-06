@@ -377,6 +377,16 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         if (changed.contains('latest')) _latest = List.of(latestAcc);
       });
     }
+    // 分类数据首批就位后立即调度默认栏目加载，不再等全量聚合收尾。聚合的
+    // Future.wait 被最慢的「每源首分类书单」路由拖到数十秒，此前 _autoSelectSection
+    // 只在聚合完成后才触发，导致添加大量新源后「最新」已流式上屏而分类区
+    // 长时间空白。分类区内容自此与全量聚合脱钩，只看首个源返回的分类。
+    var sectionLoadScheduled = false;
+    void scheduleSectionLoadOnce() {
+      if (sectionLoadScheduled) return;
+      sectionLoadScheduled = true;
+      unawaited(_autoSelectSection());
+    }
     try {
       Future<List<_DiscoveryShelf>> fetchShelves() async {
         final leg = Stopwatch()..start();
@@ -398,6 +408,8 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
           onBatch: (items) {
             categoriesAcc.addAll(items);
             update({'categories'});
+            // 首批分类一到就触发默认栏目加载，避免等待全量聚合的慢路由。
+            scheduleSectionLoadOnce();
           },
         );
         legMs['categoriesMs'] = leg.elapsedMilliseconds;
@@ -452,10 +464,10 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         'enabledSources': _sources.where((s) => s.enabled).length,
         ...legMs,
       });
-      // 分类数据就绪后立即加载默认栏目：此前依赖 _maybeStartInitialLoad 里
-      // `.then(_autoSelectSection)` 的异步链，源变更重载（重新添加书源）后该
-      // 链偶发未触发，导致分类区永远停在空白。这里在聚合完成同一微任务内
-      // 直接调度（_autoSelectSection 自带幂等守卫，重复调用不会重复发网络）。
+      // 分类数据就绪后立即加载默认栏目：首批分类流式到达时已通过
+      // scheduleSectionLoadOnce 提前调度（见 fetchCategories 的 onBatch），
+      // 这里兜底覆盖“分类数据直到收尾才齐”的极端情况。_autoSelectSection 自带
+      // 幂等守卫，重复调用不会重复发网络。
       unawaited(_autoSelectSection());
       // 有栏目缓存的默认栏目，后台静默刷新替换，保证与「最新」一样新鲜。
       final groupedFresh = _groupCategorySections(_aggregatedCategories);
@@ -1557,12 +1569,10 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     final latest = _latest
         .where((result) => _matchesSelectedSource(result.source))
         .toList(growable: false);
-    if (shelves.isEmpty && latest.isEmpty && _categories.isEmpty) {
+    if (_targets('discover').isEmpty) {
       return [
         _paddedSectionSliver(
-          _targets('discover').isEmpty
-              ? _buildUnsupportedMessage('discover')
-              : _buildEmptyMessage(),
+          _buildUnsupportedMessage('discover'),
           bottomPadding: bottomPadding,
         ),
       ];
@@ -1586,13 +1596,10 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       ],
     ];
 
-    // 分类频道 → 最新/热榜 → 书源书架
-    if (_categories.isNotEmpty) {
-      slivers.addAll(_buildCategorySlivers());
-    }
-    if (latest.isNotEmpty) {
-      slivers.addAll(_buildLatestSectionSlivers(latest));
-    }
+    // 分类/最新是固定版块：标题区始终渲染，数据未就绪时各自显示加载/空态占位，
+    // 避免聚合过程中分类区整体消失，造成「只有最新 / 只有推荐」的错位观感。
+    slivers.addAll(_buildCategorySlivers());
+    slivers.addAll(_buildLatestSectionSlivers(latest));
     slivers.addAll(_buildShelfSlivers(shelves));
     // 页面底部安全留白统一放在 feed 最末段，避免它在分类/最新等非末节里出现，
     // 造成版块之间割裂的大空档。
@@ -1654,7 +1661,42 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
 
   List<Widget> _buildCategorySlivers() {
     final cats = _aggregatedCategories;
-    if (cats.isEmpty) return const [SliverToBoxAdapter(child: SizedBox.shrink())];
+    // 版块标题固定渲染；数据未就绪时用占位，不放任整个版块消失。
+    final header = SliverToBoxAdapter(
+      child: _centerSectionChild(
+        Padding(
+          padding: const EdgeInsets.only(top: 22),
+          child: _buildSectionHeader(
+            context.l10n.discoverCategories,
+            Icons.category_rounded,
+          ),
+        ),
+      ),
+    );
+    Widget sectionPlaceholder({required bool loading}) => _paddedSectionSliver(
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 34),
+        child: loading
+            ? const Center(child: CircularProgressIndicator())
+            : Text(
+                context.l10n.bookSourcesNoResults,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+      ),
+      topPadding: 8,
+      bottomPadding: 24,
+    );
+    if (cats.isEmpty) {
+      // 分类数据尚未就绪：固定标题 + 加载/空态占位，避免「最新」先出现时
+      // 分类区整个消失，造成用户以为没有分类版块。
+      return [
+        header,
+        sectionPlaceholder(loading: _loadingBookStore),
+      ];
+    }
     final sections = _groupCategorySections(cats);
     // 展开的栏目：优先用户上次选择，失效则回落到第一个非空栏目。
     final activeKey = (_selectedSectionKey != null &&
@@ -1662,17 +1704,7 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         ? _selectedSectionKey!
         : sections.first.key;
     return [
-      SliverToBoxAdapter(
-        child: _centerSectionChild(
-          Padding(
-            padding: const EdgeInsets.only(top: 22),
-            child: _buildSectionHeader(
-              context.l10n.discoverCategories,
-              Icons.category_rounded,
-            ),
-          ),
-        ),
-      ),
+      header,
       // 一级栏目条（参考番茄/七猫：榜单/玄幻仙侠/都市/言情/…），选中后下方
       // 直接展示该栏目聚合书籍列表，不再重复展示二级分类选项。
       _categorySectionBar(
@@ -1705,21 +1737,11 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
             ),
           ),
         )
-      else if (_selectedSectionKey != null && !_loadingSectionBooks)
-        _paddedSectionSliver(
-          _centerSectionChild(
-            Padding(
-              padding: const EdgeInsets.only(top: 26, bottom: 26),
-              child: Text(
-                context.l10n.bookSourcesNoResults,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-          ),
-          bottomPadding: 24,
+      else
+        // 分类已就绪但栏目书籍尚未开始/完成加载：聚合中或尚未自动选中栏目时
+        // 显示加载占位，避免分类区长时间空白；加载完毕仍无书才提示无结果。
+        sectionPlaceholder(
+          loading: _loadingBookStore || _selectedSectionKey == null,
         ),
     ];
   }
@@ -1868,22 +1890,40 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
           ),
         ),
       ),
-      SliverPadding(
-        padding: EdgeInsets.fromLTRB(16, 6, 16, 0),
-        sliver: SliverList.builder(
-          itemCount: shown,
-          itemBuilder: (context, index) {
-            final result = latest[index];
-            return _centerSectionChild(
-              _LatestRankRow(
-                result: result,
-                rank: index + 1,
-                onTap: () => _actions.showBookDetails(result),
-              ),
-            );
-          },
+      if (latest.isEmpty)
+        _paddedSectionSliver(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 34),
+            child: _loadingBookStore
+                ? const Center(child: CircularProgressIndicator())
+                : Text(
+                    context.l10n.bookSourcesNoResults,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+          ),
+          topPadding: 8,
+          bottomPadding: 24,
+        )
+      else
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(16, 6, 16, 0),
+          sliver: SliverList.builder(
+            itemCount: shown,
+            itemBuilder: (context, index) {
+              final result = latest[index];
+              return _centerSectionChild(
+                _LatestRankRow(
+                  result: result,
+                  rank: index + 1,
+                  onTap: () => _actions.showBookDetails(result),
+                ),
+              );
+            },
+          ),
         ),
-      ),
       if (remain > 0)
         _paddedSectionSliver(
           _centerSectionChild(
@@ -2035,14 +2075,6 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
           : context.l10n.bookSourcesNoSourcesDescription,
       actionLabel: context.l10n.bookSourceManagementTitle,
       onAction: _openSourceManagement,
-    );
-  }
-
-  Widget _buildEmptyMessage() {
-    return _buildMessageCard(
-      icon: Icons.inbox_outlined,
-      title: context.l10n.discoverEmptyTitle,
-      message: context.l10n.discoverEmptyMessage,
     );
   }
 

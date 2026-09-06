@@ -8,7 +8,6 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'package:midu/core/reader/reader_keep_screen_on.dart';
 import 'package:midu/core/reader/reader_custom_theme.dart';
@@ -21,7 +20,6 @@ import 'package:midu/pages/book_sources/book_source_management_page.dart';
 import 'package:midu/pages/home/home_mobile_chrome.dart';
 import 'package:midu/pages/home/home_shell_page.dart';
 import 'package:midu/pages/reader/themes/reader_custom_themes_page.dart';
-import 'package:midu/pages/settings/about/changelog_page.dart';
 import 'package:midu/pages/settings/about/open_source_licenses_page.dart';
 import 'package:midu/pages/settings/auto_task_page.dart';
 import 'package:midu/pages/settings/web_server_page.dart';
@@ -50,97 +48,10 @@ import 'package:midu/utils/ui_style.dart';
 import 'package:midu/widgets/accent_color_picker_sheet.dart';
 import 'package:midu/widgets/reader_settings_controls.dart';
 import 'package:midu/widgets/side_toast.dart';
-import 'package:midu/widgets/update_check_gate.dart';
 
 import 'custom_fonts_page.dart';
 
 part 'parts/settings_cover_actions_part.dart';
-
-class _GithubMark extends StatelessWidget {
-  const _GithubMark();
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(painter: _GithubMarkPainter());
-  }
-}
-
-class _GithubMarkPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = Colors.white;
-    canvas.save();
-    canvas.scale(size.width / 24, size.height / 24);
-
-    final mark = Path()
-      ..moveTo(6.1, 7.2)
-      ..lineTo(5.1, 3.1)
-      ..quadraticBezierTo(8.2, 3.2, 10.1, 4.8)
-      ..quadraticBezierTo(12, 4.35, 13.9, 4.8)
-      ..quadraticBezierTo(15.8, 3.2, 18.9, 3.1)
-      ..lineTo(17.9, 7.2)
-      ..quadraticBezierTo(19.6, 9.0, 19.6, 11.8)
-      ..quadraticBezierTo(19.6, 16.7, 15.8, 18.2)
-      ..quadraticBezierTo(14.9, 18.55, 14.9, 20.0)
-      ..lineTo(14.9, 22.0)
-      ..lineTo(9.1, 22.0)
-      ..lineTo(9.1, 20.3)
-      ..quadraticBezierTo(7.5, 20.65, 6.7, 19.5)
-      ..quadraticBezierTo(6.0, 18.45, 5.0, 17.75)
-      ..quadraticBezierTo(4.4, 17.3, 4.7, 16.9)
-      ..quadraticBezierTo(5.0, 16.55, 5.7, 17.0)
-      ..quadraticBezierTo(6.9, 17.75, 7.4, 18.35)
-      ..quadraticBezierTo(8.0, 19.0, 9.1, 18.7)
-      ..quadraticBezierTo(9.15, 18.0, 9.55, 17.55)
-      ..quadraticBezierTo(4.4, 16.95, 4.4, 11.8)
-      ..quadraticBezierTo(4.4, 9.0, 6.1, 7.2)
-      ..close();
-    canvas.drawPath(mark, paint);
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class _QqMark extends StatelessWidget {
-  const _QqMark();
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(painter: _QqMarkPainter());
-  }
-}
-
-class _QqMarkPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final white = Paint()..color = Colors.white;
-    final blue = Paint()..color = const Color(0xFF1677FF);
-    canvas.save();
-    canvas.scale(size.width / 24, size.height / 24);
-
-    canvas.drawOval(const Rect.fromLTWH(6.6, 2.2, 10.8, 17.8), white);
-    canvas.drawOval(const Rect.fromLTWH(4.2, 9.0, 4.6, 8.3), white);
-    canvas.drawOval(const Rect.fromLTWH(15.2, 9.0, 4.6, 8.3), white);
-    canvas.drawOval(const Rect.fromLTWH(5.0, 18.0, 6.8, 3.2), white);
-    canvas.drawOval(const Rect.fromLTWH(12.2, 18.0, 6.8, 3.2), white);
-    canvas.drawOval(const Rect.fromLTWH(8.8, 6.2, 2.1, 2.8), blue);
-    canvas.drawOval(const Rect.fromLTWH(13.1, 6.2, 2.1, 2.8), blue);
-    canvas.drawOval(const Rect.fromLTWH(10.3, 9.1, 3.4, 2.0), blue);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        const Rect.fromLTWH(6.0, 13.1, 12.0, 2.25),
-        const Radius.circular(1.1),
-      ),
-      blue,
-    );
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
 
 class SettingsPageController extends ChangeNotifier {}
 
@@ -186,7 +97,6 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _showFPS = false;
   bool _debugModeEnabled = false;
   String _appVersion = '0.9.1';
-  bool _isCheckingForUpdates = false;
   AppCacheUsage? _cacheUsage;
   bool _loadingCacheUsage = true;
 
@@ -388,11 +298,17 @@ class _SettingsPageState extends State<SettingsPage> {
       const ReaderCustomThemeStore().loadAll(),
       const ReaderThemeOrderStore().load(),
       const ReaderSettingsStore().loadThemeId(),
+      const ReaderSettingsStore().loadThemeManual(),
     ]);
     if (!mounted) return;
     final initialThemes = results[0] as List<ReaderCustomTheme>;
     final initialOrder = results[1] as List<String>;
-    final initialSelected = results[2] as String;
+    final storedThemeId = results[2] as String;
+    final themeManual = results[3] as bool;
+    // 未手动选择主题时管理器也高亮跟随应用主题的自动默认（浅色→牛皮纸，夜间→黑夜）。
+    final initialSelected = themeManual
+        ? storedThemeId
+        : ReaderThemes.autoDefaultThemeIdFor(Theme.of(context).brightness);
     final result = await Navigator.of(context).push<ReaderCustomThemesResult>(
       MaterialPageRoute(
         builder: (_) => ReaderCustomThemesPage(
@@ -405,12 +321,14 @@ class _SettingsPageState extends State<SettingsPage> {
     if (result == null || !mounted) return;
     ReaderThemes.setCustomThemes(result.themes);
     ReaderThemes.setThemeOrder(result.themeOrder);
-    if (result.selectedThemeId != null) {
+    if (result.selectedThemeId != null &&
+        result.selectedThemeId != initialSelected) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
         ReaderSettingsStore.themeKey,
         result.selectedThemeId!,
       );
+      await prefs.setBool(ReaderSettingsStore.manualThemeKey, true);
     }
     setState(() {});
   }
@@ -2293,115 +2211,7 @@ class _SettingsPageState extends State<SettingsPage> {
           _buildAboutLine(l10n.settingsLicenseLabel, 'AGPL-3.0'),
           const SizedBox(height: 8),
           _buildOpenSourceLicensesLink(),
-          const SizedBox(height: 10),
-          _buildChangelogLink(),
-          const SizedBox(height: 14),
-          _buildCommunityButton(
-            onPressed: _checkForUpdates,
-            backgroundColor: scheme.primary,
-            foregroundColor: scheme.onPrimary,
-            icon: _isCheckingForUpdates
-                ? SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: scheme.onPrimary,
-                    ),
-                  )
-                : const Icon(Icons.system_update_alt_rounded),
-            title: l10n.updateCheckNow,
-            subtitle: l10n.updateCheckNowSubtitle,
-          ),
-          const SizedBox(height: 10),
-          _buildCommunityButton(
-            onPressed: _openOfficialWebsite,
-            backgroundColor: const Color(0xFF2D6A4F),
-            foregroundColor: Colors.white,
-            icon: const Icon(Icons.language_rounded),
-            title: l10n.settingsOfficialWebsite,
-            subtitle: l10n.settingsOfficialWebsiteSubtitle,
-          ),
-          const SizedBox(height: 10),
-          _buildCommunityButton(
-            onPressed: _openGithubRepo,
-            backgroundColor: const Color(0xFF181717),
-            foregroundColor: Colors.white,
-            icon: const _GithubMark(),
-            title: 'GitHub',
-            subtitle: l10n.settingsViewSourceSubtitle,
-          ),
-          const SizedBox(height: 10),
-          _buildCommunityButton(
-            onPressed: _openTelegramChannel,
-            backgroundColor: const Color(0xFF229ED9),
-            foregroundColor: Colors.white,
-            icon: const Icon(Icons.send_rounded),
-            title: l10n.settingsTelegramChannel,
-            subtitle: l10n.settingsTelegramSubtitle,
-          ),
-          const SizedBox(height: 10),
-          _buildCommunityButton(
-            onPressed: _openQqChannel,
-            backgroundColor: const Color(0xFF12B7F5),
-            foregroundColor: Colors.white,
-            icon: const _QqMark(),
-            title: l10n.settingsQqChannel,
-            subtitle: l10n.settingsQqChannelSubtitle,
-          ),
-          const SizedBox(height: 10),
-          _buildCommunityButton(
-            onPressed: _openQqGroup,
-            backgroundColor: const Color(0xFF1677FF),
-            foregroundColor: Colors.white,
-            icon: const _QqMark(),
-            title: l10n.settingsJoinQqGroup,
-            subtitle: '1003560209',
-          ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildChangelogLink() {
-    final l10n = context.l10n;
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.surfaceContainerHighest.withValues(alpha: 0.58),
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        key: const ValueKey('settings-changelog-link'),
-        onTap: _openChangelogHistory,
-        borderRadius: BorderRadius.circular(14),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      l10n.changelogHistoryTitle,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      l10n.changelogHistorySubtitle,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              Icon(Icons.chevron_right_rounded, color: scheme.onSurfaceVariant),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -2449,83 +2259,10 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  void _openChangelogHistory() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute<void>(builder: (_) => const ChangelogPage()));
-  }
-
   void _openSourceLicenses() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => OpenSourceLicensesPage(appVersion: _appVersion),
-      ),
-    );
-  }
-
-  Widget _buildCommunityButton({
-    required VoidCallback onPressed,
-    required Color backgroundColor,
-    required Color foregroundColor,
-    required Widget icon,
-    required String title,
-    required String subtitle,
-  }) {
-    return SizedBox(
-      width: double.infinity,
-      height: 60,
-      child: FilledButton(
-        onPressed: onPressed,
-        style:
-            FilledButton.styleFrom(
-              backgroundColor: backgroundColor,
-              foregroundColor: foregroundColor,
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(15),
-              ),
-              elevation: 0,
-            ).copyWith(
-              overlayColor: WidgetStatePropertyAll(
-                foregroundColor.withValues(alpha: 0.12),
-              ),
-            ),
-        child: Row(
-          children: [
-            SizedBox(width: 24, height: 24, child: icon),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.1,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w500,
-                      color: foregroundColor.withValues(alpha: 0.72),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              Icons.arrow_outward_rounded,
-              size: 19,
-              color: foregroundColor.withValues(alpha: 0.78),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -2557,84 +2294,6 @@ class _SettingsPageState extends State<SettingsPage> {
         ],
       ),
     );
-  }
-
-  Future<void> _openGithubRepo() async {
-    final uri = Uri.parse('https://github.com/miloquinn/open-reading');
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok && mounted) {
-      showSideToast(
-        context,
-        context.l10n.settingsGithubOpenFailed,
-        icon: Icons.error_outline,
-        kind: SideToastKind.error,
-      );
-    }
-  }
-
-  Future<void> _openOfficialWebsite() async {
-    final ok = await launchUrl(
-      Uri.parse('https://github.com/JackLeeo/midu'),
-      mode: LaunchMode.externalApplication,
-    );
-    if (!ok && mounted) {
-      showSideToast(
-        context,
-        context.l10n.settingsOfficialWebsiteOpenFailed,
-        icon: Icons.error_outline,
-        kind: SideToastKind.error,
-      );
-    }
-  }
-
-  Future<void> _openTelegramChannel() async {
-    final uri = Uri.parse('https://github.com/JackLeeo/midu');
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok && mounted) {
-      showSideToast(
-        context,
-        context.l10n.settingsTelegramOpenFailed,
-        icon: Icons.error_outline,
-        kind: SideToastKind.error,
-      );
-    }
-  }
-
-  Future<void> _openQqChannel() async {
-    final uri = Uri.parse('https://pd.qq.com/s/diin97dya?b=9');
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok && mounted) {
-      showSideToast(
-        context,
-        context.l10n.settingsQqChannelOpenFailed,
-        icon: Icons.error_outline,
-        kind: SideToastKind.error,
-      );
-    }
-  }
-
-  Future<void> _checkForUpdates() async {
-    if (_isCheckingForUpdates) return;
-    setState(() => _isCheckingForUpdates = true);
-    await UpdatePromptController.check(context, manual: true);
-    if (mounted) {
-      setState(() => _isCheckingForUpdates = false);
-    }
-  }
-
-  Future<void> _openQqGroup() async {
-    final uri = Uri.parse(
-      'mqqapi://card/show_pslcard?src_type=internal&version=1&uin=1003560209&card_type=group&source=qrcode',
-    );
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok && mounted) {
-      showSideToast(
-        context,
-        context.l10n.settingsQqOpenFailed,
-        icon: Icons.error_outline,
-        kind: SideToastKind.error,
-      );
-    }
   }
 
   // 构建操作设置

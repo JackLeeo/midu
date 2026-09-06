@@ -248,6 +248,10 @@ class _NativeReaderPageState extends State<NativeReaderPage>
   double _bottomMargin = ReaderMarginSettings.defaultBottom;
   FontOption _readerFont = FontCatalog.defaultReaderFont;
   String _readerThemeId = ReaderThemes.parchment.id;
+
+  /// 用户是否已手动指定阅读器主题。未手动选择时阅读器主题跟随应用主题
+  /// （浅色→牛皮纸，夜间→黑夜），见 [ReaderThemes.autoDefaultFor]。
+  bool _readerThemeManual = false;
   bool _pullBookmarkEnabled = false;
   bool _tapPageAnimationEnabled = true;
   ReaderTapZones _tapZones = ReaderTapZones.defaults;
@@ -885,6 +889,7 @@ class _NativeReaderPageState extends State<NativeReaderPage>
         ReaderSystemUiController.loadPreference(),
         _readerSettingsStore.loadTapZones(),
         _readerSettingsStore.loadTxtChapterTitlePageEnabled(),
+        _readerSettingsStore.loadThemeManual(),
       ]);
       final settings = results[0] as ReaderSettings;
       final scrollByChapter = results[1] as bool;
@@ -893,9 +898,15 @@ class _NativeReaderPageState extends State<NativeReaderPage>
       final topBarStyle = results[4] as ReaderTopBarStyle;
       final tapZones = results[5] as ReaderTapZones;
       final txtChapterTitlePageEnabled = results[6] as bool;
+      final themeManual = results[7] as bool;
       if (!mounted) return;
       ReaderThemes.setCustomThemes(customThemes);
       ReaderThemes.setThemeOrder(themeOrder);
+      _readerThemeManual = themeManual;
+      // 未手动选择主题时跟随应用主题（浅色→牛皮纸，夜间→黑夜）。
+      final resolvedThemeId = themeManual
+          ? ReaderThemes.byId(settings.themeId).id
+          : ReaderThemes.autoDefaultThemeIdFor(Theme.of(context).brightness);
       setState(() {
         _pageMode = settings.pageMode;
         _fontSize = settings.fontSize;
@@ -908,7 +919,7 @@ class _NativeReaderPageState extends State<NativeReaderPage>
         _firstLineIndent = settings.firstLineIndent;
         _paragraphSpacing = settings.paragraphSpacing;
         _scrollByChapter = scrollByChapter;
-        _readerThemeId = ReaderThemes.byId(settings.themeId).id;
+        _readerThemeId = resolvedThemeId;
         _pullBookmarkEnabled = settings.pullBookmarkEnabled;
         _tapPageAnimationEnabled = settings.tapPageAnimationEnabled;
         _tapZones = tapZones;
@@ -981,7 +992,9 @@ class _NativeReaderPageState extends State<NativeReaderPage>
     horizontalMargin: _horizontalMargin,
     topMargin: _topMargin,
     bottomMargin: _bottomMargin,
-    themeId: _readerThemeId,
+    themeId: _readerThemeManual
+        ? _readerThemeId
+        : ReaderSettings.defaultThemeId,
     pageMode: _pageMode,
     firstLineIndent: _firstLineIndent,
     paragraphSpacing: _paragraphSpacing,
@@ -1033,10 +1046,13 @@ class _NativeReaderPageState extends State<NativeReaderPage>
 
   Future<void> _setReaderTheme(String themeId) async {
     final nextTheme = ReaderThemes.byId(themeId);
-    if (_readerThemeId == nextTheme.id) return;
+    if (_readerThemeId == nextTheme.id && _readerThemeManual) return;
+    // 用户在阅读设置中显式选择了主题：固定该选择，不再跟随应用主题。
+    _readerThemeManual = true;
     setState(() => _readerThemeId = nextTheme.id);
     if (_readerSystemUiApplied) await _applyReaderSystemUi();
     await _readerSettingsStore.save(_readerSettings);
+    await _readerSettingsStore.saveThemeManual(true);
   }
 
   Widget _buildStyledReaderText(
@@ -2319,7 +2335,10 @@ class _NativeReaderPageState extends State<NativeReaderPage>
     ReaderThemes.setCustomThemes(result.themes);
     ReaderThemes.setThemeOrder(result.themeOrder);
     setState(() {
-      if (result.selectedThemeId != null) {
+      if (result.selectedThemeId != null &&
+          result.selectedThemeId != _readerThemeId) {
+        // 显式选择发生了变化：固定该选择，不再跟随应用主题。
+        _readerThemeManual = true;
         _readerThemeId = result.selectedThemeId!;
       } else if (ReaderCustomTheme.isCustomThemeId(_readerThemeId) &&
           ReaderThemes.customThemeById(_readerThemeId) == null) {
@@ -2327,6 +2346,9 @@ class _NativeReaderPageState extends State<NativeReaderPage>
       }
     });
     await _readerSettingsStore.save(_readerSettings);
+    if (_readerThemeManual) {
+      await _readerSettingsStore.saveThemeManual(true);
+    }
     await _applyReaderSystemUi();
   }
 

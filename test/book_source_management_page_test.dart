@@ -47,7 +47,8 @@ void main() {
     expect(find.text('Manage sources'), findsOneWidget);
     expect(find.text('Connected sources'), findsOneWidget);
     expect(find.text('Add source'), findsOneWidget);
-    expect(find.text('MiDu Source Protocol'), findsOneWidget);
+    // 米读书源协议卡片已从书源管理页移除
+    expect(find.text('MiDu Source Protocol'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

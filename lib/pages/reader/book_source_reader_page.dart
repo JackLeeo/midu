@@ -13,6 +13,7 @@ import 'package:midu/book_sources/models/registered_book_source.dart';
 import 'package:midu/book_sources/protocol/book_source_protocol.dart';
 import 'package:midu/book_sources/services/book_source_client.dart';
 import 'package:midu/book_sources/services/book_source_aggregated_search.dart';
+import 'package:midu/book_sources/services/book_browse_history.dart';
 import 'package:midu/book_sources/services/book_source_chapter_text.dart';
 import 'package:midu/book_sources/services/comic_image_url_parser.dart';
 import 'package:midu/book_sources/services/book_source_reading_progress.dart';
@@ -185,6 +186,10 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
   double _topMargin = ReaderMarginSettings.defaultTop;
   double _bottomMargin = ReaderMarginSettings.defaultBottom;
   String _readerThemeId = ReaderThemes.parchment.id;
+
+  /// 用户是否已手动指定阅读器主题。未手动选择时阅读器主题跟随应用主题
+  /// （浅色→牛皮纸，夜间→黑夜），见 [ReaderThemes.autoDefaultFor]。
+  bool _readerThemeManual = false;
   BookSourcePageMode _pageMode = ReaderSettings.defaultPageMode;
   bool _pullBookmarkEnabled = false;
   bool _tapPageAnimationEnabled = true;
@@ -287,7 +292,9 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     horizontalMargin: _horizontalMargin,
     topMargin: _topMargin,
     bottomMargin: _bottomMargin,
-    themeId: _readerThemeId,
+    themeId: _readerThemeManual
+        ? _readerThemeId
+        : ReaderSettings.defaultThemeId,
     pageMode: _pageMode,
     firstLineIndent: _firstLineIndent,
     paragraphSpacing: _paragraphSpacing,
@@ -495,6 +502,12 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     _readerAloudController?.dispose();
     unawaited(_saveProgress());
     unawaited(_flushReadingSession());
+    if (_chapters.isNotEmpty) {
+      // 退出阅读后告知驻留首页刷新浏览记录，保证断点进度第一时间可见。
+      unawaited(
+        _progressSaveQueue.then((_) => BookBrowseHistoryStore.notifyChanged()),
+      );
+    }
     _verticalPagePositionsListener.itemPositions.removeListener(
       _onVerticalPagePositionsChanged,
     );
@@ -621,6 +634,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
         _customThemeStore.loadAll(),
         _themeOrderStore.load(),
         _readerSettingsStore.loadTapZones(),
+        _readerSettingsStore.loadThemeManual(),
       ]);
       final chapters = [...results[0]! as List<BookSourceChapter>]
         ..sort((a, b) => a.order.compareTo(b.order));
@@ -639,6 +653,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       final customThemes = results[4] as List<ReaderCustomTheme>;
       final themeOrder = results[5] as List<String>;
       final tapZones = results[6] as ReaderTapZones;
+      final themeManual = results[7] as bool;
       var initialIndex = widget.initialChapterIndex ?? saved?.chapterIndex ?? 0;
       if (widget.initialChapterIndex == null &&
           saved != null &&
@@ -654,6 +669,11 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       if (!mounted) return;
       ReaderThemes.setCustomThemes(customThemes);
       ReaderThemes.setThemeOrder(themeOrder);
+      _readerThemeManual = themeManual;
+      // 未手动选择主题时跟随应用主题（浅色→牛皮纸，夜间→黑夜）。
+      final resolvedThemeId = themeManual
+          ? ReaderThemes.byId(settings.themeId).id
+          : ReaderThemes.autoDefaultThemeIdFor(Theme.of(context).brightness);
       setState(() {
         _chapters = chapters;
         _navigationChapters = navigationChapters;
@@ -667,7 +687,7 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
         _textAlignment = settings.textAlignment;
         _firstLineIndent = settings.firstLineIndent;
         _paragraphSpacing = settings.paragraphSpacing;
-        _readerThemeId = ReaderThemes.byId(settings.themeId).id;
+        _readerThemeId = resolvedThemeId;
         _pageMode = settings.pageMode;
         _pullBookmarkEnabled = settings.pullBookmarkEnabled;
         _tapPageAnimationEnabled = settings.tapPageAnimationEnabled;
@@ -686,6 +706,13 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       if (_readerSystemUiApplied) unawaited(_applyReaderSystemUi());
       unawaited(_syncVolumeKeyPaging());
       if (chapters.isNotEmpty) {
+        // 「开始阅读」即记入首页浏览记录；后续随 _saveProgress 持续刷新进度。
+        _queueBrowseHistory(
+          chapterIndex: initialIndex,
+          chapterProgress: saved?.chapterProgress ?? 0,
+          chapterCount: chapters.length,
+          notifyAfter: true,
+        );
         unawaited(_resolveShelfBook());
         await _loadChapter(
           initialIndex,
@@ -760,6 +787,57 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     }
   }
 
+  /// 构造当前阅读点对应的浏览记录条目。
+  BookBrowseHistoryEntry? _buildBrowseEntry({
+    required int chapterIndex,
+    required double chapterProgress,
+    required int chapterCount,
+  }) {
+    if (chapterCount <= 0 || chapterIndex < 0 || chapterIndex >= chapterCount) {
+      return null;
+    }
+    final chapterProgressClamped = chapterProgress.clamp(0.0, 1.0);
+    return BookBrowseHistoryEntry(
+      sourceId: _activeSource.id,
+      sourceName: _activeSource.name,
+      bookId: _activeBook.id,
+      title: _activeBook.title,
+      author: _activeBook.author,
+      coverUrl: _activeBook.coverUrl,
+      lastChapterTitle: _chapters[chapterIndex].title,
+      chapterIndex: chapterIndex,
+      chapterProgress: chapterProgressClamped,
+      bookPercent: ((chapterIndex + chapterProgressClamped) / chapterCount)
+          .clamp(0.0, 1.0),
+      sourceJson: jsonEncode(_activeSource.toJson()),
+      sourceBookJson: jsonEncode(_activeBook.toJson()),
+      updatedAt: DateTime.now().toUtc(),
+    );
+  }
+
+  /// 把一条浏览记录排队写入（写入串行跟在 [_progressSaveQueue] 后）。
+  void _queueBrowseHistory({
+    required int chapterIndex,
+    required double chapterProgress,
+    required int chapterCount,
+    bool notifyAfter = false,
+  }) {
+    final entry = _buildBrowseEntry(
+      chapterIndex: chapterIndex,
+      chapterProgress: chapterProgress,
+      chapterCount: chapterCount,
+    );
+    if (entry == null) return;
+    _progressSaveQueue = _progressSaveQueue.then((_) async {
+      try {
+        await const BookBrowseHistoryStore().upsert(entry);
+        if (notifyAfter) BookBrowseHistoryStore.notifyChanged();
+      } catch (error) {
+        debugPrint('record browse history failed: $error');
+      }
+    });
+  }
+
   Future<void> _saveProgress() {
     if (_chapters.isEmpty || _chapterIndex >= _chapters.length) {
       return Future<void>.value();
@@ -782,6 +860,11 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       chapterProgress: progress,
       updatedAt: DateTime.now().toUtc(),
     );
+    final browseEntry = _buildBrowseEntry(
+      chapterIndex: chapterIndex,
+      chapterProgress: progress,
+      chapterCount: chapterCount,
+    );
     _progressSaveQueue = _progressSaveQueue.then((_) async {
       try {
         await widget.progressStore.save(
@@ -800,6 +883,13 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
         }
       } catch (error) {
         debugPrint('save source reading progress failed: $error');
+      }
+      if (browseEntry != null) {
+        try {
+          await const BookBrowseHistoryStore().upsert(browseEntry);
+        } catch (error) {
+          debugPrint('record browse history failed: $error');
+        }
       }
     });
     return _progressSaveQueue;
@@ -2042,6 +2132,10 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
         ReaderMarginSettings.max,
       );
       _readerThemeId = ReaderThemes.byId(themeId ?? _readerThemeId).id;
+      if (themeId != null) {
+        // 用户在阅读设置/自定义主题页显式选择了主题：固定该选择，不再跟随应用主题。
+        _readerThemeManual = true;
+      }
       _pageMode = pageMode ?? _pageMode;
       _pullBookmarkEnabled = pullBookmarkEnabled ?? _pullBookmarkEnabled;
       _tapPageAnimationEnabled =
@@ -2070,6 +2164,9 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
     });
     unawaited(_syncVolumeKeyPaging());
     await _readerSettingsStore.save(_readerSettings);
+    if (_readerThemeManual && themeId != null) {
+      await _readerSettingsStore.saveThemeManual(true);
+    }
     if ((themeId != null || immersiveMode != null) && _readerSystemUiApplied) {
       await _applyReaderSystemUi();
     }
@@ -2948,7 +3045,10 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
                 ReaderThemes.customThemeById(_readerThemeId) == null
             ? ReaderSettings.defaultThemeId
             : _readerThemeId);
-    await _updateReadingSettings(themeId: nextThemeId);
+    // 仅在选择发生变化时才更新主题；仅浏览/整理自定义主题不应取消“跟随应用”。
+    if (nextThemeId != _readerThemeId) {
+      await _updateReadingSettings(themeId: nextThemeId);
+    }
     await _applyReaderSystemUi();
   }
 

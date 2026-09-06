@@ -6,6 +6,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../pages/home/home_mobile_chrome.dart';
 import '../../services/rss/rss_feed_model.dart';
 import '../../services/rss/rss_subscription_store.dart';
 import '../../utils/localization_extension.dart';
@@ -26,10 +27,10 @@ class RssPage extends StatefulWidget {
   final Future<List<RssSourceFeed>> Function()? sourceFeedResolver;
 
   @override
-  State<RssPage> createState() => _RssPageState();
+  State<RssPage> createState() => RssPageState();
 }
 
-class _RssPageState extends State<RssPage> {
+class RssPageState extends State<RssPage> {
   late final RssSubscriptionStore _store =
       widget.store ?? RssSubscriptionStore();
   late final RssFeedService _service =
@@ -113,6 +114,9 @@ class _RssPageState extends State<RssPage> {
     );
   }
 
+  /// 供壳层顶栏"添加订阅"按钮调用，弹出订阅地址输入框。
+  Future<void> openAddFeed() => _addFeed();
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -128,7 +132,12 @@ class _RssPageState extends State<RssPage> {
                 }
               },
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  HomeMobileChromeScope.of(context).pageTopPadding,
+                  16,
+                  HomeMobileChromeScope.of(context).pageBottomPadding,
+                ),
                 children: [
                   if (_sourceFeeds.isNotEmpty) ...[
                     _sectionHeader(context.l10n.rssSourceFeedsSection),
@@ -142,12 +151,6 @@ class _RssPageState extends State<RssPage> {
                 ],
               ),
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        key: const ValueKey('rss-add-feed-button'),
-        onPressed: _addFeed,
-        icon: const Icon(Icons.rss_feed_rounded),
-        label: Text(l10n.rssAddFeed),
-      ),
     );
   }
 
@@ -175,6 +178,13 @@ class _RssPageState extends State<RssPage> {
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
+            ),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              key: const ValueKey('rss-add-feed-button'),
+              onPressed: () => unawaited(_addFeed()),
+              icon: const Icon(Icons.add_rounded),
+              label: Text(l10n.rssAddFeed),
             ),
           ],
         ),

@@ -572,6 +572,13 @@ extension _HomeShellLayoutPart on _HomeShellPageState {
       trailing = null;
     } else if (currentPage is SettingsPage) {
       trailing = null;
+    } else if (currentPage is RssPage) {
+      // 订阅页顶栏：与书架"导入书籍"按钮一致的操作入口。
+      trailing = _buildTopBarActionButton(
+        icon: Icons.add_rounded,
+        tooltip: context.l10n.rssAddFeed,
+        onTap: () => unawaited(_rssKey.currentState?.openAddFeed()),
+      );
     } else {
       // 其他自定义页不强行覆盖标题，避免和页面自身顶部冲突。
       return const SizedBox.shrink();

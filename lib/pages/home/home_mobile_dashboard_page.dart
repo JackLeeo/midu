@@ -2,11 +2,15 @@
 // 技术要点：Flutter UI、本地阅读统计、文件封面渲染。
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:midu/book_sources/models/registered_book_source.dart';
+import 'package:midu/book_sources/protocol/book_source_protocol.dart';
+import 'package:midu/book_sources/services/book_browse_history.dart';
 import 'package:midu/book_sources/services/book_source_client.dart';
 import 'package:midu/book_sources/services/book_source_registry.dart';
 import 'package:midu/book_sources/services/book_source_shelf_service.dart';
@@ -27,6 +31,7 @@ import 'package:midu/utils/page_style_helper.dart';
 import 'package:midu/utils/page_transitions.dart';
 import 'package:midu/widgets/generated_book_cover.dart';
 import 'package:midu/widgets/side_toast.dart';
+import 'package:midu/widgets/source_cover_image.dart';
 
 import 'home_mobile_chrome.dart';
 
@@ -132,13 +137,16 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
     with WidgetsBindingObserver {
   final _statsDao = ReadingStatsDao();
   final _bookDao = BookDao();
+  final BookBrowseHistoryStore _browseHistoryStore = const BookBrowseHistoryStore();
   late final BookSourceClient _sourceClient;
   late final BookSourceShelfService _sourceShelfService;
   StreamSubscription<void>? _libraryChangedSubscription;
+  StreamSubscription<void>? _browseHistorySubscription;
 
   Map<String, int> _summaryStats = {};
   List<Map<String, dynamic>> _weeklyData = [];
   List<Book> _recentBooks = [];
+  List<BookBrowseHistoryEntry> _browseHistory = const [];
   bool _isInitialLoading = true;
   int _loadGeneration = 0;
 
@@ -153,6 +161,10 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
     widget.controller?.addListener(_handleRefreshRequest);
     _loadAllStats();
     _libraryChangedSubscription = LibraryEventBus().stream.listen((_) {
+      if (mounted) _loadAllStats();
+    });
+    // 在线书阅读记录更新时，即使首页当前不在前台也即时刷新数据。
+    _browseHistorySubscription = BookBrowseHistoryStore.changes.listen((_) {
       if (mounted) _loadAllStats();
     });
   }
@@ -177,6 +189,7 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
     WidgetsBinding.instance.removeObserver(this);
     widget.controller?.removeListener(_handleRefreshRequest);
     _libraryChangedSubscription?.cancel();
+    _browseHistorySubscription?.cancel();
     super.dispose();
   }
 
@@ -190,21 +203,32 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
       final summaryFuture = _statsDao.getSummaryStats();
       final weeklyFuture = _statsDao.getWeeklyChartData();
       final recentBooksFuture = _loadRecentBooks();
+      final browseHistoryFuture = _loadBrowseHistory();
 
       final summary = await summaryFuture;
       final weekly = await weeklyFuture;
       final recentBooks = await recentBooksFuture;
+      final browseHistory = await browseHistoryFuture;
 
       if (!mounted || loadGeneration != _loadGeneration) return;
       setState(() {
         _summaryStats = summary;
         _weeklyData = weekly;
         _recentBooks = recentBooks;
+        _browseHistory = browseHistory;
         _isInitialLoading = false;
       });
     } catch (_) {
       if (!mounted || loadGeneration != _loadGeneration) return;
       setState(() => _isInitialLoading = false);
+    }
+  }
+
+  Future<List<BookBrowseHistoryEntry>> _loadBrowseHistory() async {
+    try {
+      return await _browseHistoryStore.load();
+    } catch (_) {
+      return const [];
     }
   }
 
@@ -316,6 +340,74 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
     }
   }
 
+  /// 书架已有该书 → 复用书架入口（多源/本地化状态完整）；
+  /// 否则用记录里保存的源快照重建阅读器，仍可断点续读。
+  Future<void> _openBrowseHistoryEntry(BookBrowseHistoryEntry entry) async {
+    final openingActivity = BookOpenTransition.beginActivity();
+    try {
+      Book? shelfBook;
+      try {
+        shelfBook = await _bookDao.getBookBySource(
+          sourceId: entry.sourceId,
+          sourceBookId: entry.bookId,
+        );
+      } catch (_) {
+        shelfBook = null;
+      }
+      if (shelfBook != null) {
+        if (!mounted) return;
+        await _openBook(shelfBook);
+        return;
+      }
+      if (!entry.canReopenOffline) {
+        if (mounted) {
+          showSideToast(
+            context,
+            context.l10n.bookSourceOnlineDataBroken('该书源信息已失效，无法继续阅读'),
+            kind: SideToastKind.error,
+          );
+        }
+        return;
+      }
+      final source = RegisteredBookSource.fromJson(
+        _decodeJsonMap(entry.sourceJson!),
+      );
+      final book = BookSourceBook.fromJson(
+        _decodeJsonMap(entry.sourceBookJson!),
+      );
+      if (!mounted) return;
+      final reader = BookSourceReaderPage(
+        source: source,
+        book: book,
+        client: _sourceClient,
+        shelfService: _sourceShelfService,
+      );
+      final route = BookOpenTransition.createRoute<void>(
+        reader,
+        origin: ReaderPageTransitionOrigin.home,
+        waitForReaderReady: true,
+      );
+      await BookOpenTransition.push<void>(context, route);
+      if (mounted) await _loadAllStats();
+    } catch (error) {
+      if (mounted) {
+        showSideToast(
+          context,
+          context.l10n.bookSourceOnlineDataBroken('$error'),
+          kind: SideToastKind.error,
+        );
+      }
+    } finally {
+      openingActivity.dispose();
+    }
+  }
+
+  static Map<String, dynamic> _decodeJsonMap(String raw) {
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map) return const {};
+    return decoded.map((key, value) => MapEntry('$key', value));
+  }
+
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
@@ -388,6 +480,18 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
                           ),
                         ),
                       ),
+                      if (_browseHistory.isNotEmpty) ...[
+                        const SizedBox(height: 26),
+                        _buildMaxWidthBox(
+                          maxWidth: maxWidth,
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: metrics.horizontalPadding,
+                            ),
+                            child: _buildBrowseHistorySection(),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 26),
                       _buildMaxWidthBox(
                         maxWidth: maxWidth,
@@ -829,6 +933,279 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
         ),
       ),
     );
+  }
+
+  /// 浏览记录区：标题 + 横向封面卡片排，点击卡片断点续读。
+  Widget _buildBrowseHistorySection() {
+    final palette = _palette;
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      key: const ValueKey('home-browse-history-section'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 3,
+              height: 14,
+              decoration: BoxDecoration(
+                color: scheme.primary,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '浏览记录',
+              style: TextStyle(
+                color: palette.primaryTextColor,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const Spacer(),
+            GestureDetector(
+              key: const ValueKey('home-browse-clear'),
+              behavior: HitTestBehavior.opaque,
+              onTap: _clearBrowseHistory,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 2,
+                  vertical: 2,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.delete_outline_rounded,
+                      size: 14,
+                      color: palette.secondaryTextColor,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '清空',
+                      style: TextStyle(
+                        color: palette.secondaryTextColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        SizedBox(
+          height: 204,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            itemCount: _browseHistory.length,
+            separatorBuilder: (context, index) =>
+                const SizedBox(width: 14),
+            itemBuilder: (context, index) =>
+                _buildBrowseHistoryCard(_browseHistory[index]),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBrowseHistoryCard(BookBrowseHistoryEntry entry) {
+    final palette = _palette;
+    const coverWidth = 106.0;
+    const coverHeight = 152.0;
+    final percent = (entry.bookPercent * 100).round().clamp(0, 100);
+    final coverFallback = GeneratedBookCover(
+      title: entry.title,
+      author: entry.author,
+    );
+    final coverUrl = entry.coverUrl;
+    final cover = coverUrl == null
+        ? SizedBox(
+            width: coverWidth,
+            height: coverHeight,
+            child: coverFallback,
+          )
+        : SourceCoverImage(
+            url: coverUrl,
+            fallback: coverFallback,
+            width: coverWidth,
+            height: coverHeight,
+            cacheWidth: (coverWidth * 2).round(),
+          );
+    return GestureDetector(
+      key: ValueKey('home-browse-${entry.sourceId}-${entry.bookId}'),
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _openBrowseHistoryEntry(entry),
+      onLongPress: () => _removeBrowseEntry(entry),
+      child: SizedBox(
+        width: coverWidth,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [
+                  BoxShadow(
+                    color: _palette.shadowColor.withValues(alpha: 0.8),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    cover,
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: GestureDetector(
+                        key: ValueKey(
+                          'home-browse-remove-${entry.sourceId}-${entry.bookId}',
+                        ),
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => _removeBrowseEntry(entry),
+                        child: Container(
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.45),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.25),
+                              width: 0.6,
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.close_rounded,
+                            size: 13,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      right: 6,
+                      bottom: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.55),
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                        child: Text(
+                          '$percent%',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              entry.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: palette.primaryTextColor,
+                fontSize: 12.5,
+                height: 1.2,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    entry.sourceName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: palette.secondaryTextColor,
+                      fontSize: 10.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _confirmBrowseAction({
+    required String title,
+    required String message,
+    required String confirmLabel,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(context.l10n.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(confirmLabel),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
+  }
+
+  Future<void> _removeBrowseEntry(BookBrowseHistoryEntry entry) async {
+    final confirmed = await _confirmBrowseAction(
+      title: '删除浏览记录',
+      message: '确定删除《${entry.title}》的这条浏览记录吗？',
+      confirmLabel: '删除',
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      await _browseHistoryStore.remove(
+        sourceId: entry.sourceId,
+        bookId: entry.bookId,
+      );
+    } catch (_) {
+      // 删除失败静默，下次刷新会还原该项。
+    }
+    if (mounted) await _loadAllStats();
+  }
+
+  Future<void> _clearBrowseHistory() async {
+    final count = _browseHistory.length;
+    final confirmed = await _confirmBrowseAction(
+      title: '清空浏览记录',
+      message: '确定清空全部 $count 条浏览记录吗？此操作不可恢复。',
+      confirmLabel: '清空',
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      await _browseHistoryStore.clear();
+    } catch (_) {
+      // 清空失败静默，下次刷新会还原列表。
+    }
+    if (mounted) await _loadAllStats();
   }
 
   Widget _buildWeeklyMiniStats() {

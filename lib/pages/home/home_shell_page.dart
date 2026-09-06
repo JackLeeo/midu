@@ -100,6 +100,7 @@ class _HomeShellPageState extends State<HomeShellPage> {
   final HomeDashboardController _homeDashboardController =
       HomeDashboardController();
   final SettingsPageController _settingsController = SettingsPageController();
+  final GlobalKey<RssPageState> _rssKey = GlobalKey<RssPageState>();
   AppLocalizations? _l10n;
   final LibraryPageController _libraryController = LibraryPageController();
 
@@ -183,7 +184,7 @@ class _HomeShellPageState extends State<HomeShellPage> {
         icon: Icons.rss_feed_rounded,
         selectedIcon: Icons.rss_feed_rounded,
         label: l10n.rss,
-        page: const RssPage(),
+        page: RssPage(key: _rssKey),
       ),
       HomeNavigationDestination.settings: HomeNavigationItem(
         destination: HomeNavigationDestination.settings,

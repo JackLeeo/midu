@@ -115,7 +115,9 @@ class NativeReaderService {
     if (!context.mounted) return;
     final initialTheme = animation == null && libraryAnimation == null
         ? null
-        : await ReaderThemes.loadSavedPalette();
+        : await ReaderThemes.loadSavedPalette(
+            appBrightness: Theme.of(context).brightness,
+          );
     if (!context.mounted) return;
     final route = BookOpenTransition.createRoute<void>(
       NativeReaderPage(book: repaired, initialTheme: initialTheme),

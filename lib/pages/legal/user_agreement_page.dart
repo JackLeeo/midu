@@ -729,7 +729,7 @@ class _PaperGrainPainter extends CustomPainter {
 }
 
 class UserAgreementService {
-  static const String currentAgreementVersion = '2026-08-17.1';
+  static const String currentAgreementVersion = '2026-09-06.1';
   static const String _keyAgreementAccepted = 'userAgreementAccepted';
   static const String _keyAcceptedDate = 'agreementAcceptedDate';
   static const String _keyAcceptedVersion = 'agreementAcceptedVersion';
