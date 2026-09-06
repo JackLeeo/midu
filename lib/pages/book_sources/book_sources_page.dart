@@ -452,6 +452,11 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         'enabledSources': _sources.where((s) => s.enabled).length,
         ...legMs,
       });
+      // 分类数据就绪后立即加载默认栏目：此前依赖 _maybeStartInitialLoad 里
+      // `.then(_autoSelectSection)` 的异步链，源变更重载（重新添加书源）后该
+      // 链偶发未触发，导致分类区永远停在空白。这里在聚合完成同一微任务内
+      // 直接调度（_autoSelectSection 自带幂等守卫，重复调用不会重复发网络）。
+      unawaited(_autoSelectSection());
       // 有栏目缓存的默认栏目，后台静默刷新替换，保证与「最新」一样新鲜。
       final groupedFresh = _groupCategorySections(_aggregatedCategories);
       if (groupedFresh.isNotEmpty) {
@@ -968,7 +973,12 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   /// 自动加载默认栏目（数据未加载或栏目切换后调用），保证分类区下方立刻有书可看。
   Future<void> _autoSelectSection() async {
     final sections = _groupCategorySections(_aggregatedCategories);
-    if (sections.isEmpty) return;
+    if (sections.isEmpty) {
+      DebugLogger.instance.log('discover', '自动选中栏目-无分类可加载', details: {
+        'categories': _categories.length,
+      });
+      return;
+    }
     final key = (_selectedSectionKey != null &&
             sections.any((s) => s.key == _selectedSectionKey))
         ? _selectedSectionKey!
@@ -984,7 +994,13 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
   /// 未命中 → 显示加载态 → 拉取成功后写入内存与磁盘缓存。
   Future<void> _loadSectionBooks(String key) async {
     final sections = _groupCategorySections(_aggregatedCategories);
-    if (sections.isEmpty) return;
+    if (sections.isEmpty) {
+      DebugLogger.instance.log('discover', '切换栏目-无分类可加载', details: {
+        'sectionKey': key,
+        'categories': _categories.length,
+      });
+      return;
+    }
     final active = sections.firstWhere(
       (s) => s.key == key,
       orElse: () => sections.first,
@@ -1014,7 +1030,13 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     }
     // 同一栏目的展示加载已在进行（可能是之前快速重复点击）：合并到在途加载，
     // 不重复发“源×分类”请求；选中态已在首次加载时切好，结果完成后统一上屏。
-    if (!_displaySectionKeys.add(key)) return;
+    if (!_displaySectionKeys.add(key)) {
+      DebugLogger.instance.log('discover', '切换栏目-已在加载中，跳过', details: {
+        'section': active.template.title,
+        'sectionKey': key,
+      });
+      return;
+    }
     final loadWatch = Stopwatch()..start();
     setState(() {
       _selectedSectionKey = key;
@@ -1053,7 +1075,12 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
         _sectionBooks = books;
         _loadingSectionBooks = false;
       });
-    } catch (_) {
+    } catch (error, stackTrace) {
+      DebugLogger.instance.log('discover', '切换栏目-网络加载失败', details: {
+        'section': active.template.title,
+        'ms': loadWatch.elapsedMilliseconds,
+        'error': '$error',
+      }, stackTrace: stackTrace.toString());
       if (!mounted || _selectedSectionKey != key) return;
       setState(() => _loadingSectionBooks = false);
     } finally {
@@ -1212,29 +1239,15 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
     void Function(List<SourcedBook> items)? onBatch,
   }) async {
     // 收集所有「源+分类」对（按分类名去重，最多 maxCategories 个子分类）。
-    final byName = <String, _SourcedCategory>{};
-    for (final c in section.cats) {
-      final name = c.name.trim();
-      if (name.isEmpty) continue;
-      byName.putIfAbsent(name, () => c);
-    }
-    final unique = byName.values.toList(growable: false);
-    const int maxCategories = 12;
+    final pairs = _buildSectionPairs(section);
     const int maxBooksPerSection = 20;
-    final take = math.min(unique.length, maxCategories);
-
-    // 展开成 (source, category) 对列表，供无界并发拉取。
-    final pairs = <(RegisteredBookSource, _SourcedCategory)>[];
-    for (var i = 0; i < take; i++) {
-      final cat = unique[i];
-      final name = cat.name.trim();
-      final candidates =
-          _categories.where((c) => c.name.trim() == name).toList(growable: false);
-      for (final c in candidates) {
-        pairs.add((c.source, c));
-      }
+    if (pairs.isEmpty) {
+      DebugLogger.instance.log('discover', '栏目聚合-无匹配分类对', details: {
+        'section': section.template.title,
+        'sectionKey': section.key,
+      });
+      return const [];
     }
-    if (pairs.isEmpty) return const [];
 
     // 与 _fetchLatest 一致：并发限流拉取（同时 few 个「源+分类」对），
     // 每个完成即流式回调上屏。无界并发会因源多而打满主线程与网络。
@@ -1302,6 +1315,48 @@ class _BookSourcesPageState extends State<BookSourcesPage> {
       }
     }
     return merged;
+  }
+
+  /// 展开栏目的「源×分类」请求对列表。
+  ///
+  /// 单独抽出并做防御：闲置在 try/catch 里，即使分类匹配/去重逻辑在极端数据
+  /// 下抛异常（此前会被 _loadSectionBooks 的 catch(_) 静默吞掉，导致分类区
+  /// 永远空白且日志无痕迹），也会记录日志并返回空列表而非中断栏目加载。
+  List<(RegisteredBookSource, _SourcedCategory)> _buildSectionPairs(
+    _CategorySection section,
+  ) {
+    try {
+      // 按分类名去重（最多 maxCategories 个子分类）。
+      final byName = <String, _SourcedCategory>{};
+      for (final c in section.cats) {
+        final name = c.name.trim();
+        if (name.isEmpty) continue;
+        byName.putIfAbsent(name, () => c);
+      }
+      final unique = byName.values.toList(growable: false);
+      const int maxCategories = 12;
+      final take = math.min(unique.length, maxCategories);
+
+      // 展开成 (source, category) 对列表。
+      final pairs = <(RegisteredBookSource, _SourcedCategory)>[];
+      for (var i = 0; i < take; i++) {
+        final cat = unique[i];
+        final name = cat.name.trim();
+        final candidates =
+            _categories.where((c) => c.name.trim() == name).toList(growable: false);
+        for (final c in candidates) {
+          pairs.add((c.source, c));
+        }
+      }
+      return pairs;
+    } catch (error, stackTrace) {
+      DebugLogger.instance.log('discover', '栏目聚合-分类对展开失败', details: {
+        'section': section.template.title,
+        'sectionKey': section.key,
+        'error': '$error',
+      }, stackTrace: stackTrace.toString());
+      return const [];
+    }
   }
 
   void _openSearch() {
