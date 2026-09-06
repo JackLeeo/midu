@@ -1045,6 +1045,8 @@ class _HomeMobileDashboardPageState extends State<HomeMobileDashboardPage>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
+              width: coverWidth,
+              height: coverHeight,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
                 boxShadow: [

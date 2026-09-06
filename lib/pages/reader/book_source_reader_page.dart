@@ -190,6 +190,13 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
   /// 用户是否已手动指定阅读器主题。未手动选择时阅读器主题跟随应用主题
   /// （浅色→牛皮纸，夜间→黑夜），见 [ReaderThemes.autoDefaultFor]。
   bool _readerThemeManual = false;
+
+  /// 阅读器主题相关设置是否已从本地加载完成。加载完成前（打开过渡/首帧）
+  /// 主题临时按应用亮度走跟随默认，避免深色应用先闪一帧默认牛皮纸。
+  bool _themeSettingsResolved = false;
+
+  /// 当前应用主题亮度（在 didChangeDependencies 缓存，供首帧前主题探测）。
+  Brightness _appBrightness = Brightness.light;
   BookSourcePageMode _pageMode = ReaderSettings.defaultPageMode;
   bool _pullBookmarkEnabled = false;
   bool _tapPageAnimationEnabled = true;
@@ -274,10 +281,32 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
   double _downloadProgress = 0;
   OverlayEntry? _downloadOverlay;
 
-  ReaderThemePalette get _readerTheme =>
-      _loadingCatalog && widget.initialTheme != null
-      ? widget.initialTheme!
-      : ReaderThemes.byId(_readerThemeId);
+  /// 当前生效的阅读器主题 id（主题设置就绪后使用）。
+  ///
+  /// 主题设置尚未从本地加载完成前，若本次打开携带了 [widget.initialTheme] 则
+  /// 直接用该实例，否则按应用亮度返回「跟随应用主题」的自动默认，避免深色
+  /// 模式下先闪一帧默认牛皮纸。
+  String get _effectiveThemeId {
+    if (!_themeSettingsResolved && !_readerThemeManual) {
+      if (_loadingCatalog && widget.initialTheme != null) {
+        return widget.initialTheme!.id;
+      }
+      return ReaderThemes.autoDefaultThemeIdFor(_appBrightness);
+    }
+    return _readerThemeId;
+  }
+
+  ReaderThemePalette get _readerTheme {
+    // 打开过渡期且带自定义主题实例：直接使用实例，避免按 id 反查未注册的
+    // 自定义主题时误回退默认主题。
+    if (!_themeSettingsResolved &&
+        !_readerThemeManual &&
+        _loadingCatalog &&
+        widget.initialTheme != null) {
+      return widget.initialTheme!;
+    }
+    return ReaderThemes.byId(_effectiveThemeId);
+  }
 
   bool get _canPopWithoutPrompt => _allowPop || _shelfBookId != null;
 
@@ -409,12 +438,51 @@ class _BookSourceReaderPageState extends State<BookSourceReaderPage>
       // 沉浸模式可能已在设置加载时就绪：统一走 _applyReaderSystemUi 收敛最终状态。
       unawaited(_applyReaderSystemUi());
     });
-    unawaited(_initialize());
+    // 主题相关本机设置独立于网络目录加载尽早解析：首帧/打开过渡即可命中
+    // 跟随应用的自动主题（浅色→牛皮纸、夜间→黑夜），无需等正文就绪才切换。
+    unawaited(_resolveThemeSettings());
+  }
+
+  /// 提前加载阅读器主题所需的本机设置（自定义主题/顺序/themeId/manual），
+  /// 并在加载完成后一次性应用到当前主题，早于（且不依赖）目录等网络加载。
+  Future<void> _resolveThemeSettings() async {
+    try {
+      final results = await Future.wait<Object?>([
+        _customThemeStore.loadAll(),
+        _themeOrderStore.load(),
+        _readerSettingsStore.loadThemeId(),
+        _readerSettingsStore.loadThemeManual(),
+      ]);
+      if (!mounted || _themeSettingsResolved) return;
+      ReaderThemes.setCustomThemes(results[0]! as List<ReaderCustomTheme>);
+      ReaderThemes.setThemeOrder(results[1]! as List<String>);
+      final themeId = results[2]! as String;
+      final manual = results[3]! as bool;
+      final nextThemeId = manual
+          ? ReaderThemes.byId(themeId).id
+          : ReaderThemes.autoDefaultThemeIdFor(_appBrightness);
+      setState(() {
+        _themeSettingsResolved = true;
+        _readerThemeManual = manual;
+        _readerThemeId = nextThemeId;
+      });
+      if (_readerSystemUiApplied) unawaited(_applyReaderSystemUi());
+    } catch (_) {
+      // 设置读取失败不阻塞阅读：标记已解析，回落到跟随应用亮度的自动默认。
+      if (!mounted || _themeSettingsResolved) return;
+      setState(() {
+        _themeSettingsResolved = true;
+        _readerThemeId = ReaderThemes.autoDefaultThemeIdFor(_appBrightness);
+      });
+    }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // 缓存应用主题亮度：主题设置加载完成前，阅读器首帧/打开过渡按此亮度
+    // 选择跟随默认主题（浅色→牛皮纸，夜间→黑夜），避免先闪默认主题。
+    _appBrightness = Theme.of(context).brightness;
     var nextReaderFont = FontCatalog.defaultReaderFont;
     var nextReaderFontReady = true;
     try {

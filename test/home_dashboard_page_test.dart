@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:midu/book_sources/models/registered_book_source.dart';
 import 'package:midu/book_sources/protocol/book_source_protocol.dart';
+import 'package:midu/book_sources/services/book_browse_history.dart';
 import 'package:midu/book_sources/services/book_source_client.dart';
 import 'package:midu/book_sources/services/book_source_shelf_service.dart';
 import 'package:midu/l10n/app_localizations.dart';
@@ -15,6 +16,7 @@ import 'package:midu/pages/home/home_mobile_dashboard_page.dart';
 import 'package:midu/pages/reader/book_source_reader_page.dart';
 import 'package:midu/services/books/book_services.dart';
 import 'package:midu/services/reading/reading_stats_dao.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -73,7 +75,7 @@ void main() {
     }
   });
 
-  testWidgets('首页只保留继续阅读、阅读节奏和最近阅读', (tester) async {
+  testWidgets('首页只保留继续阅读、周统计与阅读足迹等版块', (tester) async {
     await tester.binding.setSurfaceSize(const Size(320, 740));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -114,7 +116,7 @@ void main() {
       find.byKey(const ValueKey('home-weekly-mini-stats-card')),
       findsOneWidget,
     );
-    expect(find.text('最近阅读'), findsOneWidget);
+    expect(find.text('近7天阅读节奏'), findsOneWidget);
     expect(find.text('今日阅读计划'), findsNothing);
     expect(find.textContaining('AI'), findsNothing);
     expect(tester.takeException(), isNull);
@@ -126,7 +128,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('米读'), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-continue-reading-card')), findsOneWidget);
     expect(find.text('今日阅读计划'), findsNothing);
     expect(find.textContaining('AI'), findsNothing);
     expect(tester.takeException(), isNull);
@@ -228,5 +230,53 @@ void main() {
     expect(sourceReader.source.id, source.id);
     expect(sourceReader.book.id, sourceBook.id);
     expect(sourceReader.client, same(client));
+  });
+
+  testWidgets('首页浏览记录有数据时渲染标题与横向卡片（无布局异常）', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(412, 2600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final entry = BookBrowseHistoryEntry(
+      sourceId: 'src.1',
+      sourceName: '测试源A',
+      bookId: 'book.1',
+      title: '浏览记录测试书',
+      author: '测试作者',
+      chapterIndex: 3,
+      chapterProgress: 0.5,
+      bookPercent: 0.12,
+      updatedAt: DateTime.now().toUtc(),
+    );
+    SharedPreferences.setMockInitialValues({
+      'book_browse_history_v1': jsonEncode([entry.toJson()]),
+    });
+    addTearDown(() => SharedPreferences.setMockInitialValues({}));
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        theme: ThemeData(
+          useMaterial3: true,
+          colorSchemeSeed: const Color(0xFF356C88),
+          brightness: Brightness.dark,
+        ),
+        home: const Scaffold(body: HomeMobileDashboardPage()),
+      ),
+    );
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 800)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('home-browse-history-section')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('home-browse-src.1-book.1')),
+      findsOneWidget,
+    );
+    expect(find.text('浏览记录测试书'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }
