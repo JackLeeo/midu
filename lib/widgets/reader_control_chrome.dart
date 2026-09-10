@@ -385,21 +385,17 @@ class ReaderChromeOverlay extends StatelessWidget {
             ),
           ),
         ),
-        // 平时（控制栏收起）右下角常驻整本百分比：仅展示不可交互，避免切屏
-        // 手势误触进度条；点击正文唤起控制栏时随设置一起淡出。
-        // 位置避让右下角既有信息：滚动模式的章节页码状态（viewport status）
-        // 贴着 statusBottom 显示，百分比须抬到其上方；分页模式的正文页脚页码
-        // 画在 contentBottom（≈statusBottom+12）处，百分比须下沉贴底让开。
+        // 平时（控制栏收起）左下角常驻整本进度：与右下角页码镜像对称，
+        // 仅展示不可交互，避免切屏手势误触进度条；点击正文唤起控制栏时
+        // 随设置一起淡出。
         if (showIdleBookPercent)
           Positioned(
             left: 0,
             right: 0,
-            bottom: showViewportStatus
-                ? statusBottom + 36
-                : math.max(0.0, statusBottom - 8),
+            bottom: statusBottom,
             child: IgnorePointer(
               child: Align(
-                alignment: Alignment.bottomRight,
+                alignment: Alignment.bottomLeft,
                 child: Padding(
                   padding: EdgeInsets.symmetric(
                     horizontal: math.max(24, viewportStatusHorizontalPadding),
@@ -409,8 +405,9 @@ class ReaderChromeOverlay extends StatelessWidget {
                     duration: const Duration(milliseconds: 180),
                     curve: Curves.easeOut,
                     child: Text(
+                      '当前阅读进度：'
                       '${(bookProgress.clamp(0.0, 1.0) * 100).round()}%',
-                      textAlign: TextAlign.right,
+                      textAlign: TextAlign.left,
                       style: textTheme.labelSmall?.copyWith(
                         fontSize: 11,
                         height: 1,

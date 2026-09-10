@@ -4554,6 +4554,8 @@ class _NativeReaderPageState extends State<NativeReaderPage>
               settingsTooltip: context.l10n.readingSettings,
               bookmarked: false,
               showSettingsAction: false,
+              // 章节加载中的占位界面不展示整本进度，避免误导为 0%。
+              showIdleBookPercent: false,
               topKey: const ValueKey('native-reader-opening-top-controls'),
               bottomKey: const ValueKey(
                 'native-reader-opening-bottom-controls',
@@ -4971,6 +4973,14 @@ class _NativeReaderPageState extends State<NativeReaderPage>
                                     ? widget.book.title
                                     : chapter.title,
                                 statusBottom: _readerSafeArea.pageNumberBottom,
+                                // 整本进度：以已读章节比例近似（与书源一致语义）。
+                                bookProgress: _loadedChapters.isEmpty
+                                    ? 0
+                                    : ((_chapterIndex + 1) /
+                                          _loadedChapters.length).clamp(
+                                        0.0,
+                                        1.0,
+                                      ),
                                 showViewportStatus:
                                     _pageMode ==
                                         NativePageMode.verticalScroll &&

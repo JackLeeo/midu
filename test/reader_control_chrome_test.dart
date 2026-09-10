@@ -179,10 +179,14 @@ void main() {
     await tester.pumpWidget(buildChrome(visible: false));
     await tester.pumpAndSettle();
 
-    // 控制栏收起时右下角常驻整本百分比：页面上 '12%' 有两处（滑出的控制栏内
-    // 章节行也有），但仅右下角常驻百分比被 AnimatedOpacity 包裹。
+    // 控制栏收起时左下角常驻整本进度文案，与右下角页码镜像对称。
+    final percentText = find.text('当前阅读进度：12%');
+    expect(percentText, findsOneWidget);
+    // 位于屏幕左半部。
+    final screenSize = tester.getSize(find.byType(MaterialApp).first);
+    expect(tester.getCenter(percentText).dx, lessThan(screenSize.width / 2));
     final idlePercent = find
-        .ancestor(of: find.text('12%'), matching: find.byType(AnimatedOpacity))
+        .ancestor(of: percentText, matching: find.byType(AnimatedOpacity))
         .first;
     expect(tester.widget<AnimatedOpacity>(idlePercent).opacity, 1);
 
