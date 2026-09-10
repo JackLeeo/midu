@@ -387,11 +387,16 @@ class ReaderChromeOverlay extends StatelessWidget {
         ),
         // 平时（控制栏收起）右下角常驻整本百分比：仅展示不可交互，避免切屏
         // 手势误触进度条；点击正文唤起控制栏时随设置一起淡出。
+        // 位置避让右下角既有信息：滚动模式的章节页码状态（viewport status）
+        // 贴着 statusBottom 显示，百分比须抬到其上方；分页模式的正文页脚页码
+        // 画在 contentBottom（≈statusBottom+12）处，百分比须下沉贴底让开。
         if (showIdleBookPercent)
           Positioned(
             left: 0,
             right: 0,
-            bottom: statusBottom + (showViewportStatus ? 36 : 0),
+            bottom: showViewportStatus
+                ? statusBottom + 36
+                : math.max(0.0, statusBottom - 8),
             child: IgnorePointer(
               child: Align(
                 alignment: Alignment.bottomRight,
