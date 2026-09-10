@@ -1,39 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midu/core/reader/reader_leaf_status.dart';
-import 'package:midu/utils/glass_config.dart';
 import 'package:midu/utils/reader_themes.dart';
 import 'package:midu/widgets/reader_control_chrome.dart';
 
 void main() {
-  tearDown(() {
-    GlassEffectConfig.setDisableAllGlassEffects(false);
-  });
-
-  testWidgets('reader chrome follows the global glass effect switch', (
+  testWidgets('reader chrome control bar uses solid color background', (
     tester,
   ) async {
-    GlassEffectConfig.setDisableAllGlassEffects(false);
-    await tester.pumpWidget(_testApp(glassEnabled: true));
+    await tester.pumpWidget(_testApp());
 
-    expect(find.byType(BackdropFilter), findsOneWidget);
-    expect(_panelGradient(tester).colors.every((color) => color.a < 1), isTrue);
-    expect(_iconBackground(tester).a, lessThan(1));
-
-    GlassEffectConfig.setDisableAllGlassEffects(true);
-    await tester.pumpWidget(_testApp(glassEnabled: false));
-
+    // 控制栏为通栏实色背景（玻璃质感已移除）：无 BackdropFilter，
+    // 面板颜色不透明且与主题 controlBar 一致。
     expect(find.byType(BackdropFilter), findsNothing);
-    expect(
-      _panelGradient(tester).colors.every((color) => color.a == 1),
-      isTrue,
-    );
-    expect(
-      _panelGradient(tester).colors,
-      everyElement(ReaderThemes.day.controlBar),
-    );
-    expect(_iconBackground(tester).a, 1);
-    expect(_iconBackground(tester), ReaderThemes.day.controlFill);
+    expect(_panelColor(tester), ReaderThemes.day.controlBar);
+    expect(_panelColor(tester).a, 1);
   });
 
   testWidgets('reader-owned top information shows time title and battery', (
@@ -94,26 +75,14 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      _testApp(glassEnabled: true, palette: ReaderThemes.green),
+      _testApp(palette: ReaderThemes.green),
     );
-
-    final greenSurface = _panelGradient(tester).colors.last;
-    final expectedGreen = Color.lerp(
-      ReaderThemes.green.controlBar,
-      Colors.white,
-      0.28,
-    )!;
-    expect(greenSurface.r, closeTo(expectedGreen.r, 0.001));
-    expect(greenSurface.g, closeTo(expectedGreen.g, 0.001));
-    expect(greenSurface.b, closeTo(expectedGreen.b, 0.001));
+    expect(_panelColor(tester), ReaderThemes.green.controlBar);
 
     await tester.pumpWidget(
-      _testApp(glassEnabled: true, palette: ReaderThemes.rose),
+      _testApp(palette: ReaderThemes.rose),
     );
-
-    final roseSurface = _panelGradient(tester).colors.last;
-    expect(roseSurface.r, greaterThan(greenSurface.r));
-    expect(roseSurface.g, lessThan(greenSurface.g));
+    expect(_panelColor(tester), ReaderThemes.rose.controlBar);
   });
 
   testWidgets('bottom control bar only shows reader actions', (tester) async {
@@ -177,10 +146,55 @@ void main() {
     );
     expect(find.byKey(statusKey), findsOneWidget);
   });
+
+  testWidgets('idle book percent shows while controls hidden, fades on show', (
+    tester,
+  ) async {
+    Widget buildChrome({required bool visible}) {
+      return MaterialApp(
+        home: Scaffold(
+          body: ReaderChromeOverlay(
+            palette: ReaderThemes.day,
+            visible: visible,
+            title: 'Chapter 4',
+            statusBottom: 8,
+            statusBuilder: (context, style, key) =>
+                Text('4 / 12', key: key, style: style),
+            onBack: () {},
+            onBookmark: () {},
+            onTableOfContents: () {},
+            onSettings: () {},
+            backTooltip: 'Back',
+            bookmarkTooltip: 'Bookmark',
+            tableOfContentsTooltip: 'Contents',
+            settingsTooltip: 'Settings',
+            bookmarked: false,
+            showViewportStatus: false,
+            bookProgress: 0.1234,
+          ),
+        ),
+      );
+    }
+
+    await tester.pumpWidget(buildChrome(visible: false));
+    await tester.pumpAndSettle();
+
+    // 控制栏收起时右下角常驻整本百分比：页面上 '12%' 有两处（滑出的控制栏内
+    // 章节行也有），但仅右下角常驻百分比被 AnimatedOpacity 包裹。
+    final idlePercent = find
+        .ancestor(of: find.text('12%'), matching: find.byType(AnimatedOpacity))
+        .first;
+    expect(tester.widget<AnimatedOpacity>(idlePercent).opacity, 1);
+
+    await tester.pumpWidget(buildChrome(visible: true));
+    await tester.pumpAndSettle();
+
+    // 唤起控制栏后随设置一起淡出。
+    expect(tester.widget<AnimatedOpacity>(idlePercent).opacity, 0);
+  });
 }
 
 Widget _testApp({
-  required bool glassEnabled,
   ReaderThemePalette palette = ReaderThemes.day,
 }) {
   return MaterialApp(
@@ -188,7 +202,6 @@ Widget _testApp({
     home: Scaffold(
       body: Center(
         child: ReaderControlBar(
-          key: ValueKey(glassEnabled),
           palette: palette,
           isTopBar: true,
           child: SizedBox(
@@ -207,17 +220,12 @@ Widget _testApp({
   );
 }
 
-LinearGradient _panelGradient(WidgetTester tester) {
-  return tester
+Color _panelColor(WidgetTester tester) {
+  // 控制栏的 DecoratedBox 带 top/bottom 分割线（border），据此从页面中识别。
+  final decoration = tester
       .widgetList<DecoratedBox>(find.byType(DecoratedBox))
       .map((widget) => widget.decoration)
       .whereType<BoxDecoration>()
-      .map((decoration) => decoration.gradient)
-      .whereType<LinearGradient>()
-      .single;
-}
-
-Color _iconBackground(WidgetTester tester) {
-  final button = tester.widget<IconButton>(find.byType(IconButton));
-  return button.style!.backgroundColor!.resolve(const <WidgetState>{})!;
+      .firstWhere((decoration) => decoration.border != null);
+  return decoration.color!;
 }

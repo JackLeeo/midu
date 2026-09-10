@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../core/reader/reader_leaf_status.dart';
@@ -51,6 +53,7 @@ class ReaderChromeOverlay extends StatelessWidget {
     this.chapterLabel,
     this.chapterProgress = 0,
     this.bookProgress = 0,
+    this.showIdleBookPercent = true,
     this.onPreviousChapter,
     this.onNextChapter,
     this.onSliderSeek,
@@ -97,6 +100,9 @@ class ReaderChromeOverlay extends StatelessWidget {
   final String? chapterLabel;
   final double chapterProgress;
   final double bookProgress;
+
+  /// 平时（控制栏收起）是否在右下角常驻显示整本百分比。
+  final bool showIdleBookPercent;
   final VoidCallback? onPreviousChapter;
   final VoidCallback? onNextChapter;
   final ValueChanged<double>? onSliderSeek;
@@ -232,7 +238,9 @@ class ReaderChromeOverlay extends StatelessWidget {
           curve: Curves.easeOut,
           left: 0,
           right: 0,
-          bottom: visible ? 0 : -120,
+          // 收起时需完全滑出屏幕：控制条（章节行+进度条+工具栏+安全区）总高
+          // 远超旧值 120，残留的进度条会被切屏手势误触导致章节错跳。
+          bottom: visible ? 0 : -320,
           child: SafeArea(
             top: false,
             child: ReaderControlBar(
@@ -377,6 +385,40 @@ class ReaderChromeOverlay extends StatelessWidget {
             ),
           ),
         ),
+        // 平时（控制栏收起）右下角常驻整本百分比：仅展示不可交互，避免切屏
+        // 手势误触进度条；点击正文唤起控制栏时随设置一起淡出。
+        if (showIdleBookPercent)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: statusBottom + (showViewportStatus ? 36 : 0),
+            child: IgnorePointer(
+              child: Align(
+                alignment: Alignment.bottomRight,
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: math.max(24, viewportStatusHorizontalPadding),
+                  ),
+                  child: AnimatedOpacity(
+                    opacity: visible ? 0 : 1,
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOut,
+                    child: Text(
+                      '${(bookProgress.clamp(0.0, 1.0) * 100).round()}%',
+                      textAlign: TextAlign.right,
+                      style: textTheme.labelSmall?.copyWith(
+                        fontSize: 11,
+                        height: 1,
+                        fontWeight: FontWeight.w600,
+                        color: palette.secondaryText.withValues(alpha: 0.62),
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }
